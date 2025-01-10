@@ -15,10 +15,11 @@ import {
 import HomeIcon from '@mui/icons-material/Home';
 import FactoryIcon from '@mui/icons-material/Factory';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
-import WaterDropIcon from '@mui/icons-material/WaterDrop';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
+import PersonIcon from '@mui/icons-material/Person';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -41,25 +42,31 @@ const menuItems: MenuItem[] = [
     icon: HomeIcon 
   },
   { 
-    title: 'Factory Hub', 
+    title: 'Factory', 
     icon: FactoryIcon,
     children: [
       { 
         title: 'Wood Slicer', 
         path: '/factory/wood-slicer', 
         icon: ContentCutIcon 
-      },
-      { 
-        title: 'Wood Drying', 
-        path: '/factory/drying', 
-        icon: WaterDropIcon 
       }
     ]
   },
   { 
     title: 'Settings', 
-    path: '/settings', 
-    icon: SettingsIcon 
+    icon: SettingsIcon,
+    children: [
+      {
+        title: 'User Settings',
+        path: '/settings/user',
+        icon: PersonIcon
+      },
+      {
+        title: 'Admin Settings',
+        path: '/settings/admin',
+        icon: AdminPanelSettingsIcon
+      }
+    ]
   }
 ];
 

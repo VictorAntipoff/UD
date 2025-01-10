@@ -15,12 +15,35 @@ model User {
   username  String   @unique
   email     String   @unique
   password  String
-  role      String   @default("ADMIN")
+  firstName String
+  lastName  String
+  role      UserRole @default(USER)
+  status    String   @default("active")
+  settings  Json?    @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-enum Role {
+enum UserRole {
   USER
   ADMIN
+  MANAGER
+}
+
+model SystemRole {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Setting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       Json
+  description String?
+  category    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
