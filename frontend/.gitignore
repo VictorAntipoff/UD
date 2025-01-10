@@ -1,8 +1,8 @@
- # Update .gitignore with proper content
-@"
 # Dependencies
 node_modules/
 **/node_modules/
+.vite/
+**/.vite/
 
 # Build outputs
 dist/
@@ -37,4 +37,3 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
-"@ | Set-Content -Path "C:\UDAPP\.gitignore" -Encoding UTF8
