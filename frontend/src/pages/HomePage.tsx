@@ -1,93 +1,111 @@
-import { Container, Typography, Paper, Box, Grid, Card, CardContent, IconButton } from '@mui/material';
-import ContentCutIcon from '@mui/icons-material/ContentCut';
-import CalculateIcon from '@mui/icons-material/Calculate';
-import WaterDropIcon from '@mui/icons-material/WaterDrop';
-import { useNavigate } from 'react-router-dom';
+import { Container, Typography, Paper, Box, Grid, Card, CardContent } from '@mui/material';
+import { useAuth } from '../contexts/AuthContext';
+import HomeIcon from '@mui/icons-material/Home';
+import SettingsIcon from '@mui/icons-material/Settings';
+import BuildIcon from '@mui/icons-material/Build';
+import PeopleIcon from '@mui/icons-material/People';
+import { SectionLabel } from '../components/SectionLabel';
+
+// Dashboard item type
+interface DashboardItem {
+  title: string;
+  icon: any;
+  color: string;
+  value: string;
+}
 
 export default function HomePage() {
-  console.log('HomePage rendering');
-  const navigate = useNavigate();
+  const { userRole } = useAuth();
 
-  const menuCards = [
+  // Dashboard items data
+  const dashboardItems: DashboardItem[] = [
     {
-      title: 'Wood Slicer',
-      icon: <ContentCutIcon sx={{ fontSize: 40 }} />,
-      description: 'Manage wood slicing operations',
-      path: '/factory/wood-slicer'
+      title: 'Total Projects',
+      icon: HomeIcon,
+      color: '#CC0000',
+      value: '12'
     },
     {
-      title: 'Calculator',
-      icon: <CalculateIcon sx={{ fontSize: 40 }} />,
-      description: 'Calculate wood measurements',
-      path: '/factory/calculator'
+      title: 'Active Tasks',
+      icon: BuildIcon,
+      color: '#0088cc',
+      value: '25'
     },
     {
-      title: 'Drying Process',
-      icon: <WaterDropIcon sx={{ fontSize: 40 }} />,
-      description: 'Monitor drying operations',
-      path: '/factory/drying'
+      title: 'Team Members',
+      icon: PeopleIcon,
+      color: '#00cc88',
+      value: '8'
+    },
+    {
+      title: 'Settings',
+      icon: SettingsIcon,
+      color: '#cc8800',
+      value: '4'
     }
   ];
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ mt: 4, mb: 4 }}>
+    <Container maxWidth="lg" sx={{ position: 'relative' }}>
+      {/* Welcome Section */}
+      <Box sx={{ position: 'relative', mb: 4 }}>
+        <SectionLabel text="Welcome Section" color="info.main" position="top-left" />
         <Paper 
           elevation={3} 
           sx={{ 
             p: 4, 
             background: 'linear-gradient(45deg, #CC0000 30%, #ff1a1a 90%)',
-            color: 'white'
+            color: 'white',
+            borderRadius: 2,
+            mt: 3
           }}
         >
           <Typography variant="h4" component="h1" gutterBottom fontWeight="bold">
             Welcome to UDesign
           </Typography>
           <Typography variant="h6">
-            Select a module to get started
+            {userRole === 'ADMIN' ? 'Administrator Dashboard' : 'User Dashboard'}
           </Typography>
         </Paper>
+      </Box>
 
+      {/* Dashboard Section */}
+      <Box sx={{ position: 'relative', mb: 4 }}>
+        <SectionLabel text="Dashboard Items" color="warning.main" position="top-left" />
         <Grid container spacing={3} sx={{ mt: 3 }}>
-          {menuCards.map((card) => (
-            <Grid item xs={12} sm={6} md={4} key={card.title}>
+          {dashboardItems.map((item, index) => (
+            <Grid item xs={12} sm={6} md={3} key={index}>
               <Card 
                 sx={{ 
                   height: '100%',
-                  cursor: 'pointer',
                   transition: 'transform 0.2s',
                   '&:hover': {
-                    transform: 'scale(1.02)',
-                    boxShadow: 6
+                    transform: 'translateY(-5px)',
+                    boxShadow: 3
                   }
                 }}
-                onClick={() => navigate(card.path)}
               >
                 <CardContent sx={{ 
-                  textAlign: 'center',
-                  p: 3,
-                  display: 'flex',
-                  flexDirection: 'column',
+                  display: 'flex', 
+                  flexDirection: 'column', 
                   alignItems: 'center',
-                  gap: 2
+                  textAlign: 'center'
                 }}>
-                  <IconButton 
-                    color="primary"
+                  <Box 
                     sx={{ 
-                      backgroundColor: 'rgba(25, 118, 210, 0.1)',
+                      bgcolor: `${item.color}15`,
                       p: 2,
-                      '&:hover': {
-                        backgroundColor: 'rgba(25, 118, 210, 0.2)'
-                      }
+                      borderRadius: '50%',
+                      mb: 2
                     }}
                   >
-                    {card.icon}
-                  </IconButton>
-                  <Typography variant="h6" component="h2" fontWeight="bold">
-                    {card.title}
+                    <item.icon sx={{ fontSize: 40, color: item.color }} />
+                  </Box>
+                  <Typography variant="h4" component="div" sx={{ mb: 1, color: item.color }}>
+                    {item.value}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {card.description}
+                  <Typography color="text.secondary">
+                    {item.title}
                   </Typography>
                 </CardContent>
               </Card>

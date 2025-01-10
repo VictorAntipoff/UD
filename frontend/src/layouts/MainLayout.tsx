@@ -1,290 +1,89 @@
-import { useState, useEffect } from 'react';
-import { 
-  Box, 
-  AppBar, 
-  Toolbar, 
-  IconButton, 
-  useTheme, 
-  useMediaQuery,
-  Avatar,
-  Badge,
-  Menu,
-  MenuItem,
-  Tooltip
-} from '@mui/material';
-import MenuIcon from '@mui/icons-material/Menu';
-import MenuOpenIcon from '@mui/icons-material/MenuOpen';
-import NotificationsIcon from '@mui/icons-material/Notifications';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
-import { Outlet, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+// === Main Layout Component ===
+// File: src/layouts/MainLayout.tsx
+// Description: Main application layout wrapper with navigation and sidebar
+
+import { Box } from '@mui/material';
+import Navbar from '../components/Navbar';
 import Sidebar from './Sidebar';
+import { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import { SectionLabel } from '../components/SectionLabel';
 
 export default function MainLayout() {
-  console.log('MainLayout rendering');  // Debug log
+  // === State Management ===
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const drawerWidth = 240;
-  const { logout } = useAuth();
+  const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
+  // === Authentication Check ===
   useEffect(() => {
-    if (isMobile) {
-      setSidebarOpen(false);
+    if (!isAuthenticated && location.pathname !== '/login') {
+      navigate('/login', { replace: true });
     }
-  }, [isMobile]);
+  }, [isAuthenticated, navigate, location]);
 
-  const handleProfileClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
+  if (!isAuthenticated) {
+    return null;
+  }
 
-  const handleNotificationClick = (event: React.MouseEvent<HTMLElement>) => {
-    setNotificationAnchor(event.currentTarget);
-  };
-
-  const handleClose = () => {
-    setAnchorEl(null);
-    setNotificationAnchor(null);
-  };
-
-  const handleLogout = () => {
-    handleClose();
-    logout();
-  };
-
+  // === Layout UI ===
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      {/* TOP BAR SECTION */}
-      <Box 
-        sx={{ 
-          position: 'fixed', 
-          top: 2,
-          left: 2,
-          p: 0.5,
-          fontSize: '10px',
-          bgcolor: 'rgba(255,0,0,0.1)',
-          zIndex: 9999,
-          borderRadius: 1,
-          pointerEvents: 'none'
-        }}
-      >
-        TOP
+    <Box sx={{ display: 'flex' }}>
+      {/* Top Navigation Bar */}
+      <Box sx={{ 
+        width: '100%', 
+        position: 'fixed', 
+        top: 0, 
+        left: 0,
+        right: 0,
+        zIndex: 1200,
+        bgcolor: 'background.paper',
+        boxShadow: 1,
+        height: 64,
+        display: 'flex',
+        alignItems: 'center'
+      }}>
+        <SectionLabel text="Navbar.tsx" color="primary.main" position="top-left" />
+        <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
       </Box>
 
-      <AppBar 
-        position="fixed" 
-        sx={{ 
-          zIndex: (theme) => theme.zIndex.drawer + 1,
-          width: '100%',
-          bgcolor: 'background.paper',
-          borderBottom: 1,
-          borderColor: 'divider'
-        }}
-      >
-        <Toolbar>
-          {/* SIDEBAR TOGGLE BUTTON */}
-          <Box 
-            sx={{ 
-              position: 'absolute', 
-              top: 2,
-              left: 40,
-              p: 0.5,
-              fontSize: '10px',
-              bgcolor: 'rgba(0,255,0,0.1)',
-              zIndex: 9999,
-              borderRadius: 1,
-              pointerEvents: 'none'
-            }}
-          >
-            BTN
-          </Box>
-
-          <IconButton
-            color="secondary"
-            edge="start"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            sx={{ mr: 2 }}
-          >
-            {sidebarOpen ? <MenuOpenIcon /> : <MenuIcon />}
-          </IconButton>
-          
-          <Box 
-            component="img"
-            src="/logo.png"
-            sx={{ 
-              height: 40,
-              mr: 'auto',
-              objectFit: 'contain',
-              ml: 1
-            }}
-            alt="UDesign Logo"
-          />
-
-          {/* Notifications */}
-          <Tooltip title="Notifications">
-            <IconButton 
-              color="secondary"
-              onClick={handleNotificationClick}
-              sx={{ ml: 2 }}
-            >
-              <Badge badgeContent={3} color="primary">
-                <NotificationsIcon />
-              </Badge>
-            </IconButton>
-          </Tooltip>
-
-          {/* User Profile */}
-          <Tooltip title="Account settings">
-            <IconButton
-              onClick={handleProfileClick}
-              sx={{ ml: 2 }}
-              color="secondary"
-            >
-              <Avatar 
-                sx={{ 
-                  width: 32, 
-                  height: 32,
-                  bgcolor: 'primary.main'
-                }}
-              >
-                <AccountCircleIcon />
-              </Avatar>
-            </IconButton>
-          </Tooltip>
-
-          {/* Profile Menu */}
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleClose}
-            onClick={handleClose}
-            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-          >
-            <MenuItem onClick={() => navigate('/profile')}>
-              Profile
-            </MenuItem>
-            <MenuItem onClick={() => navigate('/settings')}>
-              Settings
-            </MenuItem>
-            <MenuItem onClick={handleLogout}>
-              Logout
-            </MenuItem>
-          </Menu>
-
-          {/* Notifications Menu */}
-          <Menu
-            anchorEl={notificationAnchor}
-            open={Boolean(notificationAnchor)}
-            onClose={handleClose}
-            onClick={handleClose}
-            transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-            anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-          >
-            <MenuItem>New order received</MenuItem>
-            <MenuItem>System update available</MenuItem>
-            <MenuItem>Your report is ready</MenuItem>
-          </Menu>
-        </Toolbar>
-      </AppBar>
-
-      {/* LEFT SIDEBAR */}
-      <Box 
-        sx={{ 
-          position: 'fixed', 
-          top: 66,
-          left: 2,
-          p: 0.5,
-          fontSize: '10px',
-          bgcolor: 'rgba(0,0,255,0.1)',
-          zIndex: 9999,
-          borderRadius: 1,
-          pointerEvents: 'none'
-        }}
-      >
-        NAV
+      {/* Sidebar */}
+      <Box sx={{ 
+        position: 'fixed',
+        left: 0,
+        top: 64,
+        bottom: 0,
+        width: sidebarOpen ? 240 : 0,
+        bgcolor: 'background.paper',
+        transition: 'width 0.3s ease',
+        overflow: 'hidden',
+        zIndex: 1100,
+        boxShadow: 1
+      }}>
+        <Box sx={{ position: 'relative', height: '100%' }}>
+          <SectionLabel text="Sidebar.tsx" color="secondary.main" position="top-right" />
+          <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        </Box>
       </Box>
 
-      <Box
-        component="nav"
-        sx={{
-          width: drawerWidth,
-          flexShrink: 0,
-          position: 'fixed',
-          height: '100%',
-          zIndex: (theme) => theme.zIndex.drawer,
-          left: sidebarOpen ? 0 : -drawerWidth,
-          transition: theme.transitions.create('left', {
-            easing: theme.transitions.easing.sharp,
-            duration: theme.transitions.duration.enteringScreen,
-          })
-        }}
-      >
-        <Sidebar 
-          open={sidebarOpen} 
-          onClose={() => setSidebarOpen(false)}
-        />
-      </Box>
-
-      {/* MAIN CONTENT AREA */}
-      <Box 
-        sx={{ 
-          position: 'fixed', 
-          top: 66,
-          right: 2,
-          p: 0.5,
-          fontSize: '10px',
-          bgcolor: 'rgba(255,255,0,0.1)',
-          zIndex: 9999,
-          borderRadius: 1,
-          pointerEvents: 'none'
-        }}
-      >
-        MAIN
-      </Box>
-
+      {/* Main Content */}
       <Box
         component="main"
         sx={{
           flexGrow: 1,
-          p: 2,
-          pt: 10,
-          width: '100%',
-          paddingLeft: sidebarOpen ? `${drawerWidth + 16}px` : '16px',
-          transition: theme.transitions.create('padding', {
-            easing: theme.transitions.easing.sharp,
-            duration: theme.transitions.duration.enteringScreen,
-          }),
+          p: 3,
+          mt: 8,
+          ml: sidebarOpen ? '240px' : '64px',
+          transition: 'margin-left 0.3s ease',
+          minHeight: '100vh',
           bgcolor: 'background.default',
-          position: 'relative',
-          zIndex: 1
+          position: 'relative'
         }}
       >
+        <SectionLabel text="Main Content" color="success.main" position="top-right" />
         <Outlet />
-      </Box>
-
-      {/* Debug Indicators */}
-      <Box 
-        sx={{ 
-          position: 'fixed', 
-          bottom: 2,
-          right: 2,
-          p: 0.5,
-          fontSize: '10px',
-          bgcolor: 'rgba(0,0,0,0.1)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 0.5,
-          borderRadius: 1,
-          pointerEvents: 'none'
-        }}
-      >
-        <div>SB: {sidebarOpen ? '✓' : '×'}</div>
-        <div>M: {isMobile ? '✓' : '×'}</div>
-        <div>W: {drawerWidth}</div>
       </Box>
     </Box>
   );
