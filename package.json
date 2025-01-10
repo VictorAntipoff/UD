@@ -8,7 +8,9 @@
     "@types/node": "^22.10.5",
     "@types/parse-json": "^4.0.2",
     "@types/prop-types": "^15.7.14",
-    "rimraf": "^6.0.1"
+    "@vitejs/plugin-react": "^4.3.4",
+    "rimraf": "^6.0.1",
+    "vite": "^6.0.7"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
