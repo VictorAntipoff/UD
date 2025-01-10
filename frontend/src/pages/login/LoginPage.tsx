@@ -1,6 +1,6 @@
-import { Container, Paper, Typography, Box, keyframes } from '@mui/material';
-import LoginForm from '../components/auth/LoginForm';
-import { SectionLabel } from '../components/SectionLabel';
+import { Paper, Typography, Box, keyframes, Container } from '@mui/material';
+import LoginForm from '../../components/auth/LoginForm';
+import { SectionLabel } from '../../components/SectionLabel';
 import { useNavigate } from 'react-router-dom';
 
 // Define the floating animation
@@ -20,7 +20,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
 
   const handleLoginSuccess = () => {
-    navigate('/');
+    console.log('Navigating to homepage...');
+    navigate('/', { replace: true });
   };
 
   return (
