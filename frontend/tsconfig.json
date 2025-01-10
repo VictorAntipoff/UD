@@ -23,7 +23,8 @@
       "@/*": ["src/*"]
     },
     "types": ["node", "react", "react-dom"],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "jsxImportSource": "react"
   },
   "include": ["src"],
   "exclude": [

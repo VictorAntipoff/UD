@@ -24,7 +24,7 @@ const validationSchema = yup.object({
 });
 
 interface LoginFormProps {
-  onLoginSuccess?: () => void;
+  onLoginSuccess: () => void;
 }
 
 export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
@@ -41,10 +41,15 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
     onSubmit: async (values, { setSubmitting }) => {
       try {
         setError(null);
+        console.log('Attempting login...');
         const response = await auth.login(values);
+        console.log('Login response:', response);
         await login(response.token, response.user.role, rememberMe);
-        onLoginSuccess?.();
+        console.log('Auth context updated');
+        onLoginSuccess();
+        console.log('Navigation callback called');
       } catch (err: any) {
+        console.error('Login error:', err);
         setError(err.response?.data?.message || 'Failed to login');
       } finally {
         setSubmitting(false);

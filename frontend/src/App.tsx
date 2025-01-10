@@ -5,30 +5,35 @@ import theme from './theme';
 import { AuthProvider } from './contexts/AuthContext';
 import AuthWrapper from './components/AuthWrapper';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { DevelopmentProvider } from './contexts/DevelopmentContext';
 
 // === Page Imports ===
-import LoginPage from './pages/LoginPage';
+import LoginPage from './pages/login/LoginPage';
 import WoodSlicer from './pages/WoodSlicer';
 import HomePage from './pages/HomePage';
 import MainLayout from './layouts/MainLayout';
 import UserSettings from './pages/settings/UserSettings';
 import AdminSettings from './pages/settings/AdminSettings';
+import DryingProcess from './pages/factory/DryingProcess';
+import WoodCalculator from './pages/factory/WoodCalculator';
 
 // === Router Configuration ===
 const router = createBrowserRouter(
   createRoutesFromElements(
     <Route>
       {/* === Auth Routes === */}
+      <Route path="/login" element={<LoginPage />} />
+      
+      {/* === Protected Routes === */}
       <Route element={<AuthWrapper />}>
-        <Route path="login" element={<LoginPage />} />
-        
-        {/* === Main Application Routes === */}
         <Route path="/" element={<MainLayout />}>
           <Route index element={<HomePage />} />
           
-          {/* === Factory Section === */}
+          {/* === Factory Hub Section === */}
           <Route path="factory">
             <Route path="wood-slicer" element={<WoodSlicer />} />
+            <Route path="drying-process" element={<DryingProcess />} />
+            <Route path="wood-calculator" element={<WoodCalculator />} />
           </Route>
           
           {/* === Settings Section === */}
@@ -45,22 +50,24 @@ const router = createBrowserRouter(
   ),
   {
     future: {
-      v7_startTransition: true,
       v7_relativeSplatPath: true,
-      v7_normalizeFormMethod: true,
-      v7_prependBasename: true
+      v7_normalizeFormMethod: true
     }
   }
 );
 
 function App() {
   return (
-    <ErrorBoundary>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <RouterProvider router={router} />
-      </ThemeProvider>
-    </ErrorBoundary>
+    <DevelopmentProvider>
+      <AuthProvider>
+        <ErrorBoundary>
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <RouterProvider router={router} />
+          </ThemeProvider>
+        </ErrorBoundary>
+      </AuthProvider>
+    </DevelopmentProvider>
   );
 }
 

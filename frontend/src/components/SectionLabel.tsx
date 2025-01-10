@@ -1,4 +1,5 @@
 import { Box } from '@mui/material';
+import { useDevelopment } from '../contexts/DevelopmentContext';
 
 interface SectionLabelProps {
   text: string;
@@ -18,6 +19,10 @@ export const SectionLabel = ({
   color = 'primary.main', 
   position = 'top-left' 
 }: SectionLabelProps) => {
+  const { showLabels } = useDevelopment();
+
+  if (!showLabels) return null;
+
   return (
     <Box
       sx={{

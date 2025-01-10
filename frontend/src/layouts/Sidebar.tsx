@@ -20,6 +20,8 @@ import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import PersonIcon from '@mui/icons-material/Person';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import CalculateIcon from '@mui/icons-material/Calculate';
+import WaterDropIcon from '@mui/icons-material/WaterDrop';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -42,13 +44,23 @@ const menuItems: MenuItem[] = [
     icon: HomeIcon 
   },
   { 
-    title: 'Factory', 
+    title: 'Factory Hub',
     icon: FactoryIcon,
     children: [
       { 
         title: 'Wood Slicer', 
         path: '/factory/wood-slicer', 
         icon: ContentCutIcon 
+      },
+      {
+        title: 'Drying Process',
+        path: '/factory/drying-process',
+        icon: WaterDropIcon
+      },
+      {
+        title: 'Wood Calculator',
+        path: '/factory/wood-calculator',
+        icon: CalculateIcon
       }
     ]
   },
