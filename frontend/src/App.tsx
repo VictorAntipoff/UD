@@ -1,4 +1,4 @@
-import { RouterProvider, createBrowserRouter, createRoutesFromElements, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
@@ -23,31 +23,58 @@ import WoodCalculator from './pages/factory/WoodCalculator';
 import UserSettings from './pages/settings/UserSettings';
 import AdminSettings from './pages/settings/AdminSettings';
 
+// Router configuration
 const router = createBrowserRouter(
-  createRoutesFromElements(
-    <Route>
-      <Route path="/login" element={<LoginPage />} />
-      
-      <Route element={<AuthWrapper />}>
-        <Route path="/" element={<MainLayout />}>
-          <Route index element={<HomePage />} />
-          
-          <Route path="factory">
-            <Route path="wood-slicer" element={<WoodSlicer />} />
-            <Route path="drying-process" element={<DryingProcess />} />
-            <Route path="wood-calculator" element={<WoodCalculator />} />
-          </Route>
-          
-          <Route path="settings">
-            <Route path="user" element={<UserSettings />} />
-            <Route path="admin" element={<AdminSettings />} />
-          </Route>
-        </Route>
-      </Route>
-      
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Route>
-  )
+  [
+    {
+      path: '/login',
+      element: <LoginPage />
+    },
+    {
+      element: <AuthWrapper />,
+      children: [
+        {
+          path: '/',
+          element: <MainLayout />,
+          children: [
+            {
+              index: true,
+              element: <HomePage />
+            },
+            {
+              path: 'factory',
+              children: [
+                { path: 'wood-slicer', element: <WoodSlicer /> },
+                { path: 'drying-process', element: <DryingProcess /> },
+                { path: 'wood-calculator', element: <WoodCalculator /> }
+              ]
+            },
+            {
+              path: 'settings',
+              children: [
+                { path: 'user', element: <UserSettings /> },
+                { path: 'admin', element: <AdminSettings /> }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      path: '*',
+      element: <Navigate to="/" replace />
+    }
+  ],
+  {
+    future: {
+      v7_startTransition: true,
+      v7_relativeSplatPath: true,
+      v7_fetcherPersist: true,
+      v7_normalizeFormMethod: true,
+      v7_partialHydration: true,
+      v7_skipActionErrorRevalidation: true
+    }
+  }
 );
 
 function App() {
@@ -56,7 +83,14 @@ function App() {
       <AuthProvider>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          <RouterProvider router={router} />
+          <ErrorBoundary>
+            <RouterProvider 
+              router={router}
+              future={{
+                v7_startTransition: true
+              }}
+            />
+          </ErrorBoundary>
         </ThemeProvider>
       </AuthProvider>
     </DevelopmentProvider>

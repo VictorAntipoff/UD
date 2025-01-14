@@ -16,7 +16,7 @@ const positionStyles = {
 
 export const SectionLabel = ({ 
   text, 
-  color = 'primary.main', 
+  color = 'primary.main',
   position = 'top-left' 
 }: SectionLabelProps) => {
   const { showLabels } = useDevelopment();
