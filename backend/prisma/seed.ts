@@ -1,46 +1,40 @@
-// === Database Seed File ===
-// File: prisma/seed.ts
-// Description: Initializes database with default data
 
-import { PrismaClient, Prisma } from '@prisma/client';
-import bcrypt from 'bcrypt';
+import { PrismaClient } from '@prisma/client';
+import { scrypt, randomBytes } from 'crypto';
+import { promisify } from 'util';
 
+const scryptAsync = promisify(scrypt);
 const prisma = new PrismaClient();
 
-// === Default User Data ===
-const userData: Prisma.UserCreateInput = {
-  username: 'admin',
-  email: 'admin@udesign.com',
-  password: hashedPassword,
-  firstName: 'Admin',
-  lastName: 'User',
-  role: 'ADMIN',
-  status: 'active'
-};
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex');
+  const buf = await scryptAsync(password, salt, 64) as Buffer;
+  return `${buf.toString('hex')}.${salt}`;
+}
 
-// === Seed Function ===
 async function main() {
   try {
-    const hashedPassword = await bcrypt.hash('admin', 10);
+    const hashedPassword = await hashPassword('admin123');
     
-    const admin = await prisma.user.upsert({
-      where: { username: 'admin' },
-      update: {},
-      create: userData
+    const admin = await prisma.user.create({
+      data: {
+        username: 'admin',
+        email: 'admin@udesign.com',
+        password: hashedPassword,
+        firstName: 'Admin',
+        lastName: 'User',
+        role: 'ADMIN',
+        isActive: true
+      }
     });
-
-    console.log('Seed completed:', { admin });
+    
+    console.log('Admin created:', admin);
   } catch (error) {
-    console.error('Seed error:', error);
+    console.error('Error:', error);
     throw error;
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+main();

@@ -1,26 +1,15 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2018",
     "module": "CommonJS",
-    "moduleResolution": "Node",
+    "lib": ["ES2018"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "allowJs": true,
-    "resolveJsonModule": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules"],
-  "ts-node-dev": {
-    "respawn": true,
-    "transpileOnly": true,
-    "ignore-watch": ["node_modules"]
-  }
+  "exclude": ["node_modules"]
 } 

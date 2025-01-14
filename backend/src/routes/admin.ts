@@ -1,14 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { auth } from '../middleware/auth';
-import { AuthRequest } from '../types';
 
-export const adminRouter: Router = Router();
+export const adminRouter = Router();
 const prisma = new PrismaClient();
 
 // Middleware to check admin role
-const checkAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.role !== 'admin') {
+const checkAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  if (req.user?.role !== 'ADMIN') {
     return res.status(403).json({ 
       message: 'Access denied. Admin role required.',
       code: 'ADMIN_REQUIRED'
