@@ -1,76 +1,116 @@
-import express from 'express';
+import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth';
 import { PrismaClient } from '@prisma/client';
+import { config } from 'dotenv';
 
-const app = express();
-const prisma = new PrismaClient();
+config();
 
-// Middleware
+const app: Express = express();
+
+// Enable pre-flight requests for all routes
+app.options('*', cors());
+
+// CORS middleware configuration
 app.use(cors({
-  origin: ['http://localhost:3010', 'http://localhost:3011'],
+  origin: true, // Allow all origins temporarily for debugging
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
+
+// Parse JSON bodies
 app.use(express.json());
 
+// Add CORS headers to all responses
+app.use((req: Request, res: Response, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
+// Database configuration
+const prisma = new PrismaClient({
+  log: ['query', 'info', 'warn', 'error'],
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    },
+  },
+});
+
 // Root route
-app.get('/', (req, res) => {
-  res.json({ message: 'UDesign API Server' });
-});
-
-// API routes
-app.use('/api/auth', authRoutes);
-
-// Health check route
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// API documentation route
-app.get('/api', (req, res) => {
+app.get('/', (req: Request, res: Response) => {
   res.json({
+    message: 'UDesign API Server',
     version: '1.0.0',
-    routes: {
-      auth: {
-        login: 'POST /api/auth/login',
-        me: 'GET /api/auth/me'
-      }
+    status: 'running',
+    endpoints: {
+      auth: '/api/auth',
+      health: '/api/health'
     }
   });
 });
 
-// Error handling middleware
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Error:', err);
-  res.status(500).json({ 
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+// Health check endpoint
+app.get('/api/health', (req: Request, res: Response) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV,
+    database: !!process.env.DATABASE_URL ? 'configured' : 'not configured'
   });
 });
 
-// 404 handler - must be last
-app.use((req: express.Request, res: express.Response) => {
-  console.log('404 Not Found:', req.method, req.url);
-  res.status(404).json({ 
-    message: 'Route not found',
-    path: req.url,
-    method: req.method,
-    availableRoutes: [
-      'GET /',
-      'GET /health',
-      'GET /api',
-      'POST /api/auth/login',
-      'GET /api/auth/me'
-    ]
-  });
+// Auth routes
+app.use('/api/auth', authRoutes);
+
+// Test database endpoint
+app.get('/api/test-db', async (req: Request, res: Response) => {
+  try {
+    // Test user count
+    const userCount = await prisma.user.count();
+    
+    // Test getting admin user
+    const adminUser = await prisma.user.findFirst({
+      where: {
+        email: 'admin@udesign.com'
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        isActive: true
+      }
+    });
+
+    // Test settings
+    const settings = await prisma.setting.findMany();
+
+    res.json({
+      status: 'ok',
+      data: {
+        userCount,
+        adminUser,
+        settingsCount: settings.length
+      }
+    });
+  } catch (error) {
+    console.error('Database test error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Unknown database error',
+      error: error
+    });
+  }
 });
 
-// Cleanup on server shutdown
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
-
-export default app; 
+export default app;

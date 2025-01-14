@@ -1,3 +1,5 @@
-export { authRouter } from './auth';
-export { adminRouter } from './admin';
-export { factoryRouter } from './factory'; 
+import authRouter from './auth';
+import { adminRouter } from './admin';
+import { factoryRouter } from './factory';
+
+export { authRouter, adminRouter, factoryRouter }; 

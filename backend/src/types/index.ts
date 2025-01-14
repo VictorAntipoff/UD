@@ -1,10 +1,15 @@
-import { Request } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { User, UserRole } from '@prisma/client';
 
-/**
- * Extends Express Request type to include user property
- * Used for authenticated routes where the user object is attached to the request
- */
-export interface AuthRequest extends Request {
-  user?: PrismaClient['user']['payload'];
+export interface AuthUser extends Omit<User, 'role'> {
+  id: number;
+  email: string;
+  role: UserRole;
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthUser;
+    }
+  }
 } 

@@ -65,9 +65,10 @@ export const register = async (req: Request<{}, {}, LoginBody>, res: Response) =
       data: {
         email,
         password: hashedPassword,
-        role: 'USER',
+        username: email.split('@')[0],
         firstName: 'DefaultFirstName',
-        lastName: 'DefaultLastName'
+        lastName: 'DefaultLastName',
+        role: 'USER'
       }
     });
 

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { auth } from '../middleware/auth';
 
-export const factoryRouter: Router = Router();
+export const factoryRouter = Router();
 const prisma = new PrismaClient();
 
 factoryRouter.post('/wood-slicer', auth, async (req: Request, res: Response) => {
