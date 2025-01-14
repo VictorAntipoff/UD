@@ -1,31 +1,53 @@
 import axios from 'axios';
-import type { LoginCredentials, AuthResponse } from '../types/auth';
+import type { AuthResponse } from '../types/auth';
 
 const api = axios.create({
-  baseURL: 'http://localhost:3020/api',
+  baseURL: `${import.meta.env.VITE_API_URL}/api`,
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
 export const auth = {
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const response = await api.post('/auth/login', credentials);
-    return response.data;
-  },
+  async login(credentials: { username: string; password: string }): Promise<AuthResponse> {
+    try {
+      console.log('Sending login request:', {
+        url: `${api.defaults.baseURL}/auth/login`,
+        credentials: { username: credentials.username }
+      });
 
-  async getCurrentUser() {
-    const response = await api.get('/auth/me');
-    return response.data;
+      const response = await api.post('/auth/login', credentials);
+      
+      if (response.data.token) {
+        // Store token in axios defaults
+        api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+        
+        // Log successful login
+        console.log('Login successful, token received');
+      }
+
+      return response.data;
+    } catch (error) {
+      console.error('API login error:', error);
+      throw error;
+    }
   }
 };
+
+// Add response interceptor for 401 errors
+api.interceptors.response.use(
+  response => response,
+  error => {
+    console.error('API Error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method
+      }
+    });
+    return Promise.reject(error);
+  }
+);
 
 export default api; 

@@ -1,24 +1,20 @@
-import { createContext, useContext, useState, ReactNode } from 'react';
+import { createContext, useContext, useState } from 'react';
 
 interface DevelopmentContextType {
   showLabels: boolean;
   toggleLabels: () => void;
 }
 
-const DevelopmentContext = createContext<DevelopmentContextType | undefined>(undefined);
+const DevelopmentContext = createContext<DevelopmentContextType>({
+  showLabels: true,
+  toggleLabels: () => {}
+});
 
-export function DevelopmentProvider({ children }: { children: ReactNode }) {
-  // Load initial state from localStorage
-  const initialState = localStorage.getItem('showDevelopmentLabels') === 'true';
-  const [showLabels, setShowLabels] = useState(initialState);
+export function DevelopmentProvider({ children }: { children: React.ReactNode }) {
+  const [showLabels, setShowLabels] = useState(true);
 
   const toggleLabels = () => {
-    setShowLabels(prev => {
-      const newValue = !prev;
-      // Save to localStorage when toggled
-      localStorage.setItem('showDevelopmentLabels', String(newValue));
-      return newValue;
-    });
+    setShowLabels(prev => !prev);
   };
 
   return (
@@ -28,10 +24,4 @@ export function DevelopmentProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useDevelopment() {
-  const context = useContext(DevelopmentContext);
-  if (context === undefined) {
-    throw new Error('useDevelopment must be used within a DevelopmentProvider');
-  }
-  return context;
-} 
+export const useDevelopment = () => useContext(DevelopmentContext); 

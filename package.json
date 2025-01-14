@@ -17,7 +17,9 @@
     "@emotion/styled": "^11.14.0",
     "@mui/material": "^6.3.1",
     "@mui/styles": "^6.3.1",
+    "@supabase/supabase-js": "^2.47.12",
     "@types/socket.io-client": "^3.0.0",
+    "dotenv": "^16.4.7",
     "socket.io-client": "^4.7.2"
   }
 }
