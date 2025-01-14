@@ -1,1 +1,62 @@
- 
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18.x]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v2
+      with:
+        node-version: ${{ matrix.node-version }}
+        
+    - name: Get branch name
+      id: branch-name
+      run: echo "::set-output name=branch::${GITHUB_REF#refs/heads/}"
+
+    # Create environment files from secrets
+    - name: Create environment files
+      run: |
+        echo "DATABASE_URL=${{ secrets.SUPABASE_URL }}" >> backend/.env
+        echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> backend/.env
+        echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> backend/.env
+        echo "NODE_ENV=${{ steps.branch-name.outputs.branch }}" >> backend/.env
+        
+        echo "VITE_API_URL=${{ secrets.VITE_API_URL }}" >> frontend/.env
+        echo "NODE_ENV=${{ steps.branch-name.outputs.branch }}" >> frontend/.env
+
+    - name: Install dependencies
+      run: |
+        cd backend && npm install
+        cd ../frontend && npm install
+
+    - name: Build
+      run: |
+        if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
+          cd backend && npm run build
+          cd ../frontend && npm run build
+        else
+          cd backend && NODE_ENV=staging npm run build
+          cd ../frontend && NODE_ENV=staging npm run build
+        fi
+      env:
+        CI: true
+
+    - name: Run tests
+      run: |
+        cd backend && npm test
+        cd ../frontend && npm test
+      env:
+        CI: true 

@@ -21,5 +21,11 @@
     "@types/socket.io-client": "^3.0.0",
     "dotenv": "^16.4.7",
     "socket.io-client": "^4.7.2"
+  },
+  "scripts": {
+    "stage": "powershell ./scripts/StageLocal2GitHub.ps1",
+    "deploy": "powershell ./scripts/ManageDeployment.ps1",
+    "cleanup": "powershell ./scripts/cleanup.ps1",
+    "setup-env": "powershell ./scripts/setup-env.ps1"
   }
 }
