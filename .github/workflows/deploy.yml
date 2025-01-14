@@ -29,34 +29,60 @@ jobs:
     # Create environment files from secrets
     - name: Create environment files
       run: |
+        # Backend environment
+        echo "PORT=3020" >> backend/.env
         echo "DATABASE_URL=${{ secrets.SUPABASE_URL }}" >> backend/.env
         echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> backend/.env
         echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> backend/.env
         echo "NODE_ENV=${{ steps.branch-name.outputs.branch }}" >> backend/.env
         
+        # Frontend environment
         echo "VITE_API_URL=${{ secrets.VITE_API_URL }}" >> frontend/.env
+        echo "VITE_BASE_URL=/" >> frontend/.env
         echo "NODE_ENV=${{ steps.branch-name.outputs.branch }}" >> frontend/.env
 
     - name: Install dependencies
       run: |
-        cd backend && npm install
-        cd ../frontend && npm install
+        cd backend
+        npm install
+        npm run prisma:generate
+        cd ../frontend
+        npm install
 
-    - name: Build
+    - name: Build backend
       run: |
+        cd backend
         if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
-          cd backend && npm run build
-          cd ../frontend && npm run build
+          npm run build
         else
-          cd backend && NODE_ENV=staging npm run build
-          cd ../frontend && NODE_ENV=staging npm run build
+          npm run build:staging
         fi
-      env:
-        CI: true
+
+    - name: Build frontend
+      run: |
+        cd frontend
+        if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
+          npm run build
+        else
+          npm run build:staging
+        fi
 
     - name: Run tests
       run: |
-        cd backend && npm test
-        cd ../frontend && npm test
-      env:
-        CI: true 
+        cd backend
+        npm test
+        cd ../frontend
+        npm test
+
+    - name: Deploy
+      if: success()
+      run: |
+        echo "Deployment would happen here"
+        echo "Branch: ${{ steps.branch-name.outputs.branch }}"
+        echo "Build successful!"
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "Build or deployment failed!"
+        echo "Branch: ${{ steps.branch-name.outputs.branch }}" 
