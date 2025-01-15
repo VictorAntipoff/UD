@@ -32,6 +32,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (token: string, role: string, remember = false) => {
+    console.log('Login called with:', { token: !!token, role, remember });
+    
     const storage = remember ? localStorage : sessionStorage;
     
     storage.setItem('token', token);
