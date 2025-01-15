@@ -40,29 +40,62 @@ export default function LoginForm() {
     onSubmit: async (values, { setSubmitting }) => {
       try {
         setError(null);
-        console.log('Attempting login with:', { username: values.username });
-        
-        const response = await auth.login({
+        console.log('Login attempt with:', { 
           username: values.username,
-          password: values.password
+          passwordLength: values.password.length 
         });
 
-        console.log('Login response:', {
-          success: !!response.token,
-          user: response.user?.username
-        });
-
-        if (response.token) {
-          await login(response.token, response.user.role, rememberMe);
-          console.log('Auth context updated');
-          navigate('/');
+        // First, validate credentials locally
+        if (!values.username || !values.password) {
+          setError('Username and password are required');
+          return;
         }
+
+        // Attempt login
+        let response;
+        try {
+          response = await auth.login({
+            username: values.username,
+            password: values.password
+          });
+        } catch (apiError: any) {
+          console.error('API Error:', {
+            status: apiError.response?.status,
+            data: apiError.response?.data,
+            message: apiError.message
+          });
+          
+          // Handle specific error cases
+          if (apiError.response?.status === 401) {
+            setError('Invalid username or password');
+          } else if (apiError.response?.status === 500) {
+            setError('Server error. Please try again later.');
+          } else {
+            setError(apiError.response?.data?.message || 'Login failed');
+          }
+          return;
+        }
+
+        // Validate response
+        if (!response || !response.token || !response.user) {
+          console.error('Invalid response:', response);
+          setError('Invalid server response');
+          return;
+        }
+
+        // Attempt to set auth context
+        try {
+          await login(response.token, response.user.role, rememberMe);
+          console.log('Login successful, navigating...');
+          navigate('/');
+        } catch (authError: any) {
+          console.error('Auth context error:', authError);
+          setError('Failed to set authentication');
+        }
+
       } catch (err: any) {
-        console.error('Login error:', {
-          status: err.response?.status,
-          message: err.response?.data?.error || err.message
-        });
-        setError(err.response?.data?.error || 'Failed to login');
+        console.error('Unexpected error:', err);
+        setError('An unexpected error occurred');
       } finally {
         setSubmitting(false);
       }

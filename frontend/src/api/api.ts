@@ -1,20 +1,20 @@
 import axios from 'axios';
 
-const api = axios.create({
-  baseURL: '/api',  // Use relative path instead of full URL
+const API_URL = 'http://localhost:3010/api'; // Make sure this matches your backend port
+
+export const api = axios.create({
+  baseURL: API_URL,
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   },
-  withCredentials: true
 });
 
-// Add request interceptor to handle auth token
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+export const login = async (username: string, password: string) => {
+  try {
+    const response = await api.post('/auth/login', { username, password });
+    return response.data;
+  } catch (error) {
+    console.error('API login error:', error);
+    throw error;
   }
-  return config;
-});
-
-export default api; 
+};
