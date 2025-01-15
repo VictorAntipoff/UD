@@ -17,9 +17,6 @@ import MainLayout from './layouts/MainLayout';
 // Pages
 import LoginPage from './pages/login/LoginPage';
 import HomePage from './pages/HomePage';
-import WoodSlicer from './pages/factory/WoodSlicer';
-import DryingProcess from './pages/factory/DryingProcess';
-import WoodCalculator from './pages/factory/WoodCalculator';
 import UserSettings from './pages/settings/UserSettings';
 import AdminSettings from './pages/settings/AdminSettings';
 
@@ -42,14 +39,6 @@ const router = createBrowserRouter(
               element: <HomePage />
             },
             {
-              path: 'factory',
-              children: [
-                { path: 'wood-slicer', element: <WoodSlicer /> },
-                { path: 'drying-process', element: <DryingProcess /> },
-                { path: 'wood-calculator', element: <WoodCalculator /> }
-              ]
-            },
-            {
               path: 'settings',
               children: [
                 { path: 'user', element: <UserSettings /> },
@@ -67,11 +56,9 @@ const router = createBrowserRouter(
   ],
   {
     future: {
-      v7_startTransition: true,
-      v7_relativeSplatPath: true,
       v7_fetcherPersist: true,
       v7_normalizeFormMethod: true,
-      v7_partialHydration: true,
+      v7_relativeSplatPath: true,
       v7_skipActionErrorRevalidation: true
     }
   }
@@ -84,12 +71,7 @@ function App() {
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <ErrorBoundary>
-            <RouterProvider 
-              router={router}
-              future={{
-                v7_startTransition: true
-              }}
-            />
+            <RouterProvider router={router} />
           </ErrorBoundary>
         </ThemeProvider>
       </AuthProvider>

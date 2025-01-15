@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 3020 --strictPort",
+    "start": "vite --port 3020 --strictPort",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "echo \"No tests specified\" && exit 0",

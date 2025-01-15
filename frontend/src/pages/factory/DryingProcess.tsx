@@ -1,13 +1,12 @@
-import { Container, Typography } from '@mui/material';
-import { SectionLabel } from '../../components/SectionLabel';
+import React from 'react';
 
-export default function DryingProcess() {
+const DryingProcess: React.FC = () => {
   return (
-    <Container sx={{ position: 'relative' }}>
-      <SectionLabel text="@DryingProcess" color="primary.main" position="top-left" />
-      <Typography variant="h4" gutterBottom>
-        Drying Process
-      </Typography>
-    </Container>
+    <div>
+      <h1>Drying Process</h1>
+      {/* Add your component content here */}
+    </div>
   );
-} 
+};
+
+export default DryingProcess; 
