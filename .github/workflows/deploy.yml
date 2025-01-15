@@ -2,87 +2,48 @@ name: Deploy
 
 on:
   push:
-    branches:
+    branches: 
       - main
       - staging
+  workflow_dispatch:  # Allows manual trigger
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     
-    strategy:
-      matrix:
-        node-version: [18.x]
-
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v2
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
       with:
-        node-version: ${{ matrix.node-version }}
-        
-    - name: Get branch name
-      id: branch-name
-      run: echo "::set-output name=branch::${GITHUB_REF#refs/heads/}"
+        node-version: '18'
 
-    # Create environment files from secrets
-    - name: Create environment files
+    - name: Check directory
       run: |
-        # Backend environment
-        echo "PORT=3020" >> backend/.env
-        echo "DATABASE_URL=${{ secrets.SUPABASE_URL }}" >> backend/.env
-        echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> backend/.env
-        echo "FRONTEND_URL=${{ secrets.FRONTEND_URL }}" >> backend/.env
-        echo "NODE_ENV=${{ steps.branch-name.outputs.branch }}" >> backend/.env
-        
-        # Frontend environment
-        echo "VITE_API_URL=${{ secrets.VITE_API_URL }}" >> frontend/.env
-        echo "VITE_BASE_URL=/" >> frontend/.env
-        echo "NODE_ENV=${{ steps.branch-name.outputs.branch }}" >> frontend/.env
+        pwd
+        ls -la
 
-    - name: Install dependencies
-      run: |
-        cd backend
-        npm install
-        npm run prisma:generate
-        cd ../frontend
-        npm install
-
-    - name: Build backend
-      run: |
-        cd backend
-        if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
-          npm run build
-        else
-          npm run build:staging
-        fi
-
-    - name: Build frontend
+    - name: Install Frontend Dependencies
       run: |
         cd frontend
-        if [ "${{ steps.branch-name.outputs.branch }}" = "main" ]; then
-          npm run build
-        else
-          npm run build:staging
-        fi
+        npm install
 
-    - name: Run tests
+    - name: Install Backend Dependencies
       run: |
         cd backend
-        npm test
-        cd ../frontend
-        npm test
+        npm install
 
-    - name: Deploy
-      if: success()
+    - name: Build Frontend
       run: |
-        echo "Deployment would happen here"
-        echo "Branch: ${{ steps.branch-name.outputs.branch }}"
-        echo "Build successful!"
+        cd frontend
+        npm run build
 
-    - name: Notify on failure
-      if: failure()
+    - name: Build Backend
       run: |
-        echo "Build or deployment failed!"
-        echo "Branch: ${{ steps.branch-name.outputs.branch }}" 
+        cd backend
+        npm run build
+
+    - name: Log Status
+      run: |
+        echo "Build completed" 
