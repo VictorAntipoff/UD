@@ -1,13 +1,12 @@
-import { Container, Typography } from '@mui/material';
-import { SectionLabel } from '../../components/SectionLabel';
+import React from 'react';
 
-export default function WoodCalculator() {
+const WoodCalculator: React.FC = () => {
   return (
-    <Container sx={{ position: 'relative' }}>
-      <SectionLabel text="@WoodCalculator" color="primary.main" position="top-left" />
-      <Typography variant="h4" gutterBottom>
-        Wood Calculator
-      </Typography>
-    </Container>
+    <div>
+      <h1>Wood Calculator</h1>
+      {/* Add your component content here */}
+    </div>
   );
-} 
+};
+
+export default WoodCalculator; 

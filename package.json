@@ -1,31 +1,22 @@
 {
-  "devDependencies": {
-    "@types/babel__core": "^7.20.5",
-    "@types/babel__generator": "^7.6.8",
-    "@types/babel__template": "^7.4.4",
-    "@types/babel__traverse": "^7.20.6",
-    "@types/history": "^4.7.11",
-    "@types/node": "^22.10.5",
-    "@types/parse-json": "^4.0.2",
-    "@types/prop-types": "^15.7.14",
-    "@vitejs/plugin-react": "^4.3.4",
-    "rimraf": "^6.0.1",
-    "vite": "^6.0.7"
-  },
-  "dependencies": {
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.0",
-    "@mui/material": "^6.3.1",
-    "@mui/styles": "^6.3.1",
-    "@supabase/supabase-js": "^2.47.12",
-    "@types/socket.io-client": "^3.0.0",
-    "dotenv": "^16.4.7",
-    "socket.io-client": "^4.7.2"
-  },
+  "name": "udapp",
+  "version": "1.0.0",
+  "private": true,
   "scripts": {
-    "stage": "powershell ./scripts/StageLocal2GitHub.ps1",
-    "deploy": "powershell ./scripts/ManageDeployment.ps1",
-    "cleanup": "powershell ./scripts/cleanup.ps1",
-    "setup-env": "powershell ./scripts/setup-env.ps1"
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "start": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "build": "cd frontend && npm run build && cd ../backend && npm run build",
+    "prisma:generate": "cd backend && npm run prisma:generate",
+    "prisma:push": "cd backend && npm run prisma:push",
+    "prisma:seed": "cd backend && npm run prisma:seed",
+    "test:db": "cd backend && npm run test:db",
+    "setup:db": "cd backend && npm run setup:db"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.6",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "typescript": "^5.7.3"
   }
 }
