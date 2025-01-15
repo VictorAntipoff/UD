@@ -24,12 +24,12 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // Landing page
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Health check
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ 
     status: 'ok',
     version: process.env.npm_package_version,
@@ -41,7 +41,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 
 // Error handler
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: any, _req: any, res: any, _next: any) => {
   console.error('Global error handler:', err);
   res.status(500).json({
     message: 'Internal server error',

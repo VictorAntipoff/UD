@@ -8,7 +8,7 @@ const prisma = new PrismaClient({
   log: ['query', 'error']
 });
 
-router.get('/test', (req, res) => {
+router.get('/test', (_req, res) => {
   res.json({ message: 'Auth routes working' });
 });
 
