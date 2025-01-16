@@ -9,12 +9,17 @@ config();
 
 const app: Express = express();
 
-// Enable pre-flight requests for all routes
-app.options('*', cors());
+const allowedOrigins = [
+  'http://localhost:3020',
+  'http://localhost:3010',
+  'https://ud-frontend-production.vercel.app',
+  'https://ud-frontend-staging.vercel.app',
+  'https://ud-backend-production.up.railway.app'
+];
 
-// CORS middleware configuration
+// Configure CORS
 app.use(cors({
-  origin: true, // Allow all origins temporarily for debugging
+  origin: allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -22,20 +27,6 @@ app.use(cors({
 
 // Parse JSON bodies
 app.use(express.json());
-
-// Add CORS headers to all responses
-app.use((req: Request, res: Response, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
 
 // Database configuration
 const prisma = new PrismaClient({
