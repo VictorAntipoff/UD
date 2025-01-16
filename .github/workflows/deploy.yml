@@ -1,40 +1,49 @@
-name: Deploy
-
+name: Deploy Frontend
 on:
   push:
-    branches: 
+    branches:
       - main
       - staging
-  workflow_dispatch:
+    paths:
+      - 'frontend/**'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    environment:
+      name: Production
+      url: ${{ steps.deploy.outputs.url }}
+    
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
     
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install Dependencies
+        run: npm install
+      
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
-    - name: Deploy Backend
-      env:
-        DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      run: |
-        cd backend
-        npm install -g vercel
-        vercel pull --yes --environment=production --token ${{ secrets.VERCEL_TOKEN }}
-        npx prisma generate
-        vercel build --prod --token ${{ secrets.VERCEL_TOKEN }}
-        vercel deploy --prebuilt --prod --token ${{ secrets.VERCEL_TOKEN }}
+      - name: Build Project Artifacts
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
-    - name: Deploy Frontend
-      run: |
-        cd frontend
-        npm install -g vercel
-        npm install
-        vercel pull --yes --environment=production --token ${{ secrets.VERCEL_TOKEN }}
-        vercel build --prod --token ${{ secrets.VERCEL_TOKEN }}
-        vercel deploy --prebuilt --prod --token ${{ secrets.VERCEL_TOKEN }} 
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> $GITHUB_OUTPUT 
