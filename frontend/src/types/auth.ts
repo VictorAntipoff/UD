@@ -6,5 +6,15 @@ export interface User {
 
 export interface LoginResponse {
   token: string;
-  user: User;
+  user: {
+    id: string;
+    username: string;
+    role: string;
+  };
+  message?: string;
+}
+
+export interface ErrorResponse {
+  message: string;
+  status?: number;
 } 

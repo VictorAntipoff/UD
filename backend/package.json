@@ -39,7 +39,8 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.7.3",
-    "@vercel/node": "^3.0.0"
+    "@vercel/node": "^3.0.0",
+    "@types/morgan": "^1.9.9"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
