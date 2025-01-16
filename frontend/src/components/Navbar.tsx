@@ -16,14 +16,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-// Add type declaration for images
-declare module '*.png' {
-  const value: string;
-  export default value;
-}
-
-import logo from '../assets/logo.png';
-
 interface NavbarProps {
   onMenuClick: () => void;
 }

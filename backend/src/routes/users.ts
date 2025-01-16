@@ -1,14 +1,14 @@
-import express from 'express';
+import { Router, Request, Response } from 'express';
 import prisma from '../lib/prisma';
 
-const router = express.Router();
+const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany();
-    res.json(users);
+    return res.json(users);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch users' });
+    return res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 

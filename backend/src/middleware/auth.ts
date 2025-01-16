@@ -29,9 +29,9 @@ export const authenticateToken = (
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
     req.user = decoded;
-    next();
+    return next();
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ message: 'Unauthorized' });
   }
 };
 
@@ -45,6 +45,6 @@ export const requireRole = (roles: string[]) => {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    next();
+    return next();
   };
 }; 

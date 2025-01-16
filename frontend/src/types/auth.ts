@@ -1,13 +1,10 @@
 export interface User {
   id: string;
   username: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  role: 'USER' | 'ADMIN';
+  role: string;
 }
 
-export interface AuthResponse {
+export interface LoginResponse {
   token: string;
   user: User;
 } 

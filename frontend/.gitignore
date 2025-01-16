@@ -38,3 +38,11 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 .vercel
+
+# Vercel
+.vercel
+.env*.local
+
+# Vite
+/dist
+dist-ssr

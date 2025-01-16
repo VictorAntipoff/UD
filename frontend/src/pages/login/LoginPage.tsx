@@ -21,7 +21,7 @@ export default function LoginPage() {
 
   const handleLoginSuccess = () => {
     console.log('Navigating to homepage...');
-    navigate('/', { replace: true });
+    navigate('/');
   };
 
   return (

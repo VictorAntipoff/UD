@@ -1,24 +1,20 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { auth } from '../middleware/auth';
+import { authenticateToken } from '../middleware/auth';
 
-export const factoryRouter = Router();
+const router = Router();
 const prisma = new PrismaClient();
 
-factoryRouter.post('/wood-slicer', auth, async (req: Request, res: Response) => {
+router.post('/jobs', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const { thickness, quantity, woodType } = req.body;
-    const job = await prisma.woodSlicingJob.create({
+    const job = await prisma.job.create({
       data: {
-        thickness,
-        quantity,
-        woodType,
-        userId: req.user!.id
+        ...req.body,
+        userId: req.user?.userId
       }
     });
-    res.json(job);
+    return res.json(job);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ error: 'Error creating job' });
   }
 }); 

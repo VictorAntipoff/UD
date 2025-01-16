@@ -1,37 +1,35 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { auth } from '../middleware/auth';
+import { authenticateToken } from '../middleware/auth';
 
 export const adminRouter = Router();
 const prisma = new PrismaClient();
 
 // Middleware to check admin role
 const checkAdmin = async (req: Request, res: Response, next: NextFunction) => {
-  if (req.user?.role !== 'ADMIN') {
-    return res.status(403).json({ 
-      message: 'Access denied. Admin role required.',
-      code: 'ADMIN_REQUIRED'
-    });
+  try {
+    if (req.user?.role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    return next();
+  } catch (error) {
+    return res.status(500).json({ error: 'Error checking admin status' });
   }
-  next();
 };
 
-adminRouter.get('/users', auth, checkAdmin, async (req: Request, res: Response) => {
+adminRouter.get('/users', authenticateToken, checkAdmin, async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
       select: {
         id: true,
-        firstName: true,
-        lastName: true,
         email: true,
+        username: true,
         role: true,
-        status: true,
-        createdAt: true
+        isActive: true
       }
     });
-    res.json(users);
+    return res.json(users);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    return res.status(500).json({ error: 'Error fetching users' });
   }
 }); 

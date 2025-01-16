@@ -33,7 +33,7 @@ export const login = async (req: Request<{}, {}, LoginBody>, res: Response) => {
       { expiresIn: '24h' }
     );
 
-    res.json({
+    return res.status(200).json({
       token,
       user: {
         id: user.id,
@@ -42,8 +42,7 @@ export const login = async (req: Request<{}, {}, LoginBody>, res: Response) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error during login' });
+    return res.status(500).json({ message: 'Server error during login' });
   }
 };
 
@@ -78,7 +77,7 @@ export const register = async (req: Request<{}, {}, LoginBody>, res: Response) =
       { expiresIn: '24h' }
     );
 
-    res.status(201).json({
+    return res.status(201).json({
       token,
       user: {
         id: user.id,
@@ -87,8 +86,7 @@ export const register = async (req: Request<{}, {}, LoginBody>, res: Response) =
       }
     });
   } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error during registration' });
+    return res.status(500).json({ message: 'Server error during registration' });
   }
 };
 
@@ -109,12 +107,12 @@ export const getMe = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    res.json({
+    return res.json({
       id: user.id,
       email: user.email,
       role: user.role
     });
   } catch (error) {
-    res.status(401).json({ message: 'Invalid token' });
+    return res.status(401).json({ message: 'Invalid token' });
   }
 }; 

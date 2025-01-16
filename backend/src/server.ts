@@ -1,15 +1,14 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import authRoutes from './routes/auth.routes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerDocument from './swagger.json';
+import { config } from 'dotenv';
 
-dotenv.config();
+config();
 
 const app = express();
-const PORT = process.env.PORT || 3010;
 
 // Middleware
 app.use(cors({
@@ -29,7 +28,7 @@ app.get('/', (_req, res) => {
 });
 
 // Health check
-app.get('/health', (_req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({ 
     status: 'ok',
     version: process.env.npm_package_version,
@@ -49,11 +48,13 @@ app.use((err: any, _req: any, res: any, _next: any) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`
-🚀 Server is running!
-📝 API Documentation: http://localhost:${PORT}/api-docs
-🏠 Homepage: http://localhost:${PORT}
-🔥 API Endpoint: http://localhost:${PORT}/api
-  `);
-});
+// Only start the server if we're not in a serverless environment
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 3010;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+// Export for Vercel
+export default app;

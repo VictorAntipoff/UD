@@ -3,6 +3,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth';
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
+import path from 'path';
 
 config();
 
@@ -47,25 +48,16 @@ const prisma = new PrismaClient({
 });
 
 // Root route
-app.get('/', (req: Request, res: Response) => {
-  res.json({
-    message: 'UDesign API Server',
-    version: '1.0.0',
-    status: 'running',
-    endpoints: {
-      auth: '/api/auth',
-      health: '/api/health'
-    }
-  });
+app.get('/', (_req: Request, res: Response) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Health check endpoint
-app.get('/api/health', (req: Request, res: Response) => {
-  res.json({
+app.get('/api/health', (_req: Request, res: Response) => {
+  res.json({ 
     status: 'ok',
-    timestamp: new Date().toISOString(),
-    env: process.env.NODE_ENV,
-    database: !!process.env.DATABASE_URL ? 'configured' : 'not configured'
+    version: process.env.npm_package_version,
+    environment: process.env.NODE_ENV
   });
 });
 
@@ -73,7 +65,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 app.use('/api/auth', authRoutes);
 
 // Test database endpoint
-app.get('/api/test-db', async (req: Request, res: Response) => {
+app.get('/api/test-db', async (_req: Request, res: Response) => {
   try {
     // Test user count
     const userCount = await prisma.user.count();
