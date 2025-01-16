@@ -15,8 +15,9 @@ import {
 } from '@mui/material';
 import { SectionLabel } from '../SectionLabel';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { LoginResponse } from '../../types/auth';
+import axios, { AxiosError } from 'axios';
+import { API_ENDPOINTS } from '../../config/api';
+import { LoginResponse, ErrorResponse } from '../../types/auth';
 
 interface LoginFormProps {
   onLoginSuccess?: () => void;
@@ -58,10 +59,52 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
         }
 
         // Attempt login
+        console.log('Frontend - Attempting login with:', {
+          values,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          }
+        });
+
         const response = await axios.post<LoginResponse>(
-          `${import.meta.env.VITE_API_URL}/api/auth/login`,
-          values
-        );
+          API_ENDPOINTS.LOGIN,
+          values,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            timeout: 5000
+          }
+        ).catch(error => {
+          console.error('Login request failed:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message
+          });
+          throw error;
+        });
+
+        console.log('Frontend - Server response:', {
+          status: response.status,
+          data: response.data,
+          headers: response.headers
+        });
+
+        // Handle error responses
+        if (response.status === 401) {
+          const errorData = response.data as ErrorResponse;
+          setError(errorData.message || 'Invalid username or password');
+          return;
+        }
+        
+        if (response.status !== 200) {
+          console.error('Server response:', response);
+          const errorData = response.data as ErrorResponse;
+          setError(errorData.message || 'Server error occurred');
+          return;
+        }
 
         // Validate response
         if (!response.data || !response.data.token || !response.data.user) {
@@ -69,6 +112,8 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
           setError('Invalid server response');
           return;
         }
+
+        console.log('Login successful, data:', response.data);
 
         // Attempt to set auth context
         try {

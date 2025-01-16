@@ -28,12 +28,28 @@ export default defineConfig({
           'react-dom': 'ReactDOM'
         }
       }
+    },
+    commonjsOptions: {
+      transformMixedEsModules: true
     }
   },
   server: {
     port: 3020,
     strictPort: true,
-    host: true
+    host: true,
+    proxy: {
+      '^/api/.*': {
+        target: 'http://localhost:3010',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            console.error('Proxy error:', err);
+          });
+        }
+      }
+    }
   },
   preview: {
     port: 3020,
@@ -43,5 +59,9 @@ export default defineConfig({
     supported: {
       'top-level-await': true
     }
+  },
+  optimizeDeps: {
+    exclude: ['@swc/wasm-web'],
+    include: ['react', 'react-dom']
   }
 });

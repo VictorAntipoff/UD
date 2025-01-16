@@ -1,16 +1,21 @@
-/// <reference types="vite/client" /> 
+/// <reference types="vite/client" />
 
-declare module '*.png' {
-  const src: string;
-  export default src;
-}
-
-declare module '*.jpg' {
-  const src: string;
-  export default src;
+// Suppress dynamic import warnings
+declare module 'virtual:*' {
+  const result: any;
+  export default result;
 }
 
 declare module '*.svg' {
-  const src: string;
-  export default src;
+  const content: any;
+  export default content;
+}
+
+// Add support for import.meta
+interface ImportMeta {
+  url: string;
+  hot: {
+    accept: Function;
+    dispose: Function;
+  };
 } 

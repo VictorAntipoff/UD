@@ -4,6 +4,7 @@ import authRoutes from './routes/auth';
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
 import path from 'path';
+import morgan from 'morgan';
 
 config();
 
@@ -19,14 +20,25 @@ const allowedOrigins = [
 
 // Configure CORS
 app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
+  origin: '*',
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 
-// Parse JSON bodies
+// Parse JSON bodies first
 app.use(express.json());
+
+// Request logging after body parsing
+app.use(morgan(':method :url :status :response-time ms'));
+app.use((req: Request, res: Response, next) => {
+  console.log('Request received:', {
+    method: req.method,
+    path: req.path,
+    body: req.method === 'POST' ? req.body : undefined
+  });
+  next();
+});
 
 // Database configuration
 const prisma = new PrismaClient({
