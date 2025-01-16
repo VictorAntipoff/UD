@@ -15,6 +15,12 @@ import {
 } from '@mui/material';
 import { SectionLabel } from '../SectionLabel';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+import { LoginResponse } from '../../types/auth';
+
+interface LoginFormProps {
+  onLoginSuccess?: () => void;
+}
 
 const validationSchema = yup.object({
   username: yup
@@ -25,7 +31,7 @@ const validationSchema = yup.object({
     .required('Password is required')
 });
 
-export default function LoginForm() {
+export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(false);
   const { login } = useAuth();
@@ -52,32 +58,13 @@ export default function LoginForm() {
         }
 
         // Attempt login
-        let response;
-        try {
-          response = await auth.login({
-            username: values.username,
-            password: values.password
-          });
-        } catch (apiError: any) {
-          console.error('API Error:', {
-            status: apiError.response?.status,
-            data: apiError.response?.data,
-            message: apiError.message
-          });
-          
-          // Handle specific error cases
-          if (apiError.response?.status === 401) {
-            setError('Invalid username or password');
-          } else if (apiError.response?.status === 500) {
-            setError('Server error. Please try again later.');
-          } else {
-            setError(apiError.response?.data?.message || 'Login failed');
-          }
-          return;
-        }
+        const response = await axios.post<LoginResponse>(
+          `${import.meta.env.VITE_API_URL}/api/auth/login`,
+          values
+        );
 
         // Validate response
-        if (!response || !response.token || !response.user) {
+        if (!response.data || !response.data.token || !response.data.user) {
           console.error('Invalid response:', response);
           setError('Invalid server response');
           return;
@@ -85,12 +72,16 @@ export default function LoginForm() {
 
         // Attempt to set auth context
         try {
-          await login(response.token, response.user.role, rememberMe);
+          await login(response.data.token, response.data.user.role, rememberMe);
           console.log('Login successful, navigating...');
           navigate('/');
         } catch (authError: any) {
           console.error('Auth context error:', authError);
           setError('Failed to set authentication');
+        }
+
+        if (onLoginSuccess) {
+          onLoginSuccess();
         }
 
       } catch (err: any) {

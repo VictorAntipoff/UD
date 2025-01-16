@@ -5,10 +5,10 @@ on:
     branches: 
       - main
       - staging
-  workflow_dispatch:  # Allows manual trigger
+  workflow_dispatch:
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     
     steps:
@@ -19,31 +19,22 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Check directory
-      run: |
-        pwd
-        ls -la
-
-    - name: Install Frontend Dependencies
-      run: |
-        cd frontend
-        npm install
-
-    - name: Install Backend Dependencies
+    - name: Deploy Backend
+      env:
+        DATABASE_URL: ${{ secrets.DATABASE_URL }}
       run: |
         cd backend
-        npm install
+        npm install -g vercel
+        vercel pull --yes --environment=production --token ${{ secrets.VERCEL_TOKEN }}
+        npx prisma generate
+        vercel build --prod --token ${{ secrets.VERCEL_TOKEN }}
+        vercel deploy --prebuilt --prod --token ${{ secrets.VERCEL_TOKEN }}
 
-    - name: Build Frontend
+    - name: Deploy Frontend
       run: |
         cd frontend
-        npm run build
-
-    - name: Build Backend
-      run: |
-        cd backend
-        npm run build
-
-    - name: Log Status
-      run: |
-        echo "Build completed" 
+        npm install -g vercel
+        npm install
+        vercel pull --yes --environment=production --token ${{ secrets.VERCEL_TOKEN }}
+        vercel build --prod --token ${{ secrets.VERCEL_TOKEN }}
+        vercel deploy --prebuilt --prod --token ${{ secrets.VERCEL_TOKEN }} 

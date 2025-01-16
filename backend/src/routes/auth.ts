@@ -2,7 +2,7 @@
 // File: src/routes/auth.ts
 // Description: Handles all authentication-related API endpoints
 
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import { compare } from 'bcrypt';
@@ -10,7 +10,7 @@ import { compare } from 'bcrypt';
 const router = Router();
 const prisma = new PrismaClient();
 
-router.post('/login', async (req, res) => {
+router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
@@ -33,7 +33,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
-    res.json({
+    return res.json({
       token,
       user: {
         id: user.id,
@@ -44,8 +44,7 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Login failed' });
   }
 });
 
