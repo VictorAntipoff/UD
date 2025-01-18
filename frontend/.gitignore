@@ -1,21 +1,17 @@
 # Dependencies
 node_modules/
-**/node_modules/
 .vite/
-**/.vite/
 
 # Build outputs
 dist/
-**/dist/
-build/
-**/build/
+dist-ssr/
 
 # Environment files
 .env
-**/.env
 .env.local
-.env.development
-.env.production
+.env.*.local
+!.env.example
+!.env.staging
 
 # IDE and Editor files
 .vscode/
@@ -37,12 +33,6 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
-.vercel
 
 # Vercel
 .vercel
-.env*.local
-
-# Vite
-/dist
-dist-ssr
