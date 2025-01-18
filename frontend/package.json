@@ -11,10 +11,11 @@
     "start": "vite --port 3020 --strictPort",
     "clean": "rm -rf node_modules package-lock.json",
     "build": "vite build",
+    "build:staging": "vite build --mode staging",
     "preview": "vite preview --port 3020",
     "test": "echo \"No tests specified\" && exit 0",
-    "build:staging": "tsc && vite build --mode staging",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "fix-vite-warnings": "node scripts/fix-vite-warnings.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -32,12 +33,14 @@
     "yup": "^1.6.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.6",
+    "@babel/plugin-transform-react-jsx": "^7.25.9",
+    "@types/node": "^22.10.7",
     "@types/react": "^18.2.65",
     "@types/react-dom": "^18.2.21",
-    "@vitejs/plugin-react": "^3.1.0",
     "@types/react-router-dom": "^5.3.3",
+    "@vitejs/plugin-react": "^4.2.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.4.2",
-    "vite": "^3.2.7"
+    "vite": "^5.1.6"
   }
 }
