@@ -8,14 +8,14 @@
     "node": "18.17.0"
   },
   "scripts": {
-    "dev": "vite --port 3020 --strictPort",
+    "dev": "vite",
     "start": "vite --port 3020 --strictPort",
     "clean": "rm -rf node_modules package-lock.json",
     "build": "tsc && vite build",
     "build:staging": "vite build --mode staging",
-    "preview": "vite preview --port 3020",
+    "preview": "vite preview",
     "test": "echo \"No tests specified\" && exit 0",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",

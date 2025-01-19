@@ -2,19 +2,18 @@ export interface User {
   id: string;
   username: string;
   role: string;
+  firstName: string | null;
+  lastName: string | null;
+  isActive: boolean;
 }
 
 export interface LoginResponse {
   token: string;
-  user: {
-    id: string;
-    username: string;
-    role: string;
-  };
-  message?: string;
+  user: User;
 }
 
 export interface ErrorResponse {
-  message: string;
-  status?: number;
+  error: string;
+  details?: string;
+  code?: string;
 } 

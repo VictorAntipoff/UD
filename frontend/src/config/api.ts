@@ -1,26 +1,49 @@
-const getApiBaseUrl = () => {
-  // Debug logging
-  console.log('Environment:', {
-    isDev: import.meta.env.DEV,
-    mode: import.meta.env.MODE,
-    apiUrl: import.meta.env.VITE_API_URL
-  });
+import axios from 'axios';
 
-  // Always use environment variable in production
+const getBaseUrl = () => {
   if (import.meta.env.PROD) {
-    return 'https://ud-backend-production.up.railway.app';
+    return 'https://ud-backend.vercel.app';
   }
-
-  // Development fallback
   return 'http://localhost:3010';
 };
 
-export const API_BASE_URL = getApiBaseUrl();
+const api = axios.create({
+  baseURL: getBaseUrl(),
+  withCredentials: true,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+});
 
-// Debug log
-console.log('API Base URL:', API_BASE_URL);
+// Add request interceptor
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 export const API_ENDPOINTS = {
-  LOGIN: `${API_BASE_URL}/api/auth/login`,
-  // Add other endpoints here
-}; 
+  LOGIN: '/api/auth/login',
+  // ... other endpoints
+};
+
+export default api; 
