@@ -4,25 +4,24 @@
     {
       "src": "src/server.ts",
       "use": "@vercel/node"
+    },
+    {
+      "src": "public/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
+      "src": "/favicon.ico",
+      "dest": "public/favicon_grey.ico"
+    },
+    {
       "src": "/api/(.*)",
-      "dest": "src/server.ts"
+      "dest": "/src/server.ts"
     },
     {
       "src": "/(.*)",
-      "src": "^/assets/(.*)",
-      "dest": "/public/assets/$1"
-    },
-    {
-      "src": "^/favicon.ico",
-      "dest": "/public/favicon.ico"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "src/server.ts"
+      "dest": "/src/server.ts"
     }
   ]
 } 

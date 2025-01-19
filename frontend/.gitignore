@@ -3,8 +3,8 @@ node_modules/
 .vite/
 
 # Build outputs
-dist/
-dist-ssr/
+build/
+build-ssr/
 
 # Environment files
 .env
@@ -12,6 +12,7 @@ dist-ssr/
 .env.*.local
 !.env.example
 !.env.staging
+!.env.production
 
 # IDE and Editor files
 .vscode/

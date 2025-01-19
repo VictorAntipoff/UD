@@ -5,9 +5,9 @@
   "main": "src/server.ts",
   "scripts": {
     "dev": "cross-env PORT=3010 ts-node-dev --respawn --transpile-only src/server.ts",
-    "build": "prisma generate && tsc --project tsconfig.json",
+    "build": "prisma generate",
     "start": "node dist/server.js",
-    "postinstall": "prisma generate"
+    "vercel-build": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

@@ -11,15 +11,15 @@
     "dev": "vite --port 3020 --strictPort",
     "start": "vite --port 3020 --strictPort",
     "clean": "rm -rf node_modules package-lock.json",
-    "build": "vite build",
+    "build": "tsc && vite build",
     "build:staging": "vite build --mode staging",
     "preview": "vite preview --port 3020",
     "test": "echo \"No tests specified\" && exit 0",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.0",
+    "@emotion/react": "^11.11.4",
+    "@emotion/styled": "^11.11.0",
     "@mui/icons-material": "^5.15.13",
     "@mui/material": "^5.16.14",
     "@tanstack/react-query": "^5.28.4",
@@ -41,6 +41,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.2",
-    "vite": "^5.1.6"
+    "vite": "^5.1.6",
+    "@emotion/babel-plugin": "^11.11.0"
   }
 }
