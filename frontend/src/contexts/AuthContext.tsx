@@ -1,65 +1,67 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import { createContext, useContext, useState, useCallback } from 'react';
+import api from '../config/api';
+
+interface User {
+  id: string;
+  email: string;
+  username: string;
+  role: string;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+}
 
 interface AuthContextType {
+  user: User | null;
   isAuthenticated: boolean;
-  userRole: string | null;
-  login: (token: string, role: string, remember?: boolean) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
-const AuthContext = createContext<AuthContextType>({
-  isAuthenticated: false,
-  userRole: null,
-  login: async () => {},
-  logout: () => {}
-});
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<string | null>(null);
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null);
 
-  useEffect(() => {
-    // Check for stored token on mount
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-    const role = localStorage.getItem('userRole') || sessionStorage.getItem('userRole');
-    
-    if (token && role) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setIsAuthenticated(true);
-      setUserRole(role);
+  const login = useCallback(async (username: string, password: string) => {
+    try {
+      const response = await api.post('/api/auth/login', { username, password });
+      const { token, user } = response.data;
+      
+      if (!user || !token) {
+        throw new Error('Invalid response from server');
+      }
+
+      localStorage.setItem('token', token);
+      setUser(user);
+    } catch (error: any) {
+      console.error('Login error:', error);
+      const message = error.response?.data?.error || error.message || 'Login failed';
+      throw new Error(message);
     }
   }, []);
 
-  const login = async (token: string, role: string, remember = false) => {
-    console.log('Login called with:', { token: !!token, role, remember });
-    
-    const storage = remember ? localStorage : sessionStorage;
-    
-    storage.setItem('token', token);
-    storage.setItem('userRole', role);
-    
-    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    setIsAuthenticated(true);
-    setUserRole(role);
-  };
-
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
-    localStorage.removeItem('userRole');
-    sessionStorage.removeItem('token');
-    sessionStorage.removeItem('userRole');
-    
-    delete api.defaults.headers.common['Authorization'];
-    setIsAuthenticated(false);
-    setUserRole(null);
-  };
+    setUser(null);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, userRole, login, logout }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      isAuthenticated: !!user, 
+      login, 
+      logout 
+    }}>
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
-export const useAuth = () => useContext(AuthContext); 
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}; 

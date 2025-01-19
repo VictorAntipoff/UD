@@ -14,8 +14,8 @@ interface DashboardItem {
   value: string;
 }
 
-export default function HomePage() {
-  const { userRole } = useAuth();
+export const HomePage = () => {
+  const { user } = useAuth();
 
   // Dashboard items data
   const dashboardItems: DashboardItem[] = [
@@ -64,7 +64,7 @@ export default function HomePage() {
             Welcome to UDesign
           </Typography>
           <Typography variant="h6">
-            {userRole === 'ADMIN' ? 'Administrator Dashboard' : 'User Dashboard'}
+            {user?.role === 'ADMIN' ? 'Administrator Dashboard' : 'User Dashboard'}
           </Typography>
         </Paper>
       </Box>
@@ -115,4 +115,4 @@ export default function HomePage() {
       </Box>
     </Container>
   );
-} 
+}; 
