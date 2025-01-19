@@ -35,7 +35,11 @@ app.get('/', (_req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', version: '1.0.0' });
+  res.json({ 
+    status: 'healthy', 
+    version: '1.0.0',
+    environment: process.env.NODE_ENV 
+  });
 });
 
 // API Routes
