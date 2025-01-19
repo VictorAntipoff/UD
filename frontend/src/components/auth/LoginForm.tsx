@@ -1,237 +1,118 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useFormik } from 'formik';
-import * as yup from 'yup';
-import { auth } from '../../services/api';
-import {
-  Box,
-  TextField,
-  Button,
-  FormControlLabel,
-  Checkbox,
-  Alert,
-  CircularProgress,
-  Paper,
-} from '@mui/material';
-import { SectionLabel } from '../SectionLabel';
-import { useNavigate } from 'react-router-dom';
-import axios, { AxiosError } from 'axios';
-import { API_ENDPOINTS } from '../../config/api';
-import { LoginResponse, ErrorResponse } from '../../types/auth';
-import { DevTools } from '../DevTools';
+import { Button, TextField, Box, Typography, Container, Paper } from '@mui/material';
+import { styled } from '@mui/material/styles';
 
-interface LoginFormProps {
-  onLoginSuccess?: () => void;
-}
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  marginTop: theme.spacing(8),
+  padding: theme.spacing(4),
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  backgroundColor: theme.palette.background.paper,
+}));
 
-const validationSchema = yup.object({
-  username: yup
-    .string()
-    .required('Username is required'),
-  password: yup
-    .string()
-    .required('Password is required')
+const Logo = styled('img')({
+  width: '200px',
+  marginBottom: '2rem',
+  height: 'auto'
 });
 
-export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
-  const [error, setError] = useState<string | null>(null);
-  const [rememberMe, setRememberMe] = useState(false);
+const LoginForm = () => {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
-  const navigate = useNavigate();
 
-  const formik = useFormik({
-    initialValues: {
-      username: '',
-      password: ''
-    },
-    validationSchema,
-    onSubmit: async (values, { setSubmitting }) => {
-      try {
-        setError(null);
-        console.log('Login attempt with:', { 
-          username: values.username,
-          passwordLength: values.password.length 
-        });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
 
-        // First, validate credentials locally
-        if (!values.username || !values.password) {
-          setError('Username and password are required');
-          return;
-        }
-
-        // Attempt login
-        console.log('Frontend - Attempting login with:', {
-          values,
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        });
-
-        const response = await axios.post<LoginResponse>(
-          API_ENDPOINTS.LOGIN,
-          values,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json'
-            },
-            timeout: 5000
-          }
-        ).catch(error => {
-          console.error('Login request failed:', {
-            status: error.response?.status,
-            data: error.response?.data,
-            message: error.message
-          });
-          throw error;
-        });
-
-        console.log('Frontend - Server response:', {
-          status: response.status,
-          data: response.data,
-          headers: response.headers
-        });
-
-        // Handle error responses
-        if (response.status === 401) {
-          const errorData = response.data as ErrorResponse;
-          setError(errorData.message || 'Invalid username or password');
-          return;
-        }
-        
-        if (response.status !== 200) {
-          console.error('Server response:', response);
-          const errorData = response.data as ErrorResponse;
-          setError(errorData.message || 'Server error occurred');
-          return;
-        }
-
-        // Validate response
-        if (!response.data || !response.data.token || !response.data.user) {
-          console.error('Invalid response:', response);
-          setError('Invalid server response');
-          return;
-        }
-
-        console.log('Login successful, data:', response.data);
-
-        // Attempt to set auth context
-        try {
-          await login(response.data.token, response.data.user.role, rememberMe);
-          console.log('Login successful, navigating...');
-          navigate('/');
-        } catch (authError: any) {
-          console.error('Auth context error:', authError);
-          setError('Failed to set authentication');
-        }
-
-        if (onLoginSuccess) {
-          onLoginSuccess();
-        }
-
-      } catch (err: any) {
-        console.error('Unexpected error:', err);
-        setError('An unexpected error occurred');
-      } finally {
-        setSubmitting(false);
-      }
+    try {
+      await login(username, password);
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setError(err.message || 'Failed to login. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
-  });
+  };
 
   return (
-    <Paper 
-      elevation={3}
-      sx={{ 
-        position: 'relative',
-        p: 4,
-        maxWidth: 400,
-        width: '100%',
-        mx: 'auto',
-        mt: 8
-      }}
-    >
-      <SectionLabel text="@LoginForm" color="primary.main" position="top-left" />
-      <DevTools />
-      
-      <Box 
-        component="form" 
-        onSubmit={formik.handleSubmit}
-        sx={{ 
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 3
-        }}
-      >
-        <SectionLabel text="@LoginFormFields" color="success.main" position="top-right" />
+    <Container component="main" maxWidth="xs">
+      <StyledPaper elevation={3}>
+        <Logo src="/logo.png" alt="UDesign Logo" />
+        <Typography component="h1" variant="h5" gutterBottom>
+          Sign In
+        </Typography>
         
         {error && (
-          <Alert severity="error">
+          <Typography 
+            color="error" 
+            sx={{ 
+              mt: 2, 
+              mb: 2,
+              textAlign: 'center',
+              backgroundColor: 'error.light',
+              color: 'error.contrastText',
+              padding: 1,
+              borderRadius: 1,
+              width: '100%'
+            }}
+          >
             {error}
-          </Alert>
+          </Typography>
         )}
 
-        <TextField
-          fullWidth
-          id="username"
-          name="username"
-          label="Username"
-          autoComplete="username"
-          autoFocus
-          value={formik.values.username}
-          onChange={formik.handleChange}
-          error={formik.touched.username && Boolean(formik.errors.username)}
-          helperText={formik.touched.username && formik.errors.username}
-          disabled={formik.isSubmitting}
-          size="medium"
-        />
-
-        <TextField
-          fullWidth
-          id="password"
-          name="password"
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          value={formik.values.password}
-          onChange={formik.handleChange}
-          error={formik.touched.password && Boolean(formik.errors.password)}
-          helperText={formik.touched.password && formik.errors.password}
-          disabled={formik.isSubmitting}
-          size="medium"
-        />
-
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={rememberMe}
-              onChange={(e) => setRememberMe(e.target.checked)}
-              color="primary"
-              disabled={formik.isSubmitting}
-              size="small"
-            />
-          }
-          label="Remember me"
-        />
-
-        <Button
-          type="submit"
-          fullWidth
-          variant="contained"
-          disabled={formik.isSubmitting}
-          sx={{ 
-            py: 1.5,
-            textTransform: 'none',
-            fontSize: '1rem'
-          }}
-        >
-          {formik.isSubmitting ? (
-            <CircularProgress size={24} color="inherit" />
-          ) : (
-            'Sign In'
-          )}
-        </Button>
-      </Box>
-    </Paper>
+        <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1, width: '100%' }}>
+          <TextField
+            margin="normal"
+            required
+            fullWidth
+            id="username"
+            label="Username"
+            name="username"
+            autoComplete="username"
+            autoFocus
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            disabled={isLoading}
+          />
+          <TextField
+            margin="normal"
+            required
+            fullWidth
+            name="password"
+            label="Password"
+            type="password"
+            id="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            disabled={isLoading}
+          />
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ 
+              mt: 3, 
+              mb: 2,
+              backgroundColor: '#CC0000',
+              '&:hover': {
+                backgroundColor: '#990000'
+              }
+            }}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Signing in...' : 'Sign In'}
+          </Button>
+        </Box>
+      </StyledPaper>
+    </Container>
   );
-} 
+};
+
+export default LoginForm; 
