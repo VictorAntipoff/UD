@@ -1,7 +1,9 @@
-name: Deploy Staging
+name: Deploy Frontend Staging
 on:
   push:
     branches: [staging]
+    paths:
+      - 'frontend/**'
 jobs:
   deploy:
     runs-on: ubuntu-latest
