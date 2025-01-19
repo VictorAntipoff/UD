@@ -1,6 +1,7 @@
 import { Paper, Typography, Box, keyframes, Container } from '@mui/material';
 import LoginForm from '../../components/auth/LoginForm';
 import { SectionLabel } from '../../components/SectionLabel';
+import { DevTools } from '../../components/DevTools';
 import { useNavigate } from 'react-router-dom';
 
 // Define the floating animation
@@ -34,6 +35,7 @@ export default function LoginPage() {
       }}
     >
       <SectionLabel text="@LoginPage" color="primary.main" position="top-left" />
+      <DevTools />
       
       {/* Animated decorative circles */}
       <Box

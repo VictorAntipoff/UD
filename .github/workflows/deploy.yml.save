@@ -4,7 +4,7 @@ on:
     branches: [staging, main]
 jobs:
   deploy-frontend:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Vercel CLI
@@ -19,7 +19,7 @@ jobs:
           vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
   
   deploy-backend:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Vercel CLI
@@ -32,3 +32,4 @@ jobs:
         run: |
           cd backend
           vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+ 
