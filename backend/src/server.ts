@@ -34,19 +34,8 @@ app.get('/', (_req, res) => {
 });
 
 // Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ 
-    status: 'ok',
-    version: process.env.npm_package_version,
-    environment: process.env.NODE_ENV,
-    uptime: process.uptime(),
-    systemUptime: os.uptime(),
-    memory: {
-      free: os.freemem(),
-      total: os.totalmem()
-    },
-    timestamp: new Date().toISOString()
-  });
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', version: '1.0.0' });
 });
 
 // API Routes
