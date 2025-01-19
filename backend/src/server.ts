@@ -1,22 +1,39 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import { config } from 'dotenv';
+
+// Load environment variables
+if (process.env.NODE_ENV !== 'production') {
+  config();
+}
+
+// Verify Supabase environment variables
+console.log('Environment Check:', {
+  nodeEnv: process.env.NODE_ENV,
+  supabaseUrl: process.env.SUPABASE_URL?.substring(0, 20) + '...',
+  hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
+  hasJwtSecret: !!process.env.JWT_SECRET
+});
+
+// Import routes after environment variables are loaded
 import authRoutes from './routes/auth.routes';
 import swaggerUi from 'swagger-ui-express';
 import swaggerDocument from './swagger.json';
-import { config } from 'dotenv';
-
-config();
 
 const app = express();
 
-// Middleware
-app.use(cors({
-  origin: ['http://localhost:3020', 'https://ud-frontend-snowy.vercel.app'],
+// CORS configuration
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production'
+    ? ['https://ud-frontend-snowy.vercel.app']
+    : ['http://localhost:3020'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
@@ -30,6 +47,17 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 // API Routes first
 app.use('/api/auth', authRoutes);
+
+// Debug route handling
+app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
+  console.log('Request:', {
+    method: req.method,
+    path: req.path,
+    body: req.body,
+    headers: req.headers
+  });
+  next();
+});
 
 // Simplified health check
 app.get('/api/health', (_req, res) => {
@@ -336,6 +364,27 @@ app.get('/', async (_req, res) => {
 // Static files after routes
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Error handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Server Error:', {
+    message: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    path: req.path,
+    method: req.method
+  });
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const statusCode = err.statusCode || 500;
+  res.status(statusCode).json({
+    error: err.name || 'Internal Server Error',
+    message: err.message || 'Something went wrong',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
 // Helper function to format uptime
 function formatUptime(uptime: number): string {
   const days = Math.floor(uptime / 86400);
@@ -366,7 +415,7 @@ process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
 });
 
-// Only start the server if we're not in a serverless environment
+// Only start server in development
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 3010;
   app.listen(PORT, () => {

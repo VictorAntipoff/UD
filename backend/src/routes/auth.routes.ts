@@ -1,105 +1,163 @@
-import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
-import * as jwt from 'jsonwebtoken';
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import { config } from 'dotenv';
 
-const router = Router();
-const prisma = new PrismaClient({
-  log: ['query', 'error']
+// Ensure environment variables are loaded
+config();
+
+const router = express.Router();
+
+// Debug environment variables
+console.log('Supabase Config:', {
+  hasUrl: !!process.env.SUPABASE_URL,
+  hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
+  url: process.env.SUPABASE_URL
 });
 
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
 router.get('/test', (_req, res) => {
-  res.json({ message: 'Auth routes working' });
+  return res.json({ message: 'Auth routes working' });
 });
 
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    
-    console.log('Login attempt for:', username);
-
-    // Input validation
-    if (!username || !password) {
-      return res.status(400).json({ 
-        message: 'Username and password are required' 
-      });
-    }
-
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { username },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        password: true,
-        role: true
-      }
+    console.log('Login attempt:', {
+      username,
+      hasPassword: !!password,
+      body: req.body
     });
 
-    if (!user) {
-      console.log('User not found:', username);
-      return res.status(401).json({ 
-        message: 'Invalid credentials' 
+    // Get user from Supabase database
+    const { data: user, error } = await supabase
+      .from('users')
+      .select(`
+        id,
+        username,
+        password,
+        role,
+        isActive,
+        firstName,
+        lastName,
+        email
+      `)
+      .eq('username', username)
+      .eq('isActive', true)  // Only get active users
+      .single();
+
+    // Debug logging
+    console.log('Full Supabase Response:', {
+      data: user,
+      error: error,
+      supabaseUrl: process.env.SUPABASE_URL,
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY?.length
+    });
+
+    if (error) {
+      console.error('Database error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint
+      });
+      return res.status(500).json({
+        error: 'Database error',
+        details: error.message,
+        code: error.code
       });
     }
 
-    console.log('User found:', {
-      id: user.id,
-      username: user.username,
-      passwordLength: user.password.length
+    if (!user) {
+      return res.status(401).json({ 
+        error: 'Invalid credentials',
+        details: 'User not found'
+      });
+    }
+
+    // Debug password check
+    console.log('Password check:', {
+      hasStoredPassword: !!user.password,
+      providedPasswordLength: password?.length,
+      passwordMatch: await bcrypt.compare(password, user.password)
     });
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
-    console.log('Password verification:', { isValid: isValidPassword });
-
+    
     if (!isValidPassword) {
       return res.status(401).json({ 
-        message: 'Invalid credentials' 
-      });
-    }
-
-    // Generate token
-    if (!process.env.JWT_SECRET) {
-      console.error('JWT_SECRET not configured');
-      return res.status(500).json({ 
-        message: 'Server configuration error' 
+        error: 'Invalid credentials',
+        details: 'Invalid password'
       });
     }
 
     const token = jwt.sign(
       { 
         userId: user.id,
-        role: user.role 
+        username: user.username,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email
       },
-      process.env.JWT_SECRET,
-      { 
-        expiresIn: process.env.JWT_EXPIRES_IN || '24h' 
-      }
+      process.env.JWT_SECRET!,
+      { expiresIn: '24h' }
     );
 
-    // Send response
     return res.json({
       token,
       user: {
         id: user.id,
         username: user.username,
-        email: user.email,
-        role: user.role
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isActive: user.isActive,
+        email: user.email
       }
     });
 
-  } catch (error) {
-    console.error('Login error:', {
-      error,
-      message: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+  } catch (error: any) {
+    // Enhanced error logging
+    console.error('Login error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      code: error.code,
+      details: error.details
     });
-    
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
+
+    return res.status(500).json({
+      error: 'Login failed',
+      details: error.message,
+      code: error?.code
+    });
+  }
+});
+
+router.get('/test-db', async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .limit(1);
+
+    return res.json({
+      success: !error,
+      hasData: !!data?.length,
+      error: error?.message
+    });
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      error: err.message
     });
   }
 });
