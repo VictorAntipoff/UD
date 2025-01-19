@@ -1,36 +1,10 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist",
-        "buildCommand": "npm run build"
-      }
-    }
-  ],
-  "routes": [
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/assets/(.*)",
-      "headers": {
-        "cache-control": "public, max-age=31536000, immutable",
-        "content-type": "application/javascript"
-      }
-    },
-    {
-      "src": "/(.*\\.(js|css|ico|png|jpg|jpeg|svg|gif))",
-      "headers": { "cache-control": "public, max-age=31536000, immutable" }
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ],
-  "env": {
-    "VITE_API_URL": "https://ud-backend-production.up.railway.app"
-  }
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "vite",
+  "outputDirectory": "build",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 } 
