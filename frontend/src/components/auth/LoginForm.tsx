@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import axios, { AxiosError } from 'axios';
 import { API_ENDPOINTS } from '../../config/api';
 import { LoginResponse, ErrorResponse } from '../../types/auth';
+import { DevTools } from '../DevTools';
 
 interface LoginFormProps {
   onLoginSuccess?: () => void;
@@ -151,6 +152,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
       }}
     >
       <SectionLabel text="@LoginForm" color="primary.main" position="top-left" />
+      <DevTools />
       
       <Box 
         component="form" 

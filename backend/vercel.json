@@ -4,28 +4,16 @@
     {
       "src": "src/server.ts",
       "use": "@vercel/node"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
-      "src": "/favicon.ico",
-      "dest": "public/favicon_grey.ico"
-    },
-    {
       "src": "/api/(.*)",
-      "dest": "/src/server.ts"
+      "dest": "src/server.ts"
     },
     {
       "src": "/(.*)",
-      "dest": "/src/server.ts"
+      "dest": "src/server.ts"
     }
-  ],
-  "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "installCommand": "npm install",
-  "outputDirectory": "build"
-} 
+  ]
+}
