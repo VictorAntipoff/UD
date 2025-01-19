@@ -80,6 +80,16 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
       supported: {
         'top-level-await': true
       }
+    },
+    server: {
+      port: 3020,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3010',
+          changeOrigin: true,
+          secure: false
+        }
+      }
     }
   };
 }); 
