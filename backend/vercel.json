@@ -14,8 +14,9 @@
   ],
   "env": {
     "NODE_ENV": "production",
-    "SUPABASE_URL": "@supabase_url",
-    "SUPABASE_SERVICE_ROLE_KEY": "@supabase_service_role_key",
-    "JWT_SECRET": "@jwt_secret"
+    "SUPABASE_URL": "$SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY": "$SUPABASE_SERVICE_ROLE_KEY",
+    "JWT_SECRET": "$JWT_SECRET",
+    "FRONTEND_URL": "https://ud-frontend-snowy.vercel.app"
   }
 }
