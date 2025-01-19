@@ -1,7 +1,9 @@
-name: Deploy Production
+name: Deploy Frontend Production
 on:
   push:
     branches: [main]
+    paths:
+      - 'frontend/**'
 jobs:
   deploy:
     runs-on: ubuntu-latest
