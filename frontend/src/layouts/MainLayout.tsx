@@ -40,10 +40,7 @@ export default function MainLayout() {
         right: 0,
         zIndex: 1200,
         bgcolor: 'background.paper',
-        boxShadow: 1,
-        height: 64,
-        display: 'flex',
-        alignItems: 'center'
+        boxShadow: 1
       }}>
         <SectionLabel text="Navbar.tsx" color="primary.main" position="top-left" />
         <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />

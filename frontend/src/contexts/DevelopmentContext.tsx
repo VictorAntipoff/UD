@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 
 interface DevelopmentContextType {
   showLabels: boolean;
@@ -10,18 +10,26 @@ const DevelopmentContext = createContext<DevelopmentContextType>({
   toggleLabels: () => {}
 });
 
-export function DevelopmentProvider({ children }: { children: React.ReactNode }) {
-  const [showLabels, setShowLabels] = useState(true);
+export const DevelopmentProvider = ({ children }: { children: React.ReactNode }) => {
+  // Initialize state from localStorage
+  const [showLabels, setShowLabels] = useState(() => {
+    const saved = localStorage.getItem('developmentLabels');
+    return saved ? JSON.parse(saved) : true;
+  });
 
-  const toggleLabels = () => {
-    setShowLabels(prev => !prev);
-  };
+  const toggleLabels = useCallback(() => {
+    setShowLabels((prev: boolean) => {
+      const newValue = !prev;
+      localStorage.setItem('developmentLabels', JSON.stringify(newValue));
+      return newValue;
+    });
+  }, []);
 
   return (
     <DevelopmentContext.Provider value={{ showLabels, toggleLabels }}>
       {children}
     </DevelopmentContext.Provider>
   );
-}
+};
 
 export const useDevelopment = () => useContext(DevelopmentContext); 

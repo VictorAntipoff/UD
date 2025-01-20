@@ -7,7 +7,7 @@ import {
   Avatar, 
   Menu, 
   MenuItem, 
-  Tooltip 
+  Tooltip
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -15,6 +15,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import logo from '../assets/images/logo.png';
 
 interface NavbarProps {
   onMenuClick: () => void;
@@ -66,7 +67,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
 
         <Box 
           component="img"
-          src="/logo.png"
+          src={logo}
           sx={{ 
             height: 40,
             mr: 'auto',

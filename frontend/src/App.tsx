@@ -1,4 +1,3 @@
-import React from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -15,42 +14,50 @@ import AuthWrapper from './components/AuthWrapper';
 import MainLayout from './layouts/MainLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErrorPage } from './components/ErrorPage';
+import UserSettings from './pages/settings/UserSettings';
+import AdminSettings from './pages/settings/AdminSettings';
+import WoodCalculator from './pages/factory/WoodCalculator';
+import ProtectedRoute from './components/ProtectedRoute';
 
-const router = createBrowserRouter(
-  [
-    {
-      path: '/login',
-      element: <LoginPage />
-    },
-    {
-      path: '/',
-      element: <AuthWrapper />,
-      errorElement: <ErrorPage />,
-      children: [
-        {
-          path: '',
-          element: <MainLayout />,
-          children: [
-            {
-              index: true,
-              element: <HomePage />
-            }
-          ]
-        }
-      ]
-    },
-    {
-      path: '*',
-      element: <Navigate to="/" replace />
-    }
-  ],
+const router = createBrowserRouter([
   {
-    future: {
-      v7_startTransition: false,
-      v7_relativeSplatPath: false
-    }
+    path: '/login',
+    element: <LoginPage />
+  },
+  {
+    path: '/',
+    element: <AuthWrapper />,
+    errorElement: <ErrorPage />,
+    children: [
+      {
+        path: '',
+        element: <MainLayout />,
+        children: [
+          {
+            path: 'dashboard',
+            element: <ProtectedRoute><HomePage /></ProtectedRoute>
+          },
+          {
+            path: 'settings/user',
+            element: <ProtectedRoute><UserSettings /></ProtectedRoute>
+          },
+          {
+            path: 'settings/admin',
+            element: <ProtectedRoute><AdminSettings /></ProtectedRoute>
+          },
+          {
+            path: 'factory/wood-calculator',
+            element: <ProtectedRoute><WoodCalculator /></ProtectedRoute>
+          },
+          {
+            index: true,
+            element: <Navigate to="/dashboard" replace />
+          }
+        ]
+      }
+    ]
   }
-);
+]);
 
 export const App = () => {
   return (
@@ -59,13 +66,7 @@ export const App = () => {
         <AuthProvider>
           <ThemeProvider theme={theme}>
             <CssBaseline />
-            <RouterProvider 
-              router={router}
-              future={{
-                v7_startTransition: false,
-                v7_relativeSplatPath: false
-              }}
-            />
+            <RouterProvider router={router} />
           </ThemeProvider>
         </AuthProvider>
       </DevelopmentProvider>
