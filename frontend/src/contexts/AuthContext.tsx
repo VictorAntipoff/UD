@@ -1,5 +1,6 @@
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import api from '../config/api';
+import { supabase } from '../config/supabase';
 
 interface User {
   id: string;
@@ -14,15 +15,19 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    const auth = localStorage.getItem('auth');
+    return auth ? JSON.parse(auth) : false;
+  });
   const [isLoading, setIsLoading] = useState(true);
 
   // Check for existing session on mount
@@ -30,13 +35,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const checkAuth = async () => {
       try {
         const token = localStorage.getItem('token');
-        if (token) {
-          const response = await api.get('/api/auth/me');
+        if (!token) {
+          setIsLoading(false);
+          return;
+        }
+
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        const response = await api.get('/api/auth/me');
+        
+        if (response.data.user) {
           setUser(response.data.user);
+          setIsAuthenticated(true);
+          localStorage.setItem('auth', 'true');
+
+          // Sign in to Supabase with custom token
+          await supabase.auth.signInWithPassword({
+            email: response.data.user.email,
+            password: token // Use your token as password or implement proper token exchange
+          });
         }
       } catch (error) {
         console.error('Auth check failed:', error);
-        localStorage.removeItem('token');
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('auth');
+          api.defaults.headers.common['Authorization'] = '';
+          setIsAuthenticated(false);
+          setUser(null);
+          await supabase.auth.signOut();
+        }
       } finally {
         setIsLoading(false);
       }
@@ -45,10 +72,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     checkAuth();
   }, []);
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     try {
       setIsLoading(true);
-      const response = await api.post('/api/auth/login', { username, password });
+      // Login to your backend
+      const response = await api.post('/api/auth/login', { 
+        email, 
+        password,
+        username: email
+      });
+      
       const { token, user } = response.data;
       
       if (!user || !token) {
@@ -56,23 +89,35 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       localStorage.setItem('token', token);
+      localStorage.setItem('auth', 'true');
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser(user);
-    } catch (error: any) {
+      setIsAuthenticated(true);
+
+      // Also sign in to Supabase
+      await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: token // Use your token as password or implement proper token exchange
+      });
+    } catch (error) {
       console.error('Login error:', error);
-      if (error.message === 'Network Error') {
-        throw new Error('Unable to connect to server. Please check your connection.');
-      }
-      const message = error.response?.data?.error || error.message || 'Login failed';
-      throw new Error(message);
+      throw error;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     try {
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      
+      // Clear local auth
       localStorage.removeItem('token');
+      localStorage.removeItem('auth');
+      api.defaults.headers.common['Authorization'] = '';
       setUser(null);
+      setIsAuthenticated(false);
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -81,7 +126,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   return (
     <AuthContext.Provider value={{ 
       user, 
-      isAuthenticated: !!user, 
+      isAuthenticated, 
       login, 
       logout,
       isLoading 
