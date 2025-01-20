@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import api from '../config/api';
 
 interface User {
@@ -16,15 +16,38 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check for existing session on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          const response = await api.get('/api/auth/me');
+          setUser(response.data.user);
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        localStorage.removeItem('token');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuth();
+  }, []);
 
   const login = useCallback(async (username: string, password: string) => {
     try {
+      setIsLoading(true);
       const response = await api.post('/api/auth/login', { username, password });
       const { token, user } = response.data;
       
@@ -36,14 +59,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(user);
     } catch (error: any) {
       console.error('Login error:', error);
+      if (error.message === 'Network Error') {
+        throw new Error('Unable to connect to server. Please check your connection.');
+      }
       const message = error.response?.data?.error || error.message || 'Login failed';
       throw new Error(message);
+    } finally {
+      setIsLoading(false);
     }
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token');
-    setUser(null);
+    try {
+      localStorage.removeItem('token');
+      setUser(null);
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
   }, []);
 
   return (
@@ -51,7 +83,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       user, 
       isAuthenticated: !!user, 
       login, 
-      logout 
+      logout,
+      isLoading 
     }}>
       {children}
     </AuthContext.Provider>

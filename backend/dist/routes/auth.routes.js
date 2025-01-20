@@ -1,117 +1,137 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-const express_1 = require("express");
-const client_1 = require("@prisma/client");
-const bcrypt = __importStar(require("bcrypt"));
-const jwt = __importStar(require("jsonwebtoken"));
-const router = (0, express_1.Router)();
-const prisma = new client_1.PrismaClient({
-    log: ['query', 'error']
+const express_1 = __importDefault(require("express"));
+const supabase_js_1 = require("@supabase/supabase-js");
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const bcrypt_1 = __importDefault(require("bcrypt"));
+const dotenv_1 = require("dotenv");
+(0, dotenv_1.config)();
+const router = express_1.default.Router();
+console.log('Supabase Config:', {
+    hasUrl: !!process.env.SUPABASE_URL,
+    hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
+    url: process.env.SUPABASE_URL
 });
+const supabase = (0, supabase_js_1.createClient)(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 router.get('/test', (_req, res) => {
-    res.json({ message: 'Auth routes working' });
+    return res.json({ message: 'Auth routes working' });
 });
 router.post('/login', async (req, res) => {
+    var _a;
     try {
         const { username, password } = req.body;
-        console.log('Login attempt for:', username);
-        if (!username || !password) {
-            return res.status(400).json({
-                message: 'Username and password are required'
+        console.log('Login attempt:', {
+            username,
+            hasPassword: !!password,
+            body: req.body
+        });
+        const { data: user, error } = await supabase
+            .from('users')
+            .select(`
+        id,
+        username,
+        password,
+        role,
+        isActive,
+        firstName,
+        lastName,
+        email
+      `)
+            .eq('username', username)
+            .eq('isActive', true)
+            .single();
+        console.log('Full Supabase Response:', {
+            data: user,
+            error: error,
+            supabaseUrl: process.env.SUPABASE_URL,
+            hasServiceKey: !!((_a = process.env.SUPABASE_SERVICE_ROLE_KEY) === null || _a === void 0 ? void 0 : _a.length)
+        });
+        if (error) {
+            console.error('Database error details:', {
+                code: error.code,
+                message: error.message,
+                details: error.details,
+                hint: error.hint
+            });
+            return res.status(500).json({
+                error: 'Database error',
+                details: error.message,
+                code: error.code
             });
         }
-        const user = await prisma.user.findUnique({
-            where: { username },
-            select: {
-                id: true,
-                username: true,
-                email: true,
-                password: true,
-                role: true
-            }
-        });
         if (!user) {
-            console.log('User not found:', username);
             return res.status(401).json({
-                message: 'Invalid credentials'
+                error: 'Invalid credentials',
+                details: 'User not found'
             });
         }
-        console.log('User found:', {
-            id: user.id,
-            username: user.username,
-            passwordLength: user.password.length
+        console.log('Password check:', {
+            hasStoredPassword: !!user.password,
+            providedPasswordLength: password === null || password === void 0 ? void 0 : password.length,
+            passwordMatch: await bcrypt_1.default.compare(password, user.password)
         });
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        console.log('Password verification:', { isValid: isValidPassword });
+        const isValidPassword = await bcrypt_1.default.compare(password, user.password);
         if (!isValidPassword) {
             return res.status(401).json({
-                message: 'Invalid credentials'
+                error: 'Invalid credentials',
+                details: 'Invalid password'
             });
         }
-        if (!process.env.JWT_SECRET) {
-            console.error('JWT_SECRET not configured');
-            return res.status(500).json({
-                message: 'Server configuration error'
-            });
-        }
-        const token = jwt.sign({
+        const token = jsonwebtoken_1.default.sign({
             userId: user.id,
-            role: user.role
-        }, process.env.JWT_SECRET, {
-            expiresIn: process.env.JWT_EXPIRES_IN || '24h'
-        });
+            username: user.username,
+            role: user.role,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email
+        }, process.env.JWT_SECRET, { expiresIn: '24h' });
         return res.json({
             token,
             user: {
                 id: user.id,
                 username: user.username,
-                email: user.email,
-                role: user.role
+                role: user.role,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                isActive: user.isActive,
+                email: user.email
             }
         });
     }
     catch (error) {
-        console.error('Login error:', {
-            error,
-            message: error instanceof Error ? error.message : 'Unknown error',
-            stack: error instanceof Error ? error.stack : undefined
+        console.error('Login error details:', {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+            code: error.code,
+            details: error.details
         });
         return res.status(500).json({
-            message: 'Internal server error',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            error: 'Login failed',
+            details: error.message,
+            code: error === null || error === void 0 ? void 0 : error.code
+        });
+    }
+});
+router.get('/test-db', async (_req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('users')
+            .select('id')
+            .limit(1);
+        return res.json({
+            success: !error,
+            hasData: !!(data === null || data === void 0 ? void 0 : data.length),
+            error: error === null || error === void 0 ? void 0 : error.message
+        });
+    }
+    catch (err) {
+        return res.json({
+            success: false,
+            error: err.message
         });
     }
 });

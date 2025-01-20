@@ -15,7 +15,8 @@
     "build:staging": "vite build --mode staging",
     "preview": "vite preview",
     "test": "echo \"No tests specified\" && exit 0",
-    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint src --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "vercel-build": "vite build"
   },
   "dependencies": {
     "@emotion/react": "^11.11.4",
