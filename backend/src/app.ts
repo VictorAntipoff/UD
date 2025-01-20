@@ -1,40 +1,26 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
+import path from 'path';
 import authRoutes from './routes/auth';
 import { PrismaClient } from '@prisma/client';
 import { config } from 'dotenv';
-import path from 'path';
-import morgan from 'morgan';
 
 config();
 
 const app: Express = express();
 
-// Initialize Prisma Client with error handling
-let prisma: PrismaClient;
-try {
-  prisma = new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL
-      },
-    },
-  });
-} catch (error) {
-  console.error('Failed to initialize Prisma Client:', error);
-  prisma = new PrismaClient();
-}
+// Initialize Prisma Client
+const prisma = new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
+});
 
 // CORS configuration
 const allowedOrigins = [
   'http://localhost:3020',
   'https://ud-frontend-snowy.vercel.app',
-  'https://ud-frontend-chi.vercel.app',
-  'https://ud-frontend-staging.vercel.app'
+  'https://ud-frontend-chi.vercel.app'
 ];
 
-// Configure CORS
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -49,84 +35,74 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Parse JSON bodies first
+// Parse JSON bodies
 app.use(express.json());
 
-// Request logging after body parsing
-app.use(morgan(':method :url :status :response-time ms'));
-app.use((req: Request, _res: Response, next) => {
-  console.log('Request:', {
-    method: req.method,
-    path: req.path,
-    body: req.body,
-    headers: req.headers
+// Serve static files
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Request logging middleware
+app.use((req, _res, next) => {
+  console.log(`${req.method} ${req.path}`, {
+    headers: req.headers,
+    body: req.body
   });
   next();
 });
 
-// Root route
-app.get('/', (_req: Request, res: Response) => {
-  res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
 // Health check endpoint
-app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ 
-    status: 'ok',
-    version: process.env.npm_package_version,
-    environment: process.env.NODE_ENV
-  });
-});
-
-// Auth routes
-app.use('/api/auth', authRoutes);
-
-// Test database endpoint with better error handling
-app.get('/api/test-db', async (_req: Request, res: Response) => {
+app.get('/api/health', (_req, res) => {
   try {
-    await prisma.$connect();
-    
-    const userCount = await prisma.user.count();
-    const adminUser = await prisma.user.findFirst({
-      where: { email: 'admin@udesign.com' },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        isActive: true
-      }
-    });
-
-    const settings = await prisma.setting.findMany();
-
-    await prisma.$disconnect();
-
-    res.json({
-      status: 'ok',
-      data: {
-        userCount,
-        adminUser,
-        settingsCount: settings.length
-      }
+    res.json({ 
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      env: process.env.NODE_ENV || 'development',
+      uptime: process.uptime()
     });
   } catch (error) {
-    console.error('Database test error:', error);
-    await prisma.$disconnect();
-    
-    res.status(500).json({
+    console.error('Health check error:', error);
+    res.status(500).json({ 
       status: 'error',
-      message: error instanceof Error ? error.message : 'Unknown database error'
+      message: 'Health check failed'
     });
   }
 });
 
-// Global error handler - remove unused next parameter
-app.use((err: any, _req: Request, res: Response, _next: express.NextFunction) => {
+// Mount auth routes
+app.use('/api/auth', authRoutes);
+
+// Landing page
+app.get('/', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Serve favicon with original name
+app.get('/favicon.ico', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../public/favicon_grey.ico'));
+});
+
+// Catch-all route for API 404s
+app.use('/api/*', (_req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: 'The requested API endpoint does not exist'
+  });
+});
+
+// Catch-all route for client-side routing
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
+// Error handler
+app.use((err: any, _req: Request, res: Response, next: express.NextFunction) => {
   console.error('Server error:', err);
+  if (res.headersSent) {
+    return next(err);
+  }
   res.status(500).json({
-    status: 'error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });
 });
 

@@ -40,7 +40,7 @@ interface MenuItem {
 const menuItems: MenuItem[] = [
   { 
     title: 'Home', 
-    path: '/', 
+    path: '/dashboard',
     icon: HomeIcon 
   },
   { 
@@ -88,10 +88,18 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const drawerWidth = 240;
-  const [openSubmenu, setOpenSubmenu] = useState<string | null>('Factory Hub');
+  const [openSubmenu, setOpenSubmenu] = useState<string | null>(() => {
+    // Find which submenu should be open based on current path
+    const currentPath = location.pathname;
+    const menuWithActivePath = menuItems.find(item => 
+      item.children?.some(child => currentPath.startsWith(child.path || ''))
+    );
+    return menuWithActivePath?.title || null;
+  });
 
   const handleNavigation = (path: string | undefined, title: string) => {
     if (path) {
+      console.log('Navigating to:', path);
       navigate(path);
       if (isMobile) {
         onClose();
@@ -101,10 +109,15 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
     }
   };
 
+  const isPathActive = (path: string) => {
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
+
   const renderMenuItem = (item: MenuItem, level: number = 0) => {
-    const isSelected = item.path === location.pathname;
+    const isSelected = item.path ? isPathActive(item.path) : false;
     const hasChildren = item.children && item.children.length > 0;
-    const isSubmenuOpen = openSubmenu === item.title;
+    const isSubmenuOpen = openSubmenu === item.title || 
+      (hasChildren && item.children?.some(child => isPathActive(child.path || '')));
 
     return (
       <Box key={item.title}>
@@ -129,7 +142,7 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
             },
           }}
         >
-          <ListItemIcon sx={{ minWidth: 40, color: 'inherit' }}>
+          <ListItemIcon sx={{ minWidth: 40, color: isSelected ? 'primary.main' : 'inherit' }}>
             <item.icon />
           </ListItemIcon>
           <ListItemText primary={item.title} />

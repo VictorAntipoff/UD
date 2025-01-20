@@ -9,29 +9,41 @@ interface JwtPayload {
 declare global {
   namespace Express {
     interface Request {
-      user?: JwtPayload;
+      user?: {
+        id: string;
+        role: string;
+      };
     }
   }
 }
 
-export const authenticateToken = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
   try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.split(' ')[1];
+    const authHeader = req.headers['authorization'];
+    console.log('Auth header:', authHeader);
 
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
-    req.user = decoded;
-    return next();
+    const token = authHeader.split(' ')[1];
+    console.log('Processing token:', token?.substring(0, 10) + '...');
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
+      userId: string;
+      role: string;
+    };
+
+    console.log('Token verified, user:', decoded);
+    req.user = {
+      id: decoded.userId,
+      role: decoded.role
+    };
+
+    next();
   } catch (error) {
-    return res.status(401).json({ message: 'Unauthorized' });
+    console.error('Token verification failed:', error);
+    return res.status(403).json({ message: 'Invalid token' });
   }
 };
 
