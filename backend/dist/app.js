@@ -9,26 +9,39 @@ const auth_1 = __importDefault(require("./routes/auth"));
 const client_1 = require("@prisma/client");
 const dotenv_1 = require("dotenv");
 const path_1 = __importDefault(require("path"));
+const morgan_1 = __importDefault(require("morgan"));
 (0, dotenv_1.config)();
 const app = (0, express_1.default)();
-app.options('*', (0, cors_1.default)());
+const allowedOrigins = [
+    'http://localhost:3020',
+    'http://localhost:3010',
+    'https://ud-frontend-chi.vercel.app',
+    'https://ud-frontend-staging.vercel.app',
+    'https://ud-backend-production.up.railway.app'
+];
 app.use((0, cors_1.default)({
-    origin: true,
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        }
+        else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
 app.use(express_1.default.json());
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
-    if (req.method === 'OPTIONS') {
-        res.sendStatus(200);
-    }
-    else {
-        next();
-    }
+app.use((0, morgan_1.default)(':method :url :status :response-time ms'));
+app.use((req, _res, next) => {
+    console.log('Request:', {
+        method: req.method,
+        path: req.path,
+        body: req.body,
+        headers: req.headers
+    });
+    next();
 });
 const prisma = new client_1.PrismaClient({
     log: ['query', 'info', 'warn', 'error'],

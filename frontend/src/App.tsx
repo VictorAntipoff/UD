@@ -1,3 +1,4 @@
+import React from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -12,45 +13,64 @@ import LoginPage from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import AuthWrapper from './components/AuthWrapper';
 import MainLayout from './layouts/MainLayout';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ErrorPage } from './components/ErrorPage';
 
-const router = createBrowserRouter([
+const router = createBrowserRouter(
+  [
+    {
+      path: '/login',
+      element: <LoginPage />
+    },
+    {
+      path: '/',
+      element: <AuthWrapper />,
+      errorElement: <ErrorPage />,
+      children: [
+        {
+          path: '',
+          element: <MainLayout />,
+          children: [
+            {
+              index: true,
+              element: <HomePage />
+            }
+          ]
+        }
+      ]
+    },
+    {
+      path: '*',
+      element: <Navigate to="/" replace />
+    }
+  ],
   {
-    path: '/login',
-    element: <LoginPage />
-  },
-  {
-    element: <AuthWrapper />,
-    children: [
-      {
-        path: '/',
-        element: <MainLayout />,
-        children: [
-          {
-            index: true,
-            element: <HomePage />
-          },
-          // Other authenticated routes...
-        ]
-      }
-    ]
-  },
-  {
-    path: '*',
-    element: <Navigate to="/" replace />
+    future: {
+      v7_startTransition: false,
+      v7_relativeSplatPath: false
+    }
   }
-]);
+);
 
-function App() {
+export const App = () => {
   return (
-    <DevelopmentProvider>
-      <AuthProvider>
-        <ThemeProvider theme={theme}>
-          <CssBaseline />
-          <RouterProvider router={router} />
-        </ThemeProvider>
-      </AuthProvider>
-    </DevelopmentProvider>
+    <ErrorBoundary>
+      <DevelopmentProvider>
+        <AuthProvider>
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <RouterProvider 
+              router={router}
+              future={{
+                v7_startTransition: false,
+                v7_relativeSplatPath: false
+              }}
+            />
+          </ThemeProvider>
+        </AuthProvider>
+      </DevelopmentProvider>
+    </ErrorBoundary>
   );
-}
+};
 
 export default App;
