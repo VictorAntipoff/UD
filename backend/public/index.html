@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Access-Control-Allow-Origin" content="*">
     <title>UDesign API</title>
+    <link rel="icon" type="image/x-icon" href="/favicon_grey.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon_grey.ico">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -134,9 +135,9 @@
         <h2>API ENDPOINTS</h2>
         <div class="endpoint"><span class="get">GET</span> /api/health</div>
         <div class="endpoint"><span class="post">POST</span> /api/auth/login</div>
+        <div class="endpoint"><span class="get">GET</span> /api/auth/me</div>
         <div class="endpoint"><span class="get">GET</span> /api/users</div>
         <div class="endpoint"><span class="get">GET</span> /api/projects</div>
-        <div class="endpoint"><span class="get">GET</span> /api/jobs</div>
         <div class="endpoint"><span class="get">GET</span> /api/settings</div>
     </div>
 
@@ -156,17 +157,19 @@
             fetch('/api/health')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('environment').textContent = data.environment || 'unknown';
+                    document.getElementById('environment').textContent = data.env || 'development';
                     document.getElementById('uptime').textContent = formatUptime(data.uptime);
                     
                     const apiStatus = document.getElementById('apiStatus');
-                    apiStatus.textContent = data.status === 'ok' ? 'API Online' : 'API Issues';
-                    apiStatus.style.color = data.status === 'ok' ? '#28a745' : '#dc3545';
+                    apiStatus.textContent = data.status === 'healthy' ? 'API Online' : 'API Issues';
+                    apiStatus.style.color = data.status === 'healthy' ? '#28a745' : '#dc3545';
                 })
                 .catch(error => {
                     console.error('Health check failed:', error);
                     document.getElementById('apiStatus').textContent = 'API Offline';
                     document.getElementById('apiStatus').style.color = '#dc3545';
+                    document.getElementById('environment').textContent = '-';
+                    document.getElementById('uptime').textContent = '-';
                 });
         }
 

@@ -55,18 +55,12 @@ const DevTag = styled(Box)(({ theme }) => ({
   boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
 }));
 
-const StyledTextField = styled(TextField)(({ theme }) => ({
+const StyledTextField = styled(TextField)(() => ({
   '& .MuiOutlinedInput-root': {
-    borderRadius: '8px',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    transition: 'all 0.2s ease-in-out',
-    '&:hover': {
-      backgroundColor: 'rgba(255, 255, 255, 0.95)'
+    '&.Mui-focused fieldset': {
+      borderColor: '#CC0000',
     },
-    '&.Mui-focused': {
-      backgroundColor: '#ffffff'
-    }
-  }
+  },
 }));
 
 const LoginForm = () => {
@@ -74,7 +68,7 @@ const LoginForm = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login, isLoading } = useAuth();
-  const { isDevelopmentMode } = useDevelopment();
+  const { showLabels } = useDevelopment();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +87,7 @@ const LoginForm = () => {
       <Container maxWidth="xs" sx={{ position: 'relative' }}>
         <Fade in timeout={800}>
           <StyledPaper elevation={0}>
-            {isDevelopmentMode && (
+            {showLabels && (
               <DevTag>Development Mode</DevTag>
             )}
             <Logo src="/logo.png" alt="UDesign Logo" />

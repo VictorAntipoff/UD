@@ -141,9 +141,10 @@ export default function AdminSettings() {
       [name]: value
     });
 
-    // If changing development labels, also update the context
+    // If changing development labels, update localStorage and context
     if (name === 'showDevelopmentLabels') {
       toggleLabels();
+      localStorage.setItem('developmentLabels', JSON.stringify(value));
     }
   };
 
@@ -161,6 +162,8 @@ export default function AdminSettings() {
       // Update development labels from saved settings
       if (parsedSettings.showDevelopmentLabels !== showLabels) {
         toggleLabels();
+        // Also save to localStorage for DevelopmentContext
+        localStorage.setItem('developmentLabels', JSON.stringify(!showLabels));
       }
     }
   }, []);
