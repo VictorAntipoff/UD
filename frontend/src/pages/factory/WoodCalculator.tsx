@@ -31,6 +31,12 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase, testSupabaseConnection } from '../../config/supabase';
 import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 
+console.log('Environment Variables:', {
+  url: import.meta.env.VITE_SUPABASE_URL,
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY,
+  password: import.meta.env.VITE_SUPABASE_USER_PASSWORD
+});
+
 interface WoodType {
   id: string;
   name: string;
@@ -111,6 +117,24 @@ export default function WoodCalculator() {
     const checkConnection = async () => {
       try {
         setLoading(true);
+        setError(null);
+        
+        // Check Supabase session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          // Try to sign in with stored credentials
+          const { error } = await supabase.auth.signInWithPassword({
+            email: 'admin@example.com',
+            password: import.meta.env.VITE_SUPABASE_USER_PASSWORD || 'Admin123'
+          });
+          if (error) {
+            console.error('Supabase auth error:', error);
+            setError('Authentication failed. Please log in again.');
+            window.location.href = '/login';
+            return;
+          }
+        }
+        
         const isConnected = await testSupabaseConnection();
         setDbConnected(isConnected);
         if (!isConnected) {
@@ -127,43 +151,78 @@ export default function WoodCalculator() {
     checkConnection();
   }, [isAuthenticated]);
 
-  // Modify the data fetch useEffect
+  // Update the data fetch useEffect
   useEffect(() => {
     const fetchData = async () => {
-      if (!dbConnected) return;
+      if (!dbConnected || !user?.id) return;
       
       try {
         setLoading(true);
         setError(null);
         
-        // Log the request for debugging
-        console.log('Fetching wood types...');
+        // First fetch wood types
         const { data: woodTypesData, error: woodTypesError } = await supabase
           .from('wood_types')
           .select('*')
           .order('name');
 
-        console.log('Wood types response:', woodTypesData, woodTypesError);
+        if (woodTypesError) {
+          console.error('Wood types error:', woodTypesError);
+          throw woodTypesError;
+        }
 
-        if (woodTypesError) throw woodTypesError;
+        console.log('Wood types loaded:', woodTypesData);
         setWoodTypes(woodTypesData || []);
 
-        // Log the request for debugging
-        console.log('Fetching calculations...');
+        // Then fetch calculations
         const { data: calculationsData, error: calculationsError } = await supabase
           .from('calculations')
           .select(`
-            *,
+            id,
+            user_id,
+            wood_type_id,
+            thickness,
+            width,
+            length,
+            price_per_plank,
+            volume_m3,
+            planks_per_m3,
+            price_per_m3,
+            notes,
+            created_at,
             wood_type:wood_types(*)
           `)
-          .eq('user_id', user?.id)
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
-        console.log('Calculations response:', calculationsData, calculationsError);
+        if (calculationsError) {
+          console.error('Calculations error:', calculationsError);
+          throw calculationsError;
+        }
 
-        if (calculationsError) throw calculationsError;
-        setHistory(calculationsData || []);
+        console.log('Calculations loaded:', calculationsData);
 
+        // Transform the data to match your interface
+        const transformedCalculations: CalculationResult[] = (calculationsData || []).map(calc => ({
+          id: calc.id,
+          userId: calc.user_id,
+          dimensions: {
+            thickness: calc.thickness,
+            width: calc.width,
+            length: calc.length,
+            pricePerPlank: calc.price_per_plank,
+            woodTypeId: calc.wood_type_id,
+            notes: calc.notes || ''
+          },
+          volumeM3: calc.volume_m3,
+          planksPerM3: calc.planks_per_m3,
+          pricePerM3: calc.price_per_m3,
+          timestamp: new Date(calc.created_at).toLocaleString(),
+          woodType: calc.wood_type || defaultWoodType,
+          notes: calc.notes || ''
+        }));
+
+        setHistory(transformedCalculations);
       } catch (error) {
         console.error('Error fetching data:', error);
         setError('Failed to load data. Please try again.');
@@ -275,36 +334,42 @@ export default function WoodCalculator() {
   };
 
   const saveCalculation = async () => {
-    if (!result || !user) return;
+    if (!result || !user?.id) return;
 
     try {
-      const calculationData = {
-        user_id: user.id,
-        wood_type_id: dimensions.woodTypeId,
-        thickness: dimensions.thickness,
-        width: dimensions.width,
-        length: dimensions.length,
-        price_per_plank: dimensions.pricePerPlank,
-        volume_m3: result.volumeM3,
-        planks_per_m3: result.planksPerM3,
-        price_per_m3: result.pricePerM3,
-        notes: dimensions.notes
-      };
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('calculations')
-        .insert(calculationData)
+        .insert({
+          user_id: user.id,
+          wood_type_id: dimensions.woodTypeId,
+          thickness: dimensions.thickness,
+          width: dimensions.width,
+          length: dimensions.length,
+          price_per_plank: dimensions.pricePerPlank,
+          volume_m3: result.volumeM3,
+          planks_per_m3: result.planksPerM3,
+          price_per_m3: result.pricePerM3,
+          notes: dimensions.notes
+        });
+
+      if (error) throw error;
+
+      // Refresh the history
+      const { data: newHistory, error: fetchError } = await supabase
+        .from('calculations')
         .select(`
           *,
           wood_type:wood_types(*)
         `)
-        .single();
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (fetchError) throw fetchError;
+      setHistory(newHistory || []);
 
-      setHistory(prev => [data, ...prev]);
     } catch (error) {
       console.error('Error saving calculation:', error);
+      setError('Failed to save calculation. Please try again.');
     }
   };
 

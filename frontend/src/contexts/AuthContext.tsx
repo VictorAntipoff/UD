@@ -12,6 +12,17 @@ interface User {
   isActive: boolean;
 }
 
+interface AuthError {
+  status?: number;
+  response?: {
+    status?: number;
+    data?: {
+      message?: string;
+    };
+  };
+  message?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
@@ -21,6 +32,22 @@ interface AuthContextType {
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Add this at the top of the file to debug
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_USER_PASSWORD = import.meta.env.VITE_SUPABASE_USER_PASSWORD;
+
+// Add validation
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_USER_PASSWORD) {
+  console.error('Missing Supabase environment variables:', {
+    url: !!SUPABASE_URL,
+    key: !!SUPABASE_ANON_KEY,
+    password: !!SUPABASE_USER_PASSWORD
+  });
+}
+
+const ADMIN_EMAIL = 'admin@example.com';
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -48,15 +75,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsAuthenticated(true);
           localStorage.setItem('auth', 'true');
 
-          // Sign in to Supabase with custom token
-          await supabase.auth.signInWithPassword({
-            email: response.data.user.email,
-            password: token // Use your token as password or implement proper token exchange
-          });
+          // Try to get existing Supabase session
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            console.log('No Supabase session, attempting to sign in...');
+            // If no session, sign in with admin credentials
+            const { error: signInError } = await supabase.auth.signInWithPassword({
+              email: ADMIN_EMAIL,
+              password: SUPABASE_USER_PASSWORD || 'Admin123'
+            });
+            
+            if (signInError) {
+              console.error('Supabase auth error:', signInError);
+              // Try to sign up if login fails
+              const { error: signUpError } = await supabase.auth.signUp({
+                email: ADMIN_EMAIL,
+                password: SUPABASE_USER_PASSWORD || 'Admin123'
+              });
+              if (signUpError) {
+                console.error('Supabase signup error:', signUpError);
+              }
+            }
+          }
         }
       } catch (error) {
         console.error('Auth check failed:', error);
-        if (error.response?.status === 401 || error.response?.status === 403) {
+        const authError = error as AuthError;
+        if (authError.response?.status === 401 || authError.response?.status === 403) {
           localStorage.removeItem('token');
           localStorage.removeItem('auth');
           api.defaults.headers.common['Authorization'] = '';
@@ -75,7 +120,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(async (email: string, password: string) => {
     try {
       setIsLoading(true);
-      // Login to your backend
+
+      // First login to backend
       const response = await api.post('/api/auth/login', { 
         email, 
         password,
@@ -88,17 +134,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw new Error('Invalid response from server');
       }
 
+      // Then sign in to Supabase with admin credentials
+      const { error: supabaseError } = await supabase.auth.signInWithPassword({
+        email: ADMIN_EMAIL,
+        password: SUPABASE_USER_PASSWORD || 'Admin123'
+      });
+
+      if (supabaseError) {
+        console.error('Supabase auth error:', supabaseError);
+      }
+
+      // Set local auth
       localStorage.setItem('token', token);
       localStorage.setItem('auth', 'true');
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser(user);
       setIsAuthenticated(true);
-
-      // Also sign in to Supabase
-      await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: token // Use your token as password or implement proper token exchange
-      });
     } catch (error) {
       console.error('Login error:', error);
       throw error;
