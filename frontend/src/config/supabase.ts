@@ -11,25 +11,42 @@ if (!supabaseAnonKey) {
   throw new Error('Missing VITE_SUPABASE_ANON_KEY environment variable');
 }
 
-console.log('Supabase URL:', supabaseUrl); // For debugging
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+console.log('Supabase URL:', supabaseUrl);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
+  }
+});
 
-// Update the test function to check auth status
 export const testSupabaseConnection = async () => {
   try {
-    // First check if user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError) throw authError;
-    if (!user) throw new Error('Not authenticated');
+    // First check auth status
+    const { data: { session }, error: authError } = await supabase.auth.getSession();
+    if (authError) {
+      console.error('Auth error:', authError);
+      return false;
+    }
+    
+    if (!session) {
+      console.log('No active Supabase session');
+      return false;
+    }
 
-    // Then try to access wood_types
-    const { data, error } = await supabase
+    // Then try to access wood_types with auth headers
+    const { data, error: dbError } = await supabase
       .from('wood_types')
-      .select('id')
-      .limit(1);
+      .select('*')
+      .limit(1)
+      .throwOnError();
 
-    if (error) throw error;
-    console.log('Supabase connection successful');
+    if (dbError) {
+      console.error('Database error:', dbError);
+      return false;
+    }
+
+    console.log('Supabase connection successful, wood_types:', data);
     return true;
   } catch (error) {
     console.error('Supabase connection error:', error);
