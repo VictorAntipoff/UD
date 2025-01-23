@@ -9,8 +9,9 @@ import {
   useTheme,
   useMediaQuery,
   Typography,
-  Toolbar,
-  Collapse
+  Collapse,
+  Chip,
+  Tooltip
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import FactoryIcon from '@mui/icons-material/Factory';
@@ -22,6 +23,8 @@ import PersonIcon from '@mui/icons-material/Person';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import WaterDropIcon from '@mui/icons-material/WaterDrop';
+import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import ForestIcon from '@mui/icons-material/Forest';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
@@ -48,6 +51,11 @@ const menuItems: MenuItem[] = [
     icon: FactoryIcon,
     children: [
       { 
+        title: 'Wood Calculator',
+        path: '/factory/wood-calculator',
+        icon: CalculateIcon
+      },
+      { 
         title: 'Wood Slicer', 
         path: '/factory/wood-slicer', 
         icon: ContentCutIcon 
@@ -56,11 +64,17 @@ const menuItems: MenuItem[] = [
         title: 'Drying Process',
         path: '/factory/drying-process',
         icon: WaterDropIcon
-      },
+      }
+    ]
+  },
+  {
+    title: 'Management',
+    icon: ManageAccountsIcon,
+    children: [
       {
-        title: 'Wood Calculator',
-        path: '/factory/wood-calculator',
-        icon: CalculateIcon
+        title: 'Wood Types',
+        path: '/management/wood-types',
+        icon: ForestIcon
       }
     ]
   },
@@ -96,6 +110,7 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
     );
     return menuWithActivePath?.title || null;
   });
+  const currentFile = import.meta.url;
 
   const handleNavigation = (path: string | undefined, title: string) => {
     if (path) {
@@ -127,14 +142,15 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
           sx={{
             minHeight: 48,
             pl: 2 + level * 2,
+            py: 1.5,
             '&.Mui-selected': {
-              backgroundColor: 'rgba(25, 118, 210, 0.12)',
-              color: 'primary.main',
+              backgroundColor: '#f8f9fa',
+              color: '#2c3e50',
               '&:hover': {
-                backgroundColor: 'rgba(25, 118, 210, 0.20)',
+                backgroundColor: '#f0f2f5',
               },
               '& .MuiListItemIcon-root': {
-                color: 'primary.main',
+                color: '#2c3e50',
               },
             },
             '&:hover': {
@@ -142,10 +158,20 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
             },
           }}
         >
-          <ListItemIcon sx={{ minWidth: 40, color: isSelected ? 'primary.main' : 'inherit' }}>
+          <ListItemIcon sx={{ 
+            minWidth: 40, 
+            color: isSelected ? '#2c3e50' : '#64748b' 
+          }}>
             <item.icon />
           </ListItemIcon>
-          <ListItemText primary={item.title} />
+          <ListItemText 
+            primary={item.title}
+            primaryTypographyProps={{
+              fontSize: '0.85rem',
+              fontWeight: isSelected ? 500 : 400,
+              color: isSelected ? '#2c3e50' : '#64748b'
+            }}
+          />
           {hasChildren && (isSubmenuOpen ? <ExpandLess /> : <ExpandMore />)}
         </ListItemButton>
         
@@ -158,6 +184,12 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
         )}
       </Box>
     );
+  };
+
+  // Function to format the file path
+  const formatFilePath = (url: string) => {
+    const path = url.split('/src/')[1];
+    return path ? `layouts/${path}` : 'Sidebar.tsx';
   };
 
   return (
@@ -187,39 +219,63 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
         },
       }}
     >
-      {!isMobile && <Toolbar />}
-      <Box sx={{ 
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'auto',
-        height: '100%',
-      }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <Box sx={{ 
+          p: 2, 
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}>
+          {import.meta.env.DEV && (
+            <Tooltip 
+              title={`File: ${formatFilePath(currentFile)}`}
+              arrow
+            >
+              <Chip
+                label="Development"
+                size="small"
+                sx={{
+                  backgroundColor: '#fbbf24',
+                  color: '#78350f',
+                  '& .MuiChip-label': {
+                    fontWeight: 600
+                  },
+                  cursor: 'help'
+                }}
+              />
+            </Tooltip>
+          )}
+        </Box>
+
         <List sx={{ flex: 1 }}>
           {menuItems.map(item => renderMenuItem(item))}
         </List>
 
         <Box sx={{ 
           p: 2, 
+          mt: 'auto',
           borderTop: `1px solid ${theme.palette.divider}`,
           backgroundColor: theme.palette.grey[50],
         }}>
           <Typography 
-            variant="caption" 
-            display="block" 
-            align="center"
-            color="text.secondary"
-            sx={{ opacity: 0.7 }}
+            variant="body1"
+            sx={{ 
+              textAlign: 'center',
+              color: theme.palette.text.secondary,
+              fontFamily: theme.typography.fontFamily,
+              '& span': {
+                fontWeight: 600,
+                color: '#dc2626',
+                transition: 'color 0.2s',
+                cursor: 'default',
+                '&:hover': {
+                  color: '#b91c1c',
+                }
+              }
+            }}
           >
-            Version 1.0.0
-          </Typography>
-          <Typography 
-            variant="caption" 
-            display="block" 
-            align="center"
-            color="text.secondary"
-            sx={{ opacity: 0.7 }}
-          >
-            Developed by Vix
+            Developed by <span>Vix</span>
           </Typography>
         </Box>
       </Box>

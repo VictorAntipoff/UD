@@ -4,7 +4,6 @@ import HomeIcon from '@mui/icons-material/Home';
 import SettingsIcon from '@mui/icons-material/Settings';
 import BuildIcon from '@mui/icons-material/Build';
 import PeopleIcon from '@mui/icons-material/People';
-import { SectionLabel } from '../components/SectionLabel';
 
 // Dashboard item type
 interface DashboardItem {
@@ -49,7 +48,6 @@ export const HomePage = () => {
     <Container maxWidth="lg" sx={{ position: 'relative' }}>
       {/* Welcome Section */}
       <Box sx={{ position: 'relative', mb: 4 }}>
-        <SectionLabel text="Welcome Section" color="info.main" position="top-left" />
         <Paper 
           elevation={3} 
           sx={{ 
@@ -71,7 +69,6 @@ export const HomePage = () => {
 
       {/* Dashboard Section */}
       <Box sx={{ position: 'relative', mb: 4 }}>
-        <SectionLabel text="Dashboard Items" color="warning.main" position="top-left" />
         <Grid container spacing={3} sx={{ mt: 3 }}>
           {dashboardItems.map((item, index) => (
             <Grid item xs={12} sm={6} md={3} key={index}>

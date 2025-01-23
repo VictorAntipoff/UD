@@ -1,11 +1,21 @@
-import { Container, Typography } from '@mui/material';
+import { Container, Typography, Box } from '@mui/material';
 
 export default function UserSettings() {
   return (
     <Container>
-      <Typography variant="h4" component="h1" gutterBottom>
-        User Settings
-      </Typography>
+      <Box sx={{ py: 3 }}>
+        <Typography 
+          variant="h4" 
+          component="h1" 
+          gutterBottom
+          sx={{ 
+            fontFamily: 'inherit',
+            fontWeight: 500
+          }}
+        >
+          User Settings
+        </Typography>
+      </Box>
     </Container>
   );
 } 
