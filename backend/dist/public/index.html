@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UDesign API</title>
+    <link rel="icon" type="image/x-icon" href="/favicon_grey.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="/favicon_grey.ico">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #fff;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+        .logo img {
+            height: 35px;
+        }
+        .api-status {
+            background: #fff;
+            padding: 8px 16px;
+            border-radius: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            color: #28a745;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        .api-status::before {
+            content: "•";
+            font-size: 24px;
+        }
+        .info-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 40px;
+        }
+        .info-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            min-width: 140px;
+        }
+        .info-card h3 {
+            color: #666;
+            font-weight: normal;
+            font-size: 14px;
+            margin: 0 0 8px 0;
+        }
+        .info-card p {
+            color: #333;
+            font-size: 20px;
+            font-weight: 500;
+            margin: 0;
+        }
+        .endpoints-section {
+            background: #fff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .endpoints-section h2 {
+            margin: 0 0 24px 0;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+        .endpoint {
+            padding: 12px;
+            border-radius: 8px;
+            margin: 8px 0;
+            background: #f8f9fa;
+            font-family: monospace;
+            font-size: 14px;
+            color: #666;
+        }
+        .get { 
+            color: #0066cc;
+            background: #e6f0ff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .post { 
+            color: #28a745;
+            background: #e6ffe6;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        footer {
+            text-align: center;
+            margin-top: 60px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">
+            <img src="/logo.png" alt="UDesign">
+        </div>
+        <div class="api-status" id="apiStatus">API Online</div>
+    </div>
+
+    <div class="info-cards">
+        <div class="info-card">
+            <h3>Server Port</h3>
+            <p>3010</p>
+        </div>
+        <div class="info-card">
+            <h3>Environment</h3>
+            <p id="environment">-</p>
+        </div>
+        <div class="info-card">
+            <h3>Uptime</h3>
+            <p id="uptime">-</p>
+        </div>
+    </div>
+
+    <div class="endpoints-section">
+        <h2>API ENDPOINTS</h2>
+        <div class="endpoint"><span class="get">GET</span> /api/health</div>
+        <div class="endpoint"><span class="post">POST</span> /api/auth/login</div>
+        <div class="endpoint"><span class="get">GET</span> /api/auth/me</div>
+        <div class="endpoint"><span class="get">GET</span> /api/users</div>
+        <div class="endpoint"><span class="get">GET</span> /api/projects</div>
+        <div class="endpoint"><span class="get">GET</span> /api/settings</div>
+    </div>
+
+    <footer>
+        UDesign API v1.0.0 • Jan 16, 2025
+    </footer>
+
+    <script>
+        function formatUptime(seconds) {
+            if (seconds < 60) return `${Math.floor(seconds)}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+            return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+        }
+
+        function updateHealth() {
+            fetch('/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('environment').textContent = data.env || 'development';
+                    document.getElementById('uptime').textContent = formatUptime(data.uptime);
+                    
+                    const apiStatus = document.getElementById('apiStatus');
+                    apiStatus.textContent = data.status === 'healthy' ? 'API Online' : 'API Issues';
+                    apiStatus.style.color = data.status === 'healthy' ? '#28a745' : '#dc3545';
+                })
+                .catch(error => {
+                    console.error('Health check failed:', error);
+                    document.getElementById('apiStatus').textContent = 'API Offline';
+                    document.getElementById('apiStatus').style.color = '#dc3545';
+                    document.getElementById('environment').textContent = '-';
+                    document.getElementById('uptime').textContent = '-';
+                });
+        }
+
+        // Update immediately and then every 5 seconds
+        updateHealth();
+        setInterval(updateHealth, 5000);
+    </script>
+</body>
+</html> 

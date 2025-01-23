@@ -3,53 +3,80 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl) {
-  throw new Error('Missing VITE_SUPABASE_URL environment variable');
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables');
 }
 
-if (!supabaseAnonKey) {
-  throw new Error('Missing VITE_SUPABASE_ANON_KEY environment variable');
-}
+console.log('Initializing Supabase client...');
 
-console.log('Supabase URL:', supabaseUrl);
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    autoRefreshToken: true,
     persistSession: true,
+    autoRefreshToken: true,
     detectSessionInUrl: true
+  },
+  global: {
+    headers: {
+      'x-application-name': 'wood-calculator'
+    }
   }
 });
 
+// Add debug logging
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth state changed:', event, {
+    userId: session?.user?.id,
+    email: session?.user?.email
+  });
+});
+
+// Test connection and auth
 export const testSupabaseConnection = async () => {
   try {
-    // First check auth status
-    const { data: { session }, error: authError } = await supabase.auth.getSession();
-    if (authError) {
-      console.error('Auth error:', authError);
-      return false;
-    }
+    console.log('Testing connection...');
     
-    if (!session) {
-      console.log('No active Supabase session');
+    // First check auth status
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    
+    if (sessionError) {
+      console.error('Session error:', sessionError);
       return false;
     }
 
-    // Then try to access wood_types with auth headers
-    const { data, error: dbError } = await supabase
+    if (!session?.user) {
+      console.error('No valid session');
+      return false;
+    }
+
+    console.log('Session found:', session.user.id);
+
+    // Try a basic health check query - just check if we can access the table
+    const { data, error: healthError } = await supabase
       .from('wood_types')
-      .select('*')
-      .limit(1)
-      .throwOnError();
+      .select('count', { count: 'exact', head: true });
 
-    if (dbError) {
-      console.error('Database error:', dbError);
+    if (healthError) {
+      console.error('Health check failed:', healthError);
       return false;
     }
 
-    console.log('Supabase connection successful, wood_types:', data);
     return true;
   } catch (error) {
-    console.error('Supabase connection error:', error);
+    console.error('Connection test failed:', error);
+    return false;
+  }
+};
+
+// Simplify table existence check
+export const checkTableExists = async (tableName: string) => {
+  try {
+    const { data, error } = await supabase
+      .from(tableName)
+      .select('count', { count: 'exact', head: true });
+    
+    return !error;
+  } catch (error) {
+    console.error(`Failed to check table ${tableName}:`, error);
     return false;
   }
 }; 

@@ -18,7 +18,8 @@
     "allowJs": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "types": ["@supabase/supabase-js"]
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
