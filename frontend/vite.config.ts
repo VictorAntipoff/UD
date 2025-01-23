@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => {
       host: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:3010',
+          target: env.VITE_API_URL || 'http://localhost:3010',
           changeOrigin: true,
           secure: false
         },
@@ -28,6 +28,17 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       port: 3020
+    },
+    build: {
+      sourcemap: true,
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            vendor: ['react', 'react-dom', 'react-router-dom'],
+            mui: ['@mui/material', '@mui/icons-material'],
+          }
+        }
+      }
     },
     // Make env variables available
     define: {

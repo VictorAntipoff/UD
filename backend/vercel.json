@@ -2,21 +2,38 @@
   "version": 2,
   "builds": [
     {
-      "src": "dist/server.js",
-      "use": "@vercel/node"
+      "src": "dist/index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "dist/**",
+          "public/**"
+        ]
+      }
     }
   ],
   "routes": [
     {
+      "src": "/favicon.ico",
+      "dest": "/public/favicon_grey.ico"
+    },
+    {
+      "src": "/favicon_grey.ico",
+      "dest": "/public/favicon_grey.ico"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/dist/index.js"
+    },
+    {
       "src": "/(.*)",
-      "dest": "dist/server.js"
+      "dest": "/dist/index.js"
     }
   ],
   "env": {
     "NODE_ENV": "production",
-    "SUPABASE_URL": "$SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY": "$SUPABASE_SERVICE_ROLE_KEY",
-    "JWT_SECRET": "$JWT_SECRET",
-    "FRONTEND_URL": "https://ud-frontend-snowy.vercel.app"
+    "DATABASE_URL": "$DATABASE_URL",
+    "DIRECT_URL": "$DIRECT_URL",
+    "JWT_SECRET": "$JWT_SECRET"
   }
 }

@@ -20,21 +20,21 @@ import {
   FormControl,
   InputLabel,
   Tooltip,
+  Alert,
   CircularProgress,
 } from '@mui/material';
-import { SectionLabel } from '../../components/SectionLabel';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PrintIcon from '@mui/icons-material/Print';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, testSupabaseConnection } from '../../config/supabase';
+import { supabase, testSupabaseConnection, checkTableExists } from '../../config/supabase';
 import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
+import { useNavigate } from 'react-router-dom';
 
 console.log('Environment Variables:', {
   url: import.meta.env.VITE_SUPABASE_URL,
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY,
-  password: import.meta.env.VITE_SUPABASE_USER_PASSWORD
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY
 });
 
 interface WoodType {
@@ -55,6 +55,22 @@ interface PlankDimensions {
   notes: string;
 }
 
+interface Calculation {
+  id: string;
+  user_id: string;
+  wood_type_id: string;
+  thickness: number;
+  width: number;
+  length: number;
+  price_per_plank: number;
+  volume_m3: number;
+  planks_per_m3: number;
+  price_per_m3: number;
+  notes: string | null;
+  created_at: string;
+  wood_type: WoodType;
+}
+
 interface CalculationResult {
   dimensions: PlankDimensions;
   volumeM3: number;
@@ -67,8 +83,9 @@ interface CalculationResult {
   userId: string;
 }
 
-// Add this helper function for formatting numbers with commas
-const formatNumber = (num: number): string => {
+// Update the formatNumber function to handle undefined/null values
+const formatNumber = (num: number | null | undefined): string => {
+  if (num === null || num === undefined) return '-';
   return num.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
@@ -86,7 +103,8 @@ const defaultWoodType: WoodType = {
 };
 
 export default function WoodCalculator() {
-  const { user, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [dimensions, setDimensions] = useState<PlankDimensions>({
     thickness: 0,
     width: 0,
@@ -104,133 +122,122 @@ export default function WoodCalculator() {
 
   const [history, setHistory] = useState<CalculationResult[]>([]);
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dbConnected, setDbConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const fetchData = async () => {
+    try {
+      // Check auth first
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        console.error('No valid session');
+        setError('Please log in again');
+        return;
+      }
+
+      setIsLoading(true);
+
+      // Check if table exists
+      const tableExists = await checkTableExists('wood_types');
+      if (!tableExists) {
+        console.error('wood_types table does not exist');
+        setError('Database setup incomplete. Please contact support.');
+        return;
+      }
+
+      // Try a simple query first
+      const { error: testError } = await supabase
+        .from('wood_types')
+        .select('id')
+        .limit(1)
+        .single();
+
+      if (testError) {
+        console.error('Test query failed:', testError);
+        setError('Database connection error. Please try again later.');
+        return;
+      }
+
+      // Then fetch wood types
+      const { data: woodTypesData, error: woodTypesError } = await supabase
+        .from('wood_types')
+        .select('*')
+        .order('name');
+
+      if (woodTypesError) {
+        console.error('Error fetching wood types:', woodTypesError);
+        setError('Failed to load wood types');
+        return;
+      }
+
+      setWoodTypes(woodTypesData || []);
+
+      // Then fetch calculations
+      const { data: calculationsData, error: calculationsError } = await supabase
+        .from('calculations')
+        .select(`
+          *,
+          wood_type:wood_types(*)
+        `)
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+
+      if (calculationsError) {
+        console.error('Error fetching calculations:', calculationsError);
+        setError('Failed to load calculations');
+        return;
+      }
+
+      setHistory(calculationsData.map(mapCalculationFromDB));
+      setError(null);
+
+    } catch (error) {
+      console.error('Error in fetchData:', error);
+      setError('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      window.location.href = '/login';
-      return;
-    }
-
-    const checkConnection = async () => {
+    const checkAuth = async () => {
       try {
-        setLoading(true);
-        setError(null);
-        
-        // Check Supabase session
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) {
-          // Try to sign in with stored credentials
-          const { error } = await supabase.auth.signInWithPassword({
-            email: 'admin@example.com',
-            password: import.meta.env.VITE_SUPABASE_USER_PASSWORD || 'Admin123'
-          });
-          if (error) {
-            console.error('Supabase auth error:', error);
-            setError('Authentication failed. Please log in again.');
-            window.location.href = '/login';
-            return;
-          }
-        }
         
+        if (!session?.user) {
+          const currentUrl = window.location.pathname + window.location.search;
+          sessionStorage.setItem('redirectUrl', currentUrl);
+          navigate('/login', { replace: true });
+          return;
+        }
+
+        setIsLoading(true);
+
         const isConnected = await testSupabaseConnection();
         setDbConnected(isConnected);
-        if (!isConnected) {
-          setError('Database connection failed. Please try again later.');
-        }
-      } catch (error) {
-        console.error('Connection test failed:', error);
-        setError('Database connection failed. Please try again later.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkConnection();
-  }, [isAuthenticated]);
-
-  // Update the data fetch useEffect
-  useEffect(() => {
-    const fetchData = async () => {
-      if (!dbConnected || !user?.id) return;
-      
-      try {
-        setLoading(true);
-        setError(null);
         
-        // First fetch wood types
-        const { data: woodTypesData, error: woodTypesError } = await supabase
-          .from('wood_types')
-          .select('*')
-          .order('name');
-
-        if (woodTypesError) {
-          console.error('Wood types error:', woodTypesError);
-          throw woodTypesError;
+        if (!isConnected) {
+          setError('Unable to connect to database. Please try again later.');
+          return;
         }
 
-        console.log('Wood types loaded:', woodTypesData);
-        setWoodTypes(woodTypesData || []);
+        await fetchData();
 
-        // Then fetch calculations
-        const { data: calculationsData, error: calculationsError } = await supabase
-          .from('calculations')
-          .select(`
-            id,
-            user_id,
-            wood_type_id,
-            thickness,
-            width,
-            length,
-            price_per_plank,
-            volume_m3,
-            planks_per_m3,
-            price_per_m3,
-            notes,
-            created_at,
-            wood_type:wood_types(*)
-          `)
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (calculationsError) {
-          console.error('Calculations error:', calculationsError);
-          throw calculationsError;
-        }
-
-        console.log('Calculations loaded:', calculationsData);
-
-        // Transform the data to match your interface
-        const transformedCalculations: CalculationResult[] = (calculationsData || []).map(calc => ({
-          id: calc.id,
-          userId: calc.user_id,
-          dimensions: {
-            thickness: calc.thickness,
-            width: calc.width,
-            length: calc.length,
-            pricePerPlank: calc.price_per_plank,
-            woodTypeId: calc.wood_type_id,
-            notes: calc.notes || ''
-          },
-          volumeM3: calc.volume_m3,
-          planksPerM3: calc.planks_per_m3,
-          pricePerM3: calc.price_per_m3,
-          timestamp: new Date(calc.created_at).toLocaleString(),
-          woodType: calc.wood_type || defaultWoodType,
-          notes: calc.notes || ''
-        }));
-
-        setHistory(transformedCalculations);
       } catch (error) {
-        console.error('Error fetching data:', error);
-        setError('Failed to load data. Please try again.');
+        console.error('Auth check failed:', error);
+        setError('Authentication failed. Please try again.');
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
+    if (!woodTypes.length || !history.length) {
+      checkAuth();
+    }
+  }, [navigate, woodTypes.length, history.length]);
+
+  useEffect(() => {
     if (user && dbConnected) {
       fetchData();
     }
@@ -247,7 +254,6 @@ export default function WoodCalculator() {
   };
 
   const handlePriceChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // Remove commas and any non-numeric characters except decimal point
     const rawValue = event.target.value.replace(/,/g, '').replace(/[^\d.]/g, '');
     const numericValue = parseFloat(rawValue) || 0;
     setDimensions(prev => ({
@@ -258,6 +264,11 @@ export default function WoodCalculator() {
 
   const calculateVolume = () => {
     const { width, thickness, length, pricePerPlank } = dimensions;
+    
+    if (!width || !thickness || !length || !pricePerPlank) {
+      setError('Please fill in all dimensions and price');
+      return;
+    }
     
     const widthMeters = width * 0.0254;
     const thicknessMeters = thickness * 0.0254;
@@ -274,8 +285,8 @@ export default function WoodCalculator() {
     };
 
     setResult(newResult);
+    setError(null);
 
-    // Update history with proper typing
     setHistory(prev => [{
       dimensions: { ...dimensions },
       ...newResult,
@@ -286,16 +297,6 @@ export default function WoodCalculator() {
       userId: user?.id || ''
     }, ...prev]);
   };
-
-  // Format price for display - move this closer to where it's used
-  const formatPriceInput = (value: number): string => {
-    if (value === 0) return '';
-    return value.toLocaleString('en-US', {
-      maximumFractionDigits: 0 // No decimal places for the input
-    });
-  };
-
-  const displayPrice = formatPriceInput(dimensions.pricePerPlank);
 
   const handlePrintCalculation = () => {
     if (!result) return;
@@ -334,42 +335,44 @@ export default function WoodCalculator() {
   };
 
   const saveCalculation = async () => {
-    if (!result || !user?.id) return;
-
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        setError('Please log in again');
+        return;
+      }
+
+      if (!result || !dimensions.woodTypeId) {
+        setError('Missing required data');
+        return;
+      }
+
+      const calculationData = {
+        user_id: session.user.id,
+        wood_type_id: dimensions.woodTypeId,
+        thickness: Number(dimensions.thickness),
+        width: Number(dimensions.width),
+        length: Number(dimensions.length),
+        price_per_plank: Number(dimensions.pricePerPlank),
+        volume_m3: Number(result.volumeM3),
+        planks_per_m3: Number(result.planksPerM3),
+        price_per_m3: Number(result.pricePerM3),
+        notes: dimensions.notes || null
+      };
+
       const { error } = await supabase
         .from('calculations')
-        .insert({
-          user_id: user.id,
-          wood_type_id: dimensions.woodTypeId,
-          thickness: dimensions.thickness,
-          width: dimensions.width,
-          length: dimensions.length,
-          price_per_plank: dimensions.pricePerPlank,
-          volume_m3: result.volumeM3,
-          planks_per_m3: result.planksPerM3,
-          price_per_m3: result.pricePerM3,
-          notes: dimensions.notes
-        });
+        .insert([calculationData])
+        .select();
 
       if (error) throw error;
 
-      // Refresh the history
-      const { data: newHistory, error: fetchError } = await supabase
-        .from('calculations')
-        .select(`
-          *,
-          wood_type:wood_types(*)
-        `)
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (fetchError) throw fetchError;
-      setHistory(newHistory || []);
+      await fetchData();
+      setError('');
 
     } catch (error) {
       console.error('Error saving calculation:', error);
-      setError('Failed to save calculation. Please try again.');
+      setError('Failed to save calculation');
     }
   };
 
@@ -388,344 +391,530 @@ export default function WoodCalculator() {
     }
   };
 
+  const mapCalculationFromDB = (item: Calculation): CalculationResult => ({
+    id: item.id,
+    userId: item.user_id,
+    dimensions: {
+      thickness: item.thickness,
+      width: item.width,
+      length: item.length,
+      pricePerPlank: item.price_per_plank,
+      woodTypeId: item.wood_type_id,
+      notes: item.notes || ''
+    },
+    volumeM3: item.volume_m3,
+    planksPerM3: item.planks_per_m3,
+    pricePerM3: item.price_per_m3,
+    timestamp: item.created_at,
+    woodType: item.wood_type,
+    notes: item.notes || ''
+  });
+
   return (
     <SupabaseErrorBoundary>
-      <Container maxWidth="md">
-        <Box sx={{ py: 3 }}>
-          {loading ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-              <CircularProgress />
-            </Box>
-          ) : error ? (
-            <Box sx={{ 
-              textAlign: 'center', 
-              color: 'error.main',
-              p: 4 
-            }}>
-              <Typography>{error}</Typography>
-            </Box>
-          ) : (
-            <SectionLabel text="@WoodCalculator" color="error.light" position="top-left" />
-          )}
-          
-          <Box sx={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
-            gap: 3,
-            bgcolor: '#f8f9fa',
-            borderRadius: 2,
-            p: 3,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
-          }}>
-            <Typography variant="h5" sx={{ 
-              fontWeight: 600,
-              color: '#2c3e50',
-              borderBottom: '2px solid #e74c3c',
-              pb: 1,
-              display: 'inline-block',
-              alignSelf: 'flex-start'
-            }}>
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        {isLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} />
+          </Box>
+        ) : (
+          <Box sx={{ py: 3 }}>
+            <Typography 
+              variant="h5"
+              component="h1" 
+              gutterBottom
+              sx={{ 
+                fontSize: '1.1rem',
+                fontWeight: 500,
+                color: '#2c3e50',
+                mb: 2 
+              }}
+            >
               Wood Calculator
             </Typography>
 
-            <Grid container spacing={3}>
-              {/* Input Section */}
-              <Grid item xs={12} md={6}>
-                <Paper elevation={0} sx={{ 
-                  p: 2.5, 
-                  bgcolor: 'white',
-                  borderRadius: 2,
-                  border: '1px solid #e1e8ed'
-                }}>
-                  <Typography variant="subtitle1" gutterBottom sx={{ color: '#34495e', mb: 2 }}>
-                    Plank Dimensions
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <TextField
-                      label="Thickness"
-                      type="number"
-                      value={dimensions.thickness || ''}
-                      onChange={handleInputChange('thickness')}
-                      InputProps={{
-                        endAdornment: <InputAdornment position="end">inches</InputAdornment>
-                      }}
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      inputProps={{ step: "0.01", min: "0" }}
-                    />
-                    <TextField
-                      label="Width"
-                      type="number"
-                      value={dimensions.width || ''}
-                      onChange={handleInputChange('width')}
-                      InputProps={{
-                        endAdornment: <InputAdornment position="end">inches</InputAdornment>
-                      }}
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      inputProps={{ step: "0.01", min: "0" }}
-                    />
-                    <TextField
-                      label="Length"
-                      type="number"
-                      value={dimensions.length || ''}
-                      onChange={handleInputChange('length')}
-                      InputProps={{
-                        endAdornment: <InputAdornment position="end">feet</InputAdornment>
-                      }}
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      inputProps={{ step: "0.01", min: "0" }}
-                    />
-                    <TextField
-                      label="Price per Plank"
-                      value={displayPrice}
-                      onChange={handlePriceChange}
-                      InputProps={{
-                        startAdornment: <InputAdornment position="start">TZS</InputAdornment>
-                      }}
-                      variant="outlined"
-                      fullWidth
-                      size="small"
-                      inputProps={{ 
-                        inputMode: 'numeric',
-                        style: { textAlign: 'right' } // Right align the numbers
-                      }}
-                    />
-                    <Button
-                      variant="contained"
-                      onClick={calculateVolume}
-                      startIcon={<CalculateIcon />}
-                      size="medium"
-                      sx={{
-                        mt: 1,
-                        py: 1,
-                        bgcolor: '#e74c3c',
-                        '&:hover': {
-                          bgcolor: '#c0392b',
-                        }
-                      }}
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
+            )}
+
+            <Paper elevation={0} sx={{ 
+              p: 3, 
+              mb: 3,
+              border: '1px solid #e1e8ed',
+              borderRadius: 2
+            }}>
+              <Typography 
+                variant="h6" 
+                gutterBottom
+                sx={{ 
+                  fontSize: '0.95rem',
+                  fontWeight: 500,
+                  color: '#34495e',
+                  mb: 2 
+                }}
+              >
+                Plank Details
+              </Typography>
+
+              <FormControl fullWidth sx={{ mb: 3 }}>
+                <InputLabel>Wood Type</InputLabel>
+                <Select
+                  value={dimensions.woodTypeId}
+                  label="Wood Type"
+                  onChange={(e) => setDimensions(prev => ({
+                    ...prev,
+                    woodTypeId: e.target.value as string
+                  }))}
+                  size="small"
+                  sx={{
+                    '& .MuiSelect-select': {
+                      fontSize: '0.85rem'
+                    }
+                  }}
+                >
+                  {woodTypes.map((type) => (
+                    <MenuItem 
+                      key={type.id} 
+                      value={type.id}
+                      sx={{ fontSize: '0.85rem' }}
                     >
-                      Calculate
-                    </Button>
-                  </Box>
-                </Paper>
-              </Grid>
-
-              {/* Results Section */}
-              <Grid item xs={12} md={6}>
-                <Paper elevation={0} sx={{ 
-                  p: 2,
-                  bgcolor: 'white',
-                  borderRadius: 2,
-                  border: '1px solid #e1e8ed',
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: 'column'
-                }}>
-                  <Typography variant="subtitle1" gutterBottom sx={{ color: '#34495e', mb: 1 }}>
-                    Results
-                  </Typography>
-                  
-                  {result ? (
-                    <Grid container spacing={1.5}>
-                      <Grid item xs={12}>
-                        <Paper elevation={0} sx={{ 
-                          p: 1.5,
-                          bgcolor: '#f8f9fa',
-                          border: '1px solid #e1e8ed',
-                          borderRadius: 2
-                        }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Volume per Plank
-                            </Typography>
-                            <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 500 }}>
-                              {result.volumeM3.toFixed(4)} m³
-                            </Typography>
-                          </Box>
-                        </Paper>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <Paper elevation={0} sx={{ 
-                          p: 1.5,
-                          bgcolor: '#f8f9fa',
-                          border: '1px solid #e1e8ed',
-                          borderRadius: 2
-                        }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Planks per Cubic Meter
-                            </Typography>
-                            <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 500 }}>
-                              {result.planksPerM3.toFixed(2)} planks/m³
-                            </Typography>
-                          </Box>
-                        </Paper>
-                      </Grid>
-                      <Grid item xs={12}>
-                        <Paper elevation={0} sx={{ 
-                          p: 1.5,
-                          bgcolor: '#f8f9fa',
-                          border: '1px solid #e1e8ed',
-                          borderRadius: 2,
-                          borderLeft: '4px solid #e74c3c'
-                        }}>
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="body2" color="text.secondary">
-                              Price per Cubic Meter
-                            </Typography>
-                            <Typography variant="body1" sx={{ color: '#e74c3c', fontWeight: 500 }}>
-                              TZS {formatNumber(result.pricePerM3)}/m³
-                            </Typography>
-                          </Box>
-                        </Paper>
-                      </Grid>
-                    </Grid>
-                  ) : (
-                    <Box sx={{ 
-                      flex: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#95a5a6',
-                      p: 2
-                    }}>
-                      <Typography variant="body2">
-                        Enter dimensions and price to see calculations
-                      </Typography>
-                    </Box>
-                  )}
-                </Paper>
-              </Grid>
-            </Grid>
-          </Box>
-
-          {/* Add Wood Type Selection and Notes */}
-          <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-            <InputLabel>Wood Type</InputLabel>
-            <Select
-              value={dimensions.woodTypeId}
-              onChange={(e) => setDimensions(prev => ({ 
-                ...prev, 
-                woodTypeId: e.target.value as string 
-              }))}
-              label="Wood Type"
-            >
-              <MenuItem value="">
-                <em>Select a wood type</em>
-              </MenuItem>
-              {woodTypes?.map(type => (
-                <MenuItem key={type.id} value={type.id}>
-                  {type.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <TextField
-            fullWidth
-            multiline
-            rows={2}
-            label="Notes (Optional)"
-            value={dimensions.notes}
-            onChange={(e) => setDimensions(prev => ({ ...prev, notes: e.target.value }))}
-            size="small"
-            sx={{ mb: 2 }}
-          />
-
-          {/* Add Print and Save buttons */}
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-            <Button
-              variant="outlined"
-              onClick={handlePrintCalculation}
-              startIcon={<PrintIcon />}
-              disabled={!result}
-            >
-              Print
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={saveCalculation}
-              disabled={!result}
-            >
-              Save
-            </Button>
-          </Box>
-
-          {/* History Table */}
-          <Paper elevation={0} sx={{ 
-            mt: 3, 
-            p: 2,
-            border: '1px solid #e1e8ed',
-            borderRadius: 2
-          }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ color: '#34495e' }}>
-              Calculation History
-            </Typography>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Time</TableCell>
-                    <TableCell>Dimensions (T×W×L)</TableCell>
-                    <TableCell>Price/Plank</TableCell>
-                    <TableCell>Volume</TableCell>
-                    <TableCell>Planks/m³</TableCell>
-                    <TableCell>Price/m³</TableCell>
-                    <TableCell align="right">Action</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {history.map((item, index) => (
-                    <TableRow key={index} hover>
-                      <TableCell>{item.timestamp}</TableCell>
-                      <TableCell>
-                        {`${item.dimensions.thickness}"×${item.dimensions.width}"×${item.dimensions.length}'`}
-                      </TableCell>
-                      <TableCell>TZS {formatNumber(item.dimensions.pricePerPlank)}</TableCell>
-                      <TableCell>{item.volumeM3.toFixed(4)} m³</TableCell>
-                      <TableCell>{item.planksPerM3.toFixed(2)}</TableCell>
-                      <TableCell>TZS {formatNumber(item.pricePerM3)}</TableCell>
-                      <TableCell align="right">
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                          <Tooltip title="Copy calculation">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => handleCopyCalculation(item)}
-                              sx={{ color: 'primary.main' }}
-                            >
-                              <ContentCopyIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => deleteCalculation(item.id)}
-                              sx={{ color: '#e74c3c' }}
-                            >
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
+                      {type.name} - Grade {type.grade}
+                      {type.origin && ` (${type.origin})`}
+                    </MenuItem>
                   ))}
-                  {history.length === 0 && (
+                </Select>
+              </FormControl>
+
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Thickness (inches)"
+                    type="number"
+                    value={dimensions.thickness || ''}
+                    onChange={handleInputChange('thickness')}
+                    size="small"
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">"</InputAdornment>
+                    }}
+                    sx={{ 
+                      '& .MuiInputLabel-root': {
+                        fontSize: '0.85rem'
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Width (inches)"
+                    type="number"
+                    value={dimensions.width || ''}
+                    onChange={handleInputChange('width')}
+                    size="small"
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">"</InputAdornment>
+                    }}
+                    sx={{ 
+                      '& .MuiInputLabel-root': {
+                        fontSize: '0.85rem'
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Length (feet)"
+                    type="number"
+                    value={dimensions.length || ''}
+                    onChange={handleInputChange('length')}
+                    size="small"
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">'</InputAdornment>
+                    }}
+                    sx={{ 
+                      '& .MuiInputLabel-root': {
+                        fontSize: '0.85rem'
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Grid>
+              </Grid>
+
+              <TextField
+                fullWidth
+                label="Price per Plank (TZS)"
+                value={dimensions.pricePerPlank.toLocaleString()}
+                onChange={handlePriceChange}
+                size="small"
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">TZS</InputAdornment>
+                }}
+                sx={{ 
+                  mb: 3,
+                  '& .MuiInputLabel-root': {
+                    fontSize: '0.85rem'
+                  },
+                  '& .MuiInputBase-input': {
+                    fontSize: '0.85rem'
+                  }
+                }}
+              />
+
+              <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  label="Notes"
+                  value={dimensions.notes}
+                  onChange={(e) => setDimensions(prev => ({ 
+                    ...prev, 
+                    notes: e.target.value 
+                  }))}
+                  size="small"
+                  placeholder="Add any additional notes here..."
+                  sx={{ 
+                    '& .MuiInputLabel-root': {
+                      fontSize: '0.85rem'
+                    },
+                    '& .MuiInputBase-input': {
+                      fontSize: '0.85rem'
+                    }
+                  }}
+                />
+              </Paper>
+
+              <Button
+                variant="contained"
+                onClick={calculateVolume}
+                startIcon={<CalculateIcon />}
+                fullWidth
+              >
+                Calculate
+              </Button>
+            </Paper>
+
+            <Paper elevation={0} sx={{ 
+              p: 2,
+              bgcolor: 'white',
+              borderRadius: 2,
+              border: '1px solid #e1e8ed',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
+              <Typography 
+                variant="subtitle1" 
+                gutterBottom 
+                sx={{ 
+                  fontSize: '0.95rem',
+                  fontWeight: 500,
+                  color: '#34495e', 
+                  mb: 1 
+                }}
+              >
+                Results
+              </Typography>
+              
+              {result ? (
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: '#f8f9fa',
+                      border: '1px solid #e1e8ed',
+                      borderRadius: 2
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Volume per Plank
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#2c3e50', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          {result.volumeM3.toFixed(4)} m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: '#f8f9fa',
+                      border: '1px solid #e1e8ed',
+                      borderRadius: 2
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Planks per Cubic Meter
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#2c3e50', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          {result.planksPerM3.toFixed(2)} planks/m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: '#f8f9fa',
+                      border: '1px solid #e1e8ed',
+                      borderRadius: 2,
+                      borderLeft: '4px solid #e74c3c'
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Price per Cubic Meter
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#e74c3c', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          TZS {formatNumber(result.pricePerM3)}/m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                </Grid>
+              ) : (
+                <Box sx={{ 
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#95a5a6',
+                  p: 2
+                }}>
+                  <Typography variant="body2">
+                    Enter dimensions and price to see calculations
+                  </Typography>
+                </Box>
+              )}
+            </Paper>
+
+            <Box sx={{ 
+              display: 'flex', 
+              gap: 2, 
+              mt: 2,
+              mb: 2,
+              '& .MuiButton-root': {
+                minWidth: 110,
+                height: 36,
+                textTransform: 'none',
+                fontSize: '0.85rem'
+              }
+            }}>
+              <Button
+                variant="outlined"
+                onClick={handlePrintCalculation}
+                startIcon={<PrintIcon />}
+                disabled={!result}
+                sx={{
+                  borderColor: '#e1e8ed',
+                  color: '#2c3e50',
+                  '&:hover': {
+                    borderColor: '#bdc3c7',
+                    backgroundColor: '#f8f9fa'
+                  }
+                }}
+              >
+                Print
+              </Button>
+              <Button
+                variant="contained"
+                onClick={saveCalculation}
+                disabled={!result || !user?.id}
+                sx={{
+                  backgroundColor: '#2c3e50',
+                  '&:hover': {
+                    backgroundColor: '#34495e'
+                  }
+                }}
+              >
+                Save Calculation
+              </Button>
+            </Box>
+
+            <Paper elevation={0} sx={{ 
+              mt: 3, 
+              p: 2,
+              border: '1px solid #e1e8ed',
+              borderRadius: 2
+            }}>
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                mb: 2 
+              }}>
+                <Typography 
+                  variant="subtitle1" 
+                  sx={{ 
+                    color: '#34495e',
+                    fontSize: '0.95rem',
+                    fontWeight: 500
+                  }}
+                >
+                  Calculation History
+                </Typography>
+              </Box>
+
+              <TableContainer>
+                <Table size="small" sx={{
+                  '& .MuiTableCell-root': {
+                    fontSize: '0.8rem',
+                    py: 1,
+                    px: 1.5,
+                    whiteSpace: 'nowrap'
+                  },
+                  '& .MuiTableCell-head': {
+                    fontWeight: 600,
+                    backgroundColor: '#f8f9fa',
+                    color: '#2c3e50'
+                  },
+                  '& .MuiTableRow-root:hover': {
+                    backgroundColor: '#f8f9fa'
+                  },
+                  '& .MuiTableBody-root .MuiTableRow-root:last-child .MuiTableCell-root': {
+                    borderBottom: 'none'
+                  }
+                }}>
+                  <TableHead>
                     <TableRow>
-                      <TableCell colSpan={7} align="center" sx={{ py: 3, color: '#95a5a6' }}>
-                        No calculations yet
-                      </TableCell>
+                      <TableCell>Time</TableCell>
+                      <TableCell>Wood Type</TableCell>
+                      <TableCell>Dimensions</TableCell>
+                      <TableCell align="right">Price/Plank</TableCell>
+                      <TableCell align="right">Volume</TableCell>
+                      <TableCell align="right">Planks/m³</TableCell>
+                      <TableCell align="right">Price/m³</TableCell>
+                      <TableCell align="right" sx={{ width: '80px' }}>Actions</TableCell>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        </Box>
+                  </TableHead>
+                  <TableBody>
+                    {history.map((item) => (
+                      <TableRow key={item.id} hover>
+                        <TableCell>
+                          {item.timestamp 
+                            ? new Date(item.timestamp).toLocaleString(undefined, {
+                                year: '2-digit',
+                                month: 'numeric',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })
+                            : '-'}
+                        </TableCell>
+                        <TableCell>
+                          {item.woodType 
+                            ? `${item.woodType.name} (${item.woodType.grade})`
+                            : '-'}
+                        </TableCell>
+                        <TableCell>
+                          {item.dimensions.thickness && item.dimensions.width && item.dimensions.length
+                            ? `${item.dimensions.thickness}″×${item.dimensions.width}″×${item.dimensions.length}′`
+                            : '-'}
+                        </TableCell>
+                        <TableCell align="right">
+                          {item.dimensions.pricePerPlank 
+                            ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
+                            : '-'}
+                        </TableCell>
+                        <TableCell align="right">
+                          {item.volumeM3 
+                            ? `${item.volumeM3.toFixed(4)}`
+                            : '-'}
+                        </TableCell>
+                        <TableCell align="right">
+                          {item.planksPerM3 
+                            ? item.planksPerM3.toFixed(2)
+                            : '-'}
+                        </TableCell>
+                        <TableCell align="right">
+                          {item.pricePerM3 
+                            ? `TZS ${formatNumber(item.pricePerM3)}`
+                            : '-'}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Box sx={{ 
+                            display: 'flex', 
+                            justifyContent: 'flex-end', 
+                            gap: 0.5 
+                          }}>
+                            <Tooltip title="Copy">
+                              <IconButton 
+                                size="small" 
+                                onClick={() => handleCopyCalculation(item)}
+                                sx={{ 
+                                  padding: 0.5,
+                                  '&:hover': {
+                                    backgroundColor: '#f0f2f5'
+                                  }
+                                }}
+                              >
+                                <ContentCopyIcon sx={{ fontSize: '1rem' }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton 
+                                size="small"
+                                onClick={() => deleteCalculation(item.id)}
+                                sx={{ 
+                                  padding: 0.5,
+                                  '&:hover': {
+                                    backgroundColor: '#fee2e2',
+                                    color: '#ef4444'
+                                  }
+                                }}
+                              >
+                                <DeleteIcon sx={{ fontSize: '1rem' }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {history.length === 0 && (
+                      <TableRow>
+                        <TableCell 
+                          colSpan={8} 
+                          align="center" 
+                          sx={{ 
+                            py: 4,
+                            color: '#94a3b8',
+                            fontSize: '0.875rem'
+                          }}
+                        >
+                          No calculations yet
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          </Box>
+        )}
       </Container>
     </SupabaseErrorBoundary>
   );

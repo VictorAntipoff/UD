@@ -1,98 +1,79 @@
-import express from 'express';
-import cors from 'cors';
-import path from 'path';
-import { config } from 'dotenv';
-
-// Load environment variables
-if (process.env.NODE_ENV !== 'production') {
-  config();
-}
-
-// Verify Supabase environment variables
-console.log('Environment Check:', {
-  nodeEnv: process.env.NODE_ENV,
-  supabaseUrl: process.env.SUPABASE_URL?.substring(0, 20) + '...',
-  hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
-  hasJwtSecret: !!process.env.JWT_SECRET
-});
-
-// Import routes after environment variables are loaded
-import authRoutes from './routes/auth.routes';
-import swaggerUi from 'swagger-ui-express';
-import swaggerDocument from './swagger.json';
-
-const app = express();
-
-// CORS configuration
-const corsOptions = {
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://ud-frontend-snowy.vercel.app']
-    : ['http://localhost:3020'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-
-app.use(cors(corsOptions));
-
-app.use(express.json());
-
-// Serve favicon
+var _a;
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = __importDefault(require("express"));
+const cors_1 = __importDefault(require("cors"));
+const path_1 = __importDefault(require("path"));
+const dotenv_1 = require("dotenv");
+if (process.env.NODE_ENV !== 'production') {
+    (0, dotenv_1.config)();
+}
+console.log('Environment Check:', {
+    nodeEnv: process.env.NODE_ENV,
+    supabaseUrl: ((_a = process.env.SUPABASE_URL) === null || _a === void 0 ? void 0 : _a.substring(0, 20)) + '...',
+    hasAnonKey: !!process.env.SUPABASE_ANON_KEY,
+    hasJwtSecret: !!process.env.JWT_SECRET
+});
+const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
+const swagger_ui_express_1 = __importDefault(require("swagger-ui-express"));
+const swagger_json_1 = __importDefault(require("./swagger.json"));
+const app = (0, express_1.default)();
+const corsOptions = {
+    origin: process.env.NODE_ENV === 'production'
+        ? ['https://ud-frontend-snowy.vercel.app']
+        : ['http://localhost:3020'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
+app.use((0, cors_1.default)(corsOptions));
+app.use(express_1.default.json());
 app.get('/favicon.ico', (_req, res) => {
-  res.sendFile(path.join(__dirname, '../public/favicon_grey.ico'));
+    res.sendFile(path_1.default.join(__dirname, '../public/favicon_grey.ico'));
 });
-
-// API Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
-
-// API Routes first
-app.use('/api/auth', authRoutes);
-
-// Debug route handling
-app.use((req: express.Request, _res: express.Response, next: express.NextFunction) => {
-  console.log('Request:', {
-    method: req.method,
-    path: req.path,
-    body: req.body,
-    headers: req.headers
-  });
-  next();
+app.use('/api-docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_json_1.default));
+app.use('/api/auth', auth_routes_1.default);
+app.use((req, _res, next) => {
+    console.log('Request:', {
+        method: req.method,
+        path: req.path,
+        body: req.body,
+        headers: req.headers
+    });
+    next();
 });
-
-// Simplified health check
 app.get('/api/health', (_req, res) => {
-  try {
-    const healthData = { 
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      env: process.env.NODE_ENV || 'unknown'
-    };
-    
-    debug('Health check response', healthData);
-    res.json(healthData);
-  } catch (error: any) {
-    debug('Health check error', { 
-      message: error.message,
-      type: error.constructor.name
-    });
-    
-    res.status(500).json({ 
-      status: 'error',
-      message: error.message
-    });
-  }
+    try {
+        const healthData = {
+            status: 'healthy',
+            timestamp: new Date().toISOString(),
+            env: process.env.NODE_ENV || 'unknown'
+        };
+        debug('Health check response', healthData);
+        res.json(healthData);
+    }
+    catch (error) {
+        debug('Health check error', {
+            message: error.message,
+            type: error.constructor.name
+        });
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
 });
-
-// Landing page
 app.get('/', async (_req, res) => {
-  try {
-    const serverInfo = {
-      port: process.env.PORT || '3010',
-      environment: process.env.NODE_ENV || 'development',
-      uptime: formatUptime(process.uptime())
-    };
-
-    const indexHtml = `
+    try {
+        const serverInfo = {
+            port: process.env.PORT || '3010',
+            environment: process.env.NODE_ENV || 'development',
+            uptime: formatUptime(process.uptime())
+        };
+        const indexHtml = `
       <!DOCTYPE html>
       <html lang="en">
       <head>
@@ -354,74 +335,63 @@ app.get('/', async (_req, res) => {
       </body>
       </html>
     `;
-
-    res.send(indexHtml);
-  } catch (error) {
-    res.status(500).send('Error generating server information');
-  }
+        res.send(indexHtml);
+    }
+    catch (error) {
+        res.status(500).send('Error generating server information');
+    }
 });
-
-// Static files after routes
-app.use(express.static(path.join(__dirname, '../public')));
-
-// Error handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Server Error:', {
-    message: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
-    path: req.path,
-    method: req.method
-  });
-
-  if (res.headersSent) {
-    return next(err);
-  }
-
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    error: err.name || 'Internal Server Error',
-    message: err.message || 'Something went wrong',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+app.use(express_1.default.static(path_1.default.join(__dirname, '../public')));
+app.use((err, req, res, next) => {
+    console.error('Server Error:', {
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+        path: req.path,
+        method: req.method
+    });
+    if (res.headersSent) {
+        return next(err);
+    }
+    const statusCode = err.statusCode || 500;
+    res.status(statusCode).json(Object.assign({ error: err.name || 'Internal Server Error', message: err.message || 'Something went wrong' }, (process.env.NODE_ENV === 'development' && { stack: err.stack })));
 });
-
-// Helper function to format uptime
-function formatUptime(uptime: number): string {
-  const days = Math.floor(uptime / 86400);
-  const hours = Math.floor((uptime % 86400) / 3600);
-  const minutes = Math.floor((uptime % 3600) / 60);
-  const seconds = Math.floor(uptime % 60);
-
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+function formatUptime(uptime) {
+    const days = Math.floor(uptime / 86400);
+    const hours = Math.floor((uptime % 86400) / 3600);
+    const minutes = Math.floor((uptime % 3600) / 60);
+    const seconds = Math.floor(uptime % 60);
+    if (days > 0)
+        return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0)
+        return `${hours}h ${minutes}m ${seconds}s`;
+    if (minutes > 0)
+        return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
 }
-
-// Simplify debug function
-const debug = (msg: string, obj: any = {}) => {
-  console.log(`[DEBUG] ${msg}`);
-  if (Object.keys(obj).length > 0) {
-    console.log(JSON.stringify(obj, null, 2));
-  }
+const debug = (msg, obj = {}) => {
+    console.log(`[DEBUG] ${msg}`);
+    if (Object.keys(obj).length > 0) {
+        console.log(JSON.stringify(obj, null, 2));
+    }
 };
-
-// Add this to catch unhandled errors
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
-
 process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+    console.error('Uncaught Exception:', error);
 });
-
-// Only start server in development
 if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 3010;
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+    const PORT = process.env.PORT || 3010;
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
 }
-
-// Export for Vercel
-export default app;
+exports.default = app;
+app.get('/health', (_req, res) => {
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        env: process.env.NODE_ENV
+    });
+});
+//# sourceMappingURL=server.js.map

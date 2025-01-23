@@ -2,14 +2,13 @@
 // File: src/routes/auth.ts
 // Description: Handles all authentication-related API endpoints
 
-import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Router, Request, Response, NextFunction } from 'express';
+import { prisma } from '../app';
 import jwt from 'jsonwebtoken';
 import { compare } from 'bcrypt';
 import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Debug all registered routes
 console.log('Registering auth routes...');
@@ -19,11 +18,19 @@ router.stack.forEach((r: any) => {
   }
 });
 
-// Add logging for debugging
-router.use((req, res, next) => {
-  console.log('Auth route accessed:', req.method, req.path, {
-    headers: req.headers,
-    body: req.body
+// Middleware for logging
+router.use((req: Request, _res: Response, next: NextFunction) => {
+  console.log(`Auth Route: ${req.method} ${req.path}`);
+  next();
+});
+
+// Debug logging middleware
+router.use((req: Request, _res: Response, next: NextFunction) => {
+  console.log('Auth request:', {
+    path: req.path,
+    method: req.method,
+    body: req.body,
+    headers: req.headers
   });
   next();
 });
@@ -31,31 +38,47 @@ router.use((req, res, next) => {
 // Login route
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
-    console.log('Login attempt:', { username, hasPassword: !!password });
-
-    const user = await prisma.user.findFirst({
-      where: { username }
+    console.log('Login attempt:', {
+      body: req.body,
+      headers: req.headers
     });
 
-    if (!user || !(await compare(password, user.password))) {
+    const { email, password } = req.body;
+
+    console.log('Login attempt:', { email });
+
+    // Find user by email
+    const user = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (!user) {
+      console.log('User not found:', email);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Verify password
+    const isValidPassword = await compare(password, user.password);
+    if (!isValidPassword) {
+      console.log('Invalid password for user:', email);
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Generate JWT token
     const token = jwt.sign(
       { 
-        userId: user.id, 
+        userId: user.id,
         role: user.role 
       },
       process.env.JWT_SECRET!,
-      { expiresIn: '24h' }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
     );
 
-    res.json({
+    // Return user data and token
+    return res.json({
       token,
       user: {
         id: user.id,
-        username: user.username,
         email: user.email,
         role: user.role,
         firstName: user.firstName,
@@ -65,26 +88,21 @@ router.post('/login', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ message: 'Database error' });
+    res.status(500).json({
+      error: 'Login failed',
+      message: error.message
+    });
   }
 });
 
-// ME endpoint
+// Me route
 router.get('/me', authenticateToken, async (req: Request, res: Response) => {
   try {
-    console.log('ME endpoint accessed, user:', req.user);
-    const userId = req.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
-    }
-
     const user = await prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: req.user?.id },
       select: {
         id: true,
         email: true,
-        username: true,
         role: true,
         firstName: true,
         lastName: true,
@@ -96,10 +114,10 @@ router.get('/me', authenticateToken, async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    res.json({ user });
+    return res.json({ user });
   } catch (error) {
     console.error('Error in /me endpoint:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
