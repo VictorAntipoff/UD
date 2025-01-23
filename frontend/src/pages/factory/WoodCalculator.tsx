@@ -22,6 +22,7 @@ import {
   Tooltip,
   Alert,
   CircularProgress,
+  Chip
 } from '@mui/material';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -31,6 +32,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase, testSupabaseConnection, checkTableExists } from '../../config/supabase';
 import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 console.log('Environment Variables:', {
   url: import.meta.env.VITE_SUPABASE_URL,
@@ -125,6 +127,9 @@ export default function WoodCalculator() {
   const [error, setError] = useState<string | null>(null);
   const [dbConnected, setDbConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [uptime, setUptime] = useState<string>('');
+
+  const currentFile = import.meta.url;
 
   const fetchData = async () => {
     try {
@@ -242,6 +247,31 @@ export default function WoodCalculator() {
       fetchData();
     }
   }, [user, dbConnected]);
+
+  useEffect(() => {
+    const checkHealth = async () => {
+      try {
+        const response = await axios.get('/api/health', {
+          timeout: 5000,  // 5 second timeout
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+        
+        if (response.data && response.data.uptime) {
+          setUptime(response.data.uptime);
+        }
+      } catch (error) {
+        console.error('Health check failed:', error);
+        setUptime('API Error');
+      }
+    };
+
+    checkHealth();
+    const interval = setInterval(checkHealth, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleInputChange = (field: keyof PlankDimensions) => (
     event: React.ChangeEvent<HTMLInputElement>
@@ -413,6 +443,36 @@ export default function WoodCalculator() {
   return (
     <SupabaseErrorBoundary>
       <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+          <Typography 
+            variant="h5" 
+            sx={{ 
+              color: '#2c3e50',
+              fontWeight: 500
+            }}
+          >
+            Wood Calculator
+          </Typography>
+          {import.meta.env.DEV && (
+            <Tooltip 
+              title={`File: ${currentFile.split('/src/')[1]}`}
+              arrow
+            >
+              <Chip
+                label="Development"
+                size="small"
+                sx={{
+                  backgroundColor: '#fbbf24',
+                  color: '#78350f',
+                  '& .MuiChip-label': {
+                    fontWeight: 600
+                  },
+                  cursor: 'help'
+                }}
+              />
+            </Tooltip>
+          )}
+        </Box>
         {isLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
             <CircularProgress size={24} />
@@ -913,6 +973,12 @@ export default function WoodCalculator() {
                 </Table>
               </TableContainer>
             </Paper>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Uptime: {uptime || 'Calculating...'}
+              </Typography>
+            </Box>
           </Box>
         )}
       </Container>

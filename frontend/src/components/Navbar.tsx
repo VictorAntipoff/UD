@@ -7,7 +7,9 @@ import {
   Avatar, 
   Menu, 
   MenuItem, 
-  Tooltip
+  Tooltip,
+
+  Chip
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -26,6 +28,7 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
   const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
   const navigate = useNavigate();
   const { logout } = useAuth();
+  const currentFile = import.meta.url;
 
   const handleProfileClick = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -114,6 +117,26 @@ export default function Navbar({ onMenuClick }: NavbarProps) {
           <MenuItem onClick={handleClose}>Notification 1</MenuItem>
           <MenuItem onClick={handleClose}>Notification 2</MenuItem>
         </Menu>
+
+        {import.meta.env.DEV && (
+          <Tooltip 
+            title={`File: ${currentFile.split('/src/')[1]}`}
+            arrow
+          >
+            <Chip
+              label="Development"
+              size="small"
+              sx={{
+                backgroundColor: '#fbbf24',
+                color: '#78350f',
+                '& .MuiChip-label': {
+                  fontWeight: 600
+                },
+                cursor: 'help'
+              }}
+            />
+          </Tooltip>
+        )}
       </Toolbar>
     </AppBar>
   );

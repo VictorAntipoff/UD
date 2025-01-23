@@ -8,11 +8,12 @@ import {
   Avatar,
   Menu,
   MenuItem,
-  Tooltip
+  Tooltip,
+  Chip,
+  Box
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -22,7 +23,7 @@ interface TopBarProps {
 
 const TopBar: FC<TopBarProps> = ({ onMenuClick }) => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
 
@@ -43,6 +44,9 @@ const TopBar: FC<TopBarProps> = ({ onMenuClick }) => {
     handleClose();
     logout();
   };
+
+  const isDevelopment = import.meta.env.DEV;
+  const currentFile = import.meta.url;
 
   return (
     <AppBar 
@@ -75,19 +79,31 @@ const TopBar: FC<TopBarProps> = ({ onMenuClick }) => {
           </IconButton>
         </Tooltip>
 
-        <Tooltip title="Account settings">
-          <IconButton onClick={handleProfileClick} sx={{ ml: 2 }}>
-            <Avatar sx={{ width: 32, height: 32 }}>
-              <AccountCircleIcon />
-            </Avatar>
-          </IconButton>
-        </Tooltip>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Tooltip title="Account settings">
+            <IconButton
+              onClick={handleProfileClick}
+              size="small"
+              sx={{ ml: 2 }}
+              aria-controls={Boolean(anchorEl) ? 'account-menu' : undefined}
+              aria-haspopup="true"
+              aria-expanded={Boolean(anchorEl) ? 'true' : undefined}
+            >
+              <Avatar sx={{ width: 32, height: 32, bgcolor: '#2c3e50' }}>
+                {user?.email?.[0].toUpperCase() || 'U'}
+              </Avatar>
+            </IconButton>
+          </Tooltip>
+        </Box>
 
         <Menu
           anchorEl={anchorEl}
+          id="account-menu"
           open={Boolean(anchorEl)}
           onClose={handleClose}
           onClick={handleClose}
+          transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+          anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         >
           <MenuItem onClick={() => navigate('/profile')}>Profile</MenuItem>
           <MenuItem onClick={() => navigate('/settings')}>Settings</MenuItem>
@@ -104,6 +120,28 @@ const TopBar: FC<TopBarProps> = ({ onMenuClick }) => {
           <MenuItem>System update available</MenuItem>
           <MenuItem>Your report is ready</MenuItem>
         </Menu>
+
+        {isDevelopment && (
+          <Tooltip 
+            title={`File: ${currentFile.split('/src/')[1]}`}
+            arrow
+          >
+            <Chip
+              label="Development"
+              color="warning"
+              size="small"
+              sx={{
+                ml: 2,
+                backgroundColor: '#fbbf24',
+                color: '#78350f',
+                '& .MuiChip-label': {
+                  fontWeight: 600
+                },
+                cursor: 'help'
+              }}
+            />
+          </Tooltip>
+        )}
       </Toolbar>
     </AppBar>
   );
