@@ -2,6 +2,9 @@ import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import theme from './theme';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { Suspense } from 'react';
+import { CircularProgress } from '@mui/material';
 
 // Providers
 import { AuthProvider } from './contexts/AuthContext';
@@ -12,7 +15,6 @@ import LoginPage from './pages/LoginPage';
 import { HomePage } from './pages/HomePage';
 import AuthWrapper from './components/AuthWrapper';
 import MainLayout from './layouts/MainLayout';
-import { ErrorBoundary } from './components/ErrorBoundary';
 import { ErrorPage } from './components/ErrorPage';
 import UserSettings from './pages/settings/UserSettings';
 import AdminSettings from './pages/settings/AdminSettings';
@@ -60,16 +62,42 @@ const router = createBrowserRouter([
 ]);
 
 export const App = () => {
+  const updateHealth = async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('Health check response:', data);
+      
+      // Update your UI based on health status
+      setHealthStatus(data.status === 'healthy');
+    } catch (error) {
+      console.error('Health check failed:', error);
+      setHealthStatus(false);
+    }
+  };
+
   return (
     <ErrorBoundary>
-      <DevelopmentProvider>
-        <AuthProvider>
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <RouterProvider router={router} />
-          </ThemeProvider>
-        </AuthProvider>
-      </DevelopmentProvider>
+      <Suspense fallback={<CircularProgress />}>
+        <DevelopmentProvider>
+          <AuthProvider>
+            <ThemeProvider theme={theme}>
+              <CssBaseline />
+              <RouterProvider router={router} />
+            </ThemeProvider>
+          </AuthProvider>
+        </DevelopmentProvider>
+      </Suspense>
     </ErrorBoundary>
   );
 };

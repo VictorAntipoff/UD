@@ -1,30 +1,36 @@
 import app from './app';
+// Remove unused import
+// import { calculateUptime } from './utils/uptime';
 
 const port = process.env.PORT || 3010;
 
-const server = app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-  console.log('Available routes:');
-  app._router.stack.forEach((r: any) => {
-    if (r.route && r.route.path) {
-      const methods = Object.keys(r.route.methods).map(m => m.toUpperCase()).join(',');
-      console.log(`${methods} ${r.route.path}`);
-    } else if (r.name === 'router') {
-      console.log('Router:', r.regexp);
-      r.handle.stack.forEach((h: any) => {
-        if (h.route) {
-          const methods = Object.keys(h.route.methods).map(m => m.toUpperCase()).join(',');
-          console.log(`  ${methods} ${h.route.path}`);
-        }
-      });
-    }
+// Start server for local development
+if (process.env.NODE_ENV !== 'production') {
+  const server = app.listen(port, () => {
+    console.log(`Server running at http://localhost:${port}`);
+    console.log('Environment:', process.env.NODE_ENV);
+    console.log('Start time:', new Date().toISOString());
+    console.log('Database URL:', process.env.DATABASE_URL?.substring(0, 20) + '...');
   });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received. Shutting down...');
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
+  });
+}
+
+// Add this to catch unhandled errors
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Shutting down gracefully');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-}); 
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+});
+
+// Export for Vercel
+export default app; 

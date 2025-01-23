@@ -1,18 +1,19 @@
-import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { Router, Request, Response } from 'express';
+import { prisma } from '../app';
+import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Get all projects for the authenticated user
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
     const projects = await prisma.project.findMany({
       where: {
-        OR: [
-          { ownerId: req.user!.userId },
-          { isPublic: true }
-        ]
+        ownerId: req.user.id
       },
       include: {
         owner: {
@@ -25,29 +26,34 @@ router.get('/', async (req, res) => {
         }
       }
     });
-    res.json(projects);
+    return res.json(projects);
   } catch (error) {
     console.error('Error fetching projects:', error);
-    res.status(500).json({ error: 'Failed to fetch projects' });
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
 // Create new project
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req: Request, res: Response) => {
   try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
     const { name, description, isPublic } = req.body;
+    
     const project = await prisma.project.create({
       data: {
-        name,
-        description,
-        isPublic: isPublic || false,
-        ownerId: req.user!.userId
+        name: String(name),
+        description: description ? String(description) : null,
+        isPublic: Boolean(isPublic),
+        ownerId: req.user.id
       }
     });
-    res.status(201).json(project);
+    return res.status(201).json(project);
   } catch (error) {
     console.error('Error creating project:', error);
-    res.status(500).json({ error: 'Failed to create project' });
+    return res.status(500).json({ error: 'Failed to create project' });
   }
 });
 
