@@ -20,27 +20,20 @@ declare global {
 export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers['authorization'];
-    console.log('Auth header:', authHeader);
+    const token = authHeader?.split(' ')[1];
 
-    if (!authHeader?.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({ message: 'No token provided' });
     }
 
-    const token = authHeader.split(' ')[1];
-    console.log('Processing token:', token?.substring(0, 10) + '...');
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
-      userId: string;
-      role: string;
-    };
-
-    console.log('Token verified, user:', decoded);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+    
     req.user = {
       id: decoded.userId,
       role: decoded.role
     };
 
-    next();
+    return next();
   } catch (error) {
     console.error('Token verification failed:', error);
     return res.status(403).json({ message: 'Invalid token' });
