@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, TextField, Box, Typography, Container, Paper, Fade } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { useDevelopment } from '../../contexts/DevelopmentContext';
 
 const PageContainer = styled(Box)(({ theme }) => ({
   minHeight: '100vh',
@@ -41,20 +40,6 @@ const Logo = styled('img')({
   }
 });
 
-const DevTag = styled(Box)(({ theme }) => ({
-  position: 'absolute',
-  top: theme.spacing(2),
-  right: theme.spacing(2),
-  padding: theme.spacing(0.5, 1.5),
-  borderRadius: '20px',
-  backgroundColor: theme.palette.warning.main,
-  color: theme.palette.warning.contrastText,
-  fontSize: '0.75rem',
-  fontWeight: 'bold',
-  opacity: 0.9,
-  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
-}));
-
 const StyledTextField = styled(TextField)(() => ({
   '& .MuiOutlinedInput-root': {
     '&.Mui-focused fieldset': {
@@ -68,7 +53,6 @@ const LoginForm = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const { login, isLoading } = useAuth();
-  const { showLabels } = useDevelopment();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,9 +71,6 @@ const LoginForm = () => {
       <Container maxWidth="xs" sx={{ position: 'relative' }}>
         <Fade in timeout={800}>
           <StyledPaper elevation={0}>
-            {showLabels && (
-              <DevTag>Development Mode</DevTag>
-            )}
             <Logo src="/logo.png" alt="UDesign Logo" />
             
             <Typography 

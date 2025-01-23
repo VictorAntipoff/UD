@@ -1,0 +1,131 @@
+// This file should exist at backend/prisma/schema.prisma
+// Let me know if you need me to create it
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  password        String
+  firstName       String?
+  lastName        String?
+  role            String            @default("user")
+  isActive        Boolean           @default(true)
+  projects        Project[]         @relation("ProjectOwner")
+  factories       Factory[]
+  designs         Design[]          @relation("DesignCreator")
+  comments        Comment[]         @relation("CommentAuthor")
+  calculations    WoodCalculation[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model Project {
+  id            String    @id @default(uuid())
+  name          String
+  description   String?
+  ownerId       String
+  owner         User        @relation("ProjectOwner", fields: [ownerId], references: [id])
+  isPublic      Boolean     @default(false)
+  designs       Design[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+model Factory {
+  id        String   @id @default(uuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Design {
+  id          String    @id @default(cuid())
+  name        String
+  content     Json
+  thumbnail   String?
+  projectId   String
+  creatorId   String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  project     Project   @relation(fields: [projectId], references: [id])
+  creator     User      @relation("DesignCreator", fields: [creatorId], references: [id])
+  comments    Comment[]
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  content   String
+  designId  String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  design    Design   @relation(fields: [designId], references: [id])
+  author    User     @relation("CommentAuthor", fields: [authorId], references: [id])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model Job {
+  id        String   @id @default(cuid())
+  name      String
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WoodType {
+  id            String            @id @default(uuid())
+  name          String
+  description   String?
+  density       Float?
+  grade         String
+  origin        String?
+  calculations  WoodCalculation[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model WoodCalculation {
+  id            String    @id @default(uuid())
+  userId        String
+  woodTypeId    String
+  thickness     Float
+  width         Float
+  length        Float
+  pricePerPlank Float
+  volumeM3      Float
+  planksPerM3   Float
+  pricePerM3    Float
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  user          User      @relation(fields: [userId], references: [id])
+  woodType      WoodType  @relation(fields: [woodTypeId], references: [id])
+}
