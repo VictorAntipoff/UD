@@ -8,7 +8,6 @@ import Sidebar from './Sidebar';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { SectionLabel } from '../components/SectionLabel';
 
 export default function MainLayout() {
   // === State Management ===
@@ -42,7 +41,6 @@ export default function MainLayout() {
         bgcolor: 'background.paper',
         boxShadow: 1
       }}>
-        <SectionLabel text="Navbar.tsx" color="primary.main" position="top-left" />
         <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
       </Box>
 
@@ -60,7 +58,6 @@ export default function MainLayout() {
         boxShadow: 1
       }}>
         <Box sx={{ position: 'relative', height: '100%' }}>
-          <SectionLabel text="Sidebar.tsx" color="secondary.main" position="top-right" />
           <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         </Box>
       </Box>
@@ -79,7 +76,6 @@ export default function MainLayout() {
           position: 'relative'
         }}
       >
-        <SectionLabel text="Main Content" color="success.main" position="top-right" />
         <Outlet />
       </Box>
     </Box>

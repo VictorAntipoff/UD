@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container,
+  Box,
   Typography,
   Paper,
   Table,
@@ -11,7 +11,6 @@ import {
   TableRow,
   IconButton,
   Button,
-  Box,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -19,12 +18,15 @@ import {
   TextField,
   MenuItem,
   Alert,
-  Tooltip
+  Tooltip,
+  Chip,
+  CircularProgress
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { supabase } from '../../config/supabase';
+import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 
 interface WoodType {
   id: string;
@@ -52,6 +54,7 @@ export default function WoodTypeManagement() {
   const [editingWoodType, setEditingWoodType] = useState<WoodType>(defaultWoodType);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const currentFile = import.meta.url;
 
   const fetchWoodTypes = async () => {
     try {
@@ -149,191 +152,276 @@ export default function WoodTypeManagement() {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography 
-          variant="h5" 
-          component="h1"
-          sx={{ 
-            fontSize: '1.1rem',
-            fontWeight: 500,
-            color: '#2c3e50'
-          }}
-        >
-          Wood Type Management
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpen()}
-          sx={{
-            backgroundColor: '#2c3e50',
-            '&:hover': {
-              backgroundColor: '#34495e'
-            },
-            fontSize: '0.85rem'
-          }}
-        >
-          Add Wood Type
-        </Button>
-      </Box>
-
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      <Paper elevation={0} sx={{ border: '1px solid #e1e8ed', borderRadius: 2 }}>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem' }}>Name</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem' }}>Grade</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem' }}>Origin</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem' }}>Density</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem' }}>Description</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {woodTypes.map((woodType) => (
-                <TableRow key={woodType.id} hover>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>{woodType.name}</TableCell>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>{woodType.grade}</TableCell>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>{woodType.origin || '-'}</TableCell>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>
-                    {woodType.density ? `${woodType.density} kg/m³` : '-'}
-                  </TableCell>
-                  <TableCell sx={{ fontSize: '0.85rem' }}>{woodType.description || '-'}</TableCell>
-                  <TableCell align="right">
-                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                      <Tooltip title="Edit">
-                        <IconButton 
-                          size="small" 
-                          onClick={() => handleOpen(woodType)}
-                          sx={{ 
-                            padding: 0.5,
-                            '&:hover': {
-                              backgroundColor: '#f0f2f5'
-                            }
-                          }}
-                        >
-                          <EditIcon sx={{ fontSize: '1.1rem' }} />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton 
-                          size="small"
-                          onClick={() => handleDelete(woodType.id)}
-                          sx={{ 
-                            padding: 0.5,
-                            '&:hover': {
-                              backgroundColor: '#fee2e2',
-                              color: '#ef4444'
-                            }
-                          }}
-                        >
-                          <DeleteIcon sx={{ fontSize: '1.1rem' }} />
-                        </IconButton>
-                      </Tooltip>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
-
-      <Dialog 
-        open={open} 
-        onClose={handleClose}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ fontSize: '1rem', pb: 1 }}>
-          {editingWoodType.id ? 'Edit Wood Type' : 'Add Wood Type'}
-        </DialogTitle>
-        <DialogContent sx={{ pb: 1 }}>
-          <Box sx={{ pt: 1 }}>
-            <TextField
-              fullWidth
-              label="Name"
-              value={editingWoodType.name}
-              onChange={(e) => setEditingWoodType(prev => ({ ...prev, name: e.target.value }))}
-              size="small"
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              select
-              label="Grade"
-              value={editingWoodType.grade}
-              onChange={(e) => setEditingWoodType(prev => ({ ...prev, grade: e.target.value as 'A' | 'B' | 'C' | 'D' }))}
-              size="small"
-              sx={{ mb: 2 }}
+    <SupabaseErrorBoundary>
+      <Box sx={{ p: 3 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 3 
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography 
+              variant="h5" 
+              sx={{ 
+                color: '#2c3e50',
+                fontWeight: 500
+              }}
             >
-              {grades.map((grade) => (
-                <MenuItem key={grade} value={grade}>
-                  Grade {grade}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              fullWidth
-              label="Origin"
-              value={editingWoodType.origin || ''}
-              onChange={(e) => setEditingWoodType(prev => ({ ...prev, origin: e.target.value }))}
-              size="small"
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Density (kg/m³)"
-              type="number"
-              value={editingWoodType.density || ''}
-              onChange={(e) => setEditingWoodType(prev => ({ ...prev, density: parseFloat(e.target.value) || null }))}
-              size="small"
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Description"
-              value={editingWoodType.description || ''}
-              onChange={(e) => setEditingWoodType(prev => ({ ...prev, description: e.target.value }))}
-              size="small"
-              multiline
-              rows={3}
-            />
+              Wood Types Management
+            </Typography>
+            {import.meta.env.DEV && (
+              <Tooltip 
+                title={`File: ${currentFile.split('/src/')[1]}`}
+                arrow
+              >
+                <Chip
+                  label="Development"
+                  size="small"
+                  sx={{
+                    backgroundColor: '#fbbf24',
+                    color: '#78350f',
+                    '& .MuiChip-label': {
+                      fontWeight: 600
+                    },
+                    cursor: 'help'
+                  }}
+                />
+              </Tooltip>
+            )}
           </Box>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button 
-            onClick={handleClose}
-            sx={{ 
-              fontSize: '0.85rem',
-              color: '#64748b'
-            }}
-          >
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSave}
+          <Button
             variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpen()}
             sx={{
               backgroundColor: '#2c3e50',
               '&:hover': {
                 backgroundColor: '#34495e'
               },
-              fontSize: '0.85rem'
+              fontSize: '0.85rem',
+              textTransform: 'none'
             }}
           >
-            Save
+            Add Wood Type
           </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
+        </Box>
+
+        {error && (
+          <Alert 
+            severity="error" 
+            sx={{ 
+              mb: 3,
+              '& .MuiAlert-message': {
+                fontSize: '0.875rem'
+              }
+            }}
+          >
+            {error}
+          </Alert>
+        )}
+
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress size={24} sx={{ color: '#2c3e50' }} />
+          </Box>
+        ) : (
+          <Paper 
+            elevation={0} 
+            sx={{ 
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 2,
+              overflow: 'hidden'
+            }}
+          >
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', py: 1.5 }}>Name</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', py: 1.5 }}>Grade</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', py: 1.5 }}>Origin</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', py: 1.5 }}>Density</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.85rem', py: 1.5 }}>Description</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.85rem', py: 1.5 }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {woodTypes.map((woodType) => (
+                    <TableRow 
+                      key={woodType.id} 
+                      hover
+                      sx={{
+                        '&:last-child td, &:last-child th': { border: 0 }
+                      }}
+                    >
+                      <TableCell sx={{ fontSize: '0.85rem', py: 1.5 }}>{woodType.name}</TableCell>
+                      <TableCell sx={{ fontSize: '0.85rem', py: 1.5 }}>{woodType.grade}</TableCell>
+                      <TableCell sx={{ fontSize: '0.85rem', py: 1.5 }}>{woodType.origin || '-'}</TableCell>
+                      <TableCell sx={{ fontSize: '0.85rem', py: 1.5 }}>
+                        {woodType.density ? `${woodType.density} kg/m³` : '-'}
+                      </TableCell>
+                      <TableCell sx={{ fontSize: '0.85rem', py: 1.5 }}>{woodType.description || '-'}</TableCell>
+                      <TableCell align="right" sx={{ py: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                          <Tooltip title="Edit">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleOpen(woodType)}
+                              sx={{ 
+                                padding: 0.5,
+                                color: '#64748b',
+                                '&:hover': {
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#2c3e50'
+                                }
+                              }}
+                            >
+                              <EditIcon sx={{ fontSize: '1.1rem' }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton 
+                              size="small"
+                              onClick={() => handleDelete(woodType.id)}
+                              sx={{ 
+                                padding: 0.5,
+                                color: '#64748b',
+                                '&:hover': {
+                                  backgroundColor: '#fef2f2',
+                                  color: '#ef4444'
+                                }
+                              }}
+                            >
+                              <DeleteIcon sx={{ fontSize: '1.1rem' }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {woodTypes.length === 0 && (
+                    <TableRow>
+                      <TableCell 
+                        colSpan={6} 
+                        align="center" 
+                        sx={{ 
+                          py: 4,
+                          color: '#94a3b8',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        No wood types found
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        )}
+
+        <Dialog 
+          open={open} 
+          onClose={handleClose}
+          maxWidth="sm"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 2
+            }
+          }}
+        >
+          <DialogTitle sx={{ 
+            fontSize: '1rem', 
+            fontWeight: 500,
+            color: '#2c3e50',
+            pb: 1
+          }}>
+            {editingWoodType.id ? 'Edit Wood Type' : 'Add Wood Type'}
+          </DialogTitle>
+          <DialogContent sx={{ pb: 1 }}>
+            <Box sx={{ pt: 1 }}>
+              <TextField
+                fullWidth
+                label="Name"
+                value={editingWoodType.name}
+                onChange={(e) => setEditingWoodType(prev => ({ ...prev, name: e.target.value }))}
+                size="small"
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                select
+                label="Grade"
+                value={editingWoodType.grade}
+                onChange={(e) => setEditingWoodType(prev => ({ ...prev, grade: e.target.value as 'A' | 'B' | 'C' | 'D' }))}
+                size="small"
+                sx={{ mb: 2 }}
+              >
+                {grades.map((grade) => (
+                  <MenuItem key={grade} value={grade}>
+                    Grade {grade}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                fullWidth
+                label="Origin"
+                value={editingWoodType.origin || ''}
+                onChange={(e) => setEditingWoodType(prev => ({ ...prev, origin: e.target.value }))}
+                size="small"
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                label="Density (kg/m³)"
+                type="number"
+                value={editingWoodType.density || ''}
+                onChange={(e) => setEditingWoodType(prev => ({ ...prev, density: parseFloat(e.target.value) || null }))}
+                size="small"
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                label="Description"
+                value={editingWoodType.description || ''}
+                onChange={(e) => setEditingWoodType(prev => ({ ...prev, description: e.target.value }))}
+                size="small"
+                multiline
+                rows={3}
+              />
+            </Box>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button 
+              onClick={handleClose}
+              sx={{ 
+                fontSize: '0.85rem',
+                color: '#64748b',
+                textTransform: 'none'
+              }}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSave}
+              variant="contained"
+              sx={{
+                backgroundColor: '#2c3e50',
+                '&:hover': {
+                  backgroundColor: '#34495e'
+                },
+                fontSize: '0.85rem',
+                textTransform: 'none'
+              }}
+            >
+              Save
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </SupabaseErrorBoundary>
   );
 } 

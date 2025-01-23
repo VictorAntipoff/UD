@@ -8,7 +8,6 @@ import { CircularProgress } from '@mui/material';
 
 // Providers
 import { AuthProvider } from './contexts/AuthContext';
-import { DevelopmentProvider } from './contexts/DevelopmentContext';
 
 // Pages and Components
 import LoginPage from './pages/LoginPage';
@@ -20,6 +19,8 @@ import UserSettings from './pages/settings/UserSettings';
 import AdminSettings from './pages/settings/AdminSettings';
 import WoodCalculator from './pages/factory/WoodCalculator';
 import ProtectedRoute from './components/ProtectedRoute';
+import WoodTypeManagement from './pages/management/WoodTypeManagement';
+import UnauthorizedPage from './pages/UnauthorizedPage';
 
 const router = createBrowserRouter([
   {
@@ -52,6 +53,14 @@ const router = createBrowserRouter([
             element: <ProtectedRoute><WoodCalculator /></ProtectedRoute>
           },
           {
+            path: 'management/wood-types',
+            element: <ProtectedRoute><WoodTypeManagement /></ProtectedRoute>
+          },
+          {
+            path: 'unauthorized',
+            element: <UnauthorizedPage />
+          },
+          {
             index: true,
             element: <Navigate to="/dashboard" replace />
           }
@@ -62,41 +71,15 @@ const router = createBrowserRouter([
 ]);
 
 export const App = () => {
-  const updateHealth = async () => {
-    try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/health`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Health check response:', data);
-      
-      // Update your UI based on health status
-      setHealthStatus(data.status === 'healthy');
-    } catch (error) {
-      console.error('Health check failed:', error);
-      setHealthStatus(false);
-    }
-  };
-
   return (
     <ErrorBoundary>
       <Suspense fallback={<CircularProgress />}>
-        <DevelopmentProvider>
-          <AuthProvider>
-            <ThemeProvider theme={theme}>
-              <CssBaseline />
-              <RouterProvider router={router} />
-            </ThemeProvider>
-          </AuthProvider>
-        </DevelopmentProvider>
+        <AuthProvider>
+          <ThemeProvider theme={theme}>
+            <CssBaseline />
+            <RouterProvider router={router} />
+          </ThemeProvider>
+        </AuthProvider>
       </Suspense>
     </ErrorBoundary>
   );

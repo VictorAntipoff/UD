@@ -30,8 +30,6 @@ import PeopleIcon from '@mui/icons-material/People';
 import SettingsIcon from '@mui/icons-material/Settings';
 import EmailIcon from '@mui/icons-material/Email';
 import SecurityIcon from '@mui/icons-material/Security';
-import { useDevelopment } from '../../contexts/DevelopmentContext';
-import { SectionLabel } from '../../components/SectionLabel';
 import EditIcon from '@mui/icons-material/Edit';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -92,12 +90,11 @@ function TabPanel(props: TabPanelProps) {
 
 export default function AdminSettings() {
   const [tabValue, setTabValue] = useState(0);
-  const { showLabels, toggleLabels } = useDevelopment();
   
   // === State Management ===
   const [settings, setSettings] = useState({
     // System Settings
-    showDevelopmentLabels: showLabels,
+    showDevelopmentLabels: true,
     enableUserRegistration: true,
     enableNotifications: true,
     enableMaintenance: false,
@@ -140,12 +137,6 @@ export default function AdminSettings() {
       ...settings,
       [name]: value
     });
-
-    // If changing development labels, update localStorage and context
-    if (name === 'showDevelopmentLabels') {
-      toggleLabels();
-      localStorage.setItem('developmentLabels', JSON.stringify(value));
-    }
   };
 
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
@@ -158,13 +149,6 @@ export default function AdminSettings() {
     if (savedSettings) {
       const parsedSettings = JSON.parse(savedSettings);
       setSettings(parsedSettings);
-      
-      // Update development labels from saved settings
-      if (parsedSettings.showDevelopmentLabels !== showLabels) {
-        toggleLabels();
-        // Also save to localStorage for DevelopmentContext
-        localStorage.setItem('developmentLabels', JSON.stringify(!showLabels));
-      }
     }
   }, []);
 
@@ -227,44 +211,26 @@ export default function AdminSettings() {
   // === UI Render ===
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <SectionLabel text="@AdminSettings" color="primary.main" position="top-left" />
-      
-      {/* Page Header */}
-      <Paper 
-        elevation={0}
+      <Typography variant="h4" sx={{ color: '#CC0000', fontWeight: 'bold' }}>
+        Admin Settings
+      </Typography>
+      <Button 
+        variant="contained" 
+        onClick={() => {
+          // Save settings to localStorage
+          localStorage.setItem('adminSettings', JSON.stringify(settings));
+        }}
         sx={{ 
-          mb: 3, 
-          p: 2, 
-          bgcolor: 'background.paper',
-          borderRadius: 2,
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          border: '1px solid',
-          borderColor: 'divider'
+          bgcolor: '#CC0000', 
+          '&:hover': { bgcolor: '#990000' },
+          px: 4,
+          py: 1,
+          textTransform: 'none',
+          fontWeight: 'bold'
         }}
       >
-        <Typography variant="h4" sx={{ color: '#CC0000', fontWeight: 'bold' }}>
-          Admin Settings
-        </Typography>
-        <Button 
-          variant="contained" 
-          onClick={() => {
-            // Save settings to localStorage
-            localStorage.setItem('adminSettings', JSON.stringify(settings));
-          }}
-          sx={{ 
-            bgcolor: '#CC0000', 
-            '&:hover': { bgcolor: '#990000' },
-            px: 4,
-            py: 1,
-            textTransform: 'none',
-            fontWeight: 'bold'
-          }}
-        >
-          Save Changes
-        </Button>
-      </Paper>
+        Save Changes
+      </Button>
 
       {/* Settings Tabs */}
       <Paper 
@@ -275,10 +241,7 @@ export default function AdminSettings() {
           overflow: 'hidden'
         }}
       >
-        <SectionLabel text="@SettingsTabs" color="info.main" position="top-left" />
-        
         <Box sx={{ borderBottom: 1, borderColor: 'divider', position: 'relative', bgcolor: 'background.paper' }}>
-          <SectionLabel text="@TabList" color="warning.main" position="top-right" />
           <Tabs 
             value={tabValue} 
             onChange={handleTabChange}
@@ -296,7 +259,6 @@ export default function AdminSettings() {
               icon={<PeopleIcon />} 
               label={
                 <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@UsersTab" color="success.light" position="top-right" />
                   Users
                 </Box>
               } 
@@ -305,7 +267,6 @@ export default function AdminSettings() {
               icon={<SettingsIcon />} 
               label={
                 <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@SystemTab" color="success.light" position="top-right" />
                   System
                 </Box>
               } 
@@ -314,7 +275,6 @@ export default function AdminSettings() {
               icon={<EmailIcon />} 
               label={
                 <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@EmailTab" color="success.light" position="top-right" />
                   Email
                 </Box>
               } 
@@ -323,7 +283,6 @@ export default function AdminSettings() {
               icon={<SecurityIcon />} 
               label={
                 <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@SecurityTab" color="success.light" position="top-right" />
                   Security
                 </Box>
               } 
@@ -335,8 +294,6 @@ export default function AdminSettings() {
         <Box sx={{ p: 3, bgcolor: 'background.default' }}>
           <TabPanel value={tabValue} index={0}>
             <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@UsersPanel" color="error.light" position="top-left" />
-              
               {/* Users List Section */}
               <Paper sx={{ p: 3, mb: 3 }}>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
@@ -418,7 +375,6 @@ export default function AdminSettings() {
 
               {/* Create User Section */}
               <Box sx={{ position: 'relative' }}>
-                <SectionLabel text="@CreateUser" color="success.light" position="top-left" />
                 <Paper sx={{ p: 3, mb: 3 }}>
                   <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
                     <PersonAddIcon color="primary" />
@@ -498,7 +454,6 @@ export default function AdminSettings() {
 
               {/* Role Management Section */}
               <Box sx={{ position: 'relative' }}>
-                <SectionLabel text="@RoleManagement" color="info.light" position="top-left" />
                 <Paper sx={{ p: 3 }}>
                   <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
                     <SecurityIcon color="primary" />
@@ -603,7 +558,6 @@ export default function AdminSettings() {
 
           <TabPanel value={tabValue} index={1}>
             <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@SystemPanel" color="error.light" position="top-left" />
               <Grid container spacing={3}>
                 {/* Development Settings Card */}
                 <Grid item xs={12} md={6}>
@@ -663,7 +617,6 @@ export default function AdminSettings() {
 
           <TabPanel value={tabValue} index={2}>
             <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@EmailPanel" color="error.light" position="top-left" />
               <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                   <Card>
@@ -700,7 +653,6 @@ export default function AdminSettings() {
 
           <TabPanel value={tabValue} index={3}>
             <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@SecurityPanel" color="error.light" position="top-left" />
               <Grid container spacing={3}>
                 <Grid item xs={12} md={6}>
                   <Card>

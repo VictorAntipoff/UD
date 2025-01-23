@@ -1,21 +1,22 @@
 import React from 'react';
-import { Container, Typography, Grid, Card, CardHeader, CardContent, List, ListItem, ListItemText } from '@mui/material';
+import { Container, Typography, Grid, Card, CardHeader, CardContent, List, ListItem, ListItemText, Box } from '@mui/material';
 
 export default function AdminSettings() {
   return (
-    <Container maxWidth="lg" sx={{ py: 3 }}>
-      <Typography 
-        variant="h5" 
-        component="h1" 
-        gutterBottom
-        sx={{ 
-          fontSize: '1.1rem',
-          fontWeight: 500,
-          mb: 3
-        }}
-      >
-        Admin Settings
-      </Typography>
+    <Container>
+      <Box sx={{ py: 3 }}>
+        <Typography 
+          variant="h4" 
+          component="h1" 
+          gutterBottom
+          sx={{ 
+            fontFamily: 'inherit',
+            fontWeight: 500
+          }}
+        >
+          Admin Settings
+        </Typography>
+      </Box>
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
