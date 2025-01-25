@@ -1,46 +1,32 @@
-import { Component, ErrorInfo, ReactNode } from 'react';
-import { Box, Typography, Button } from '@mui/material';
+import React from 'react';
+import { Alert, Box } from '@mui/material';
 
 interface Props {
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 interface State {
   hasError: boolean;
-  error: Error | null;
+  error?: Error;
 }
 
-export class SupabaseErrorBoundary extends Component<Props, State> {
-  public state: State = {
-    hasError: false,
-    error: null
-  };
+export class SupabaseErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false };
+  }
 
-  public static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error) {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Supabase error:', error, errorInfo);
-  }
-
-  public render() {
+  render() {
     if (this.state.hasError) {
       return (
-        <Box sx={{ p: 3, textAlign: 'center' }}>
-          <Typography variant="h6" color="error" gutterBottom>
-            Database Connection Error
-          </Typography>
-          <Typography variant="body2" color="text.secondary" paragraph>
-            Unable to connect to the database. Please try again later.
-          </Typography>
-          <Button
-            variant="contained"
-            onClick={() => window.location.reload()}
-            color="primary"
-          >
-            Retry Connection
-          </Button>
+        <Box sx={{ p: 3 }}>
+          <Alert severity="error">
+            Database error. Please try again later.
+          </Alert>
         </Box>
       );
     }

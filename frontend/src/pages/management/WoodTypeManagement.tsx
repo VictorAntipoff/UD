@@ -48,7 +48,7 @@ const defaultWoodType: WoodType = {
 
 const grades = ['A', 'B', 'C', 'D'];
 
-export default function WoodTypeManagement() {
+const WoodTypeManagement = () => {
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
   const [open, setOpen] = useState(false);
   const [editingWoodType, setEditingWoodType] = useState<WoodType>(defaultWoodType);
@@ -424,4 +424,6 @@ export default function WoodTypeManagement() {
       </Box>
     </SupabaseErrorBoundary>
   );
-} 
+};
+
+export default WoodTypeManagement; 

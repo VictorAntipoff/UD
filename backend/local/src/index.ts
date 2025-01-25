@@ -7,6 +7,8 @@ import { HealthCheckResponse, HealthStatus } from './types/health.js';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import healthRoutes from './routes/health.js';
+import { prisma } from './lib/prisma.js';
 
 // Load environment variables
 config();
@@ -20,7 +22,7 @@ const PORT = Number(process.env.PORT) || 3010;
 const SERVER_START_TIME = Date.now();
 
 // Initialize Prisma
-const prisma = new PrismaClient({
+const prismaClient = new PrismaClient({
   log: ['warn', 'error']
 });
 
@@ -55,7 +57,7 @@ const setupServer = async () => {
     let apiStatus = 'online';
     let statusColor = '#10b981';
     try {
-      await prisma.$queryRaw`SELECT 1`;
+      await prismaClient.$queryRaw`SELECT 1`;
     } catch (error) {
       apiStatus = 'offline';
       statusColor = '#ef4444';
@@ -317,7 +319,7 @@ const setupServer = async () => {
       };
 
       try {
-        await prisma.$queryRaw`SELECT 1 as connected`;
+        await prismaClient.$queryRaw`SELECT 1 as connected`;
         healthCheck.database = 'connected';
       } catch (error) {
         console.error('Database health check failed:', error);
@@ -349,12 +351,15 @@ const setupServer = async () => {
     prefix: '/',
     decorateReply: false
   });
+
+  // Register health routes
+  await app.register(healthRoutes, { prefix: '/api' });
 };
 
 // Start server
 const startServer = async () => {
   try {
-    await prisma.$connect();
+    await prismaClient.$connect();
     console.log('✅ Database connected');
     
     await setupServer();
@@ -363,7 +368,7 @@ const startServer = async () => {
     console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
   } catch (error) {
     console.error('❌ Failed to start server:', error);
-    await prisma.$disconnect();
+    await prismaClient.$disconnect();
     process.exit(1);
   }
 };
@@ -378,7 +383,7 @@ startServer().catch((error) => {
 process.on('SIGTERM', async () => {
   console.log('🛑 Shutting down...');
   await app.close();
-  await prisma.$disconnect();
+  await prismaClient.$disconnect();
   process.exit(0);
 });
 

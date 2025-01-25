@@ -9,7 +9,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 
-export default function MainLayout() {
+const MainLayout = () => {
   // === State Management ===
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { isAuthenticated } = useAuth();
@@ -80,4 +80,6 @@ export default function MainLayout() {
       </Box>
     </Box>
   );
-} 
+};
+
+export default MainLayout; 

@@ -203,7 +203,7 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
         '& .MuiDrawer-paper': {
           width: drawerWidth,
           boxSizing: 'border-box',
-          backgroundColor: theme.palette.background.paper,
+          backgroundColor: '#f8fafc',
           borderRight: `1px solid ${theme.palette.divider}`,
           top: { xs: 0, sm: 64 },
           height: { xs: '100%', sm: 'calc(100% - 64px)' },
@@ -256,21 +256,28 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }) => {
           p: 2, 
           mt: 'auto',
           borderTop: `1px solid ${theme.palette.divider}`,
-          backgroundColor: theme.palette.grey[50],
+          backgroundColor: 'rgba(248, 250, 252, 0.95)',
+          backdropFilter: 'blur(8px)',
         }}>
-          <Typography 
-            variant="body1"
-            sx={{ 
+          <Typography
+            variant="body2"
+            sx={{
               textAlign: 'center',
-              color: theme.palette.text.secondary,
+              color: 'text.secondary',
               fontFamily: theme.typography.fontFamily,
+              fontSize: '0.875rem',
+              letterSpacing: '0.02em',
               '& span': {
                 fontWeight: 600,
-                color: '#dc2626',
-                transition: 'color 0.2s',
+                background: 'linear-gradient(45deg, #2563eb, #3b82f6)',
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                color: 'transparent',
+                marginLeft: '4px',
+                transition: 'opacity 0.2s',
                 cursor: 'default',
                 '&:hover': {
-                  color: '#b91c1c',
+                  opacity: 0.8
                 }
               }
             }}
