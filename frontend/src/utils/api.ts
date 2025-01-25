@@ -1,5 +1,25 @@
 const API_URL = import.meta.env.VITE_API_URL;
 
+const fetchWithTimeout = async (
+  url: string, 
+  options: RequestInit = {}
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+};
+
 export const checkApiHealth = async () => {
   try {
     const response = await fetch(`${API_URL}/api/health`, {
