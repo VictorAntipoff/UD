@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, type FC } from 'react';
 import {
   Box,
   Typography,
@@ -48,7 +48,7 @@ const defaultWoodType: WoodType = {
 
 const grades = ['A', 'B', 'C', 'D'];
 
-const WoodTypeManagement = () => {
+const WoodTypeManagement: FC = () => {
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
   const [open, setOpen] = useState(false);
   const [editingWoodType, setEditingWoodType] = useState<WoodType>(defaultWoodType);
