@@ -1,7 +1,7 @@
 import { Container, Typography, Paper, Grid, TextField, Button, Box } from '@mui/material';
 import { useState } from 'react';
 
-export default function UserSettings() {
+const UserSettings = () => {
   const [userSettings, setUserSettings] = useState({
     firstName: '',
     lastName: '',
@@ -111,4 +111,6 @@ export default function UserSettings() {
       </Paper>
     </Container>
   );
-} 
+};
+
+export default UserSettings; 

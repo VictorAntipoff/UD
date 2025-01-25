@@ -1,19 +1,34 @@
-import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { ReactNode, useEffect } from 'react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
-export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
+interface ProtectedRouteProps {
+  children: ReactNode;
+}
+
+export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading } = useAuth();
-  const location = useLocation();
 
+  useEffect(() => {
+    // If not loading and not authenticated, redirect to login
+    if (!isLoading && !isAuthenticated) {
+      console.log('Not authenticated, redirecting to login');
+      navigate('/login', { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate]);
+
+  // Show nothing while checking auth status
   if (isLoading) {
-    return null; // or a loading spinner
+    return null;
   }
 
+  // If not authenticated, don't render anything (useEffect will handle redirect)
   if (!isAuthenticated) {
-    // Store the current location before redirecting
-    sessionStorage.setItem('redirectUrl', location.pathname + location.search);
     return <Navigate to="/login" replace />;
   }
 
   return <>{children}</>;
-} 
+};
+
+export default ProtectedRoute; 

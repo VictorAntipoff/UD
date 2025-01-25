@@ -1,7 +1,3 @@
-// === Application Entry Point ===
-// File: src/main.tsx
-// Description: Main entry point for the React application
-
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
@@ -20,4 +16,4 @@ root.render(
   <StrictMode>
     <App />
   </StrictMode>
-);
+); 

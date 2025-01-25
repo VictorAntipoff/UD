@@ -1,21 +1,23 @@
 {
-  "buildCommand": "npm install && npm run build",
-  "outputDirectory": "dist",
-  "framework": "vite",
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ],
   "env": {
-    "VITE_SUPABASE_URL": "$VITE_SUPABASE_URL",
-    "VITE_SUPABASE_ANON_KEY": "$VITE_SUPABASE_ANON_KEY",
-    "VITE_SUPABASE_USER_PASSWORD": "$VITE_SUPABASE_USER_PASSWORD"
-  },
-  "build": {
-    "env": {
-      "NODE_VERSION": "18.17.0"
-    }
+    "VITE_BACKEND_URL": "https://ud-backend-two.vercel.app",
+    "VITE_SUPABASE_URL": "https://vwvgkssdefdgcjbpdkhq.supabase.co",
+    "VITE_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3dmdrc3NkZWZkZ2NqYnBka2hxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY5MTYxODksImV4cCI6MjA1MjQ5MjE4OX0.O5Bmetjp9qD7DZILrYc7c5yC9ynWXcr44z9k4eVnw3w"
   }
 } 

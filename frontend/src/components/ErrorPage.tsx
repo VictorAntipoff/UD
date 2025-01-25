@@ -1,6 +1,10 @@
 import { Box, Typography, Button } from '@mui/material';
+import { useNavigate, useRouteError } from 'react-router-dom';
 
 export const ErrorPage = () => {
+  const error = useRouteError();
+  const navigate = useNavigate();
+
   return (
     <Box
       display="flex"
@@ -8,21 +12,18 @@ export const ErrorPage = () => {
       alignItems="center"
       justifyContent="center"
       minHeight="100vh"
-      p={3}
+      gap={2}
     >
-      <Typography variant="h4" component="h1" gutterBottom>
-        Something went wrong
+      <Typography variant="h1">Oops!</Typography>
+      <Typography variant="h4">Sorry, an unexpected error has occurred.</Typography>
+      <Typography variant="body1" color="text.secondary">
+        {(error as Error)?.message || 'Unknown error occurred'}
       </Typography>
-      <Typography color="text.secondary" paragraph>
-        Please try again or contact support if the problem persists.
-      </Typography>
-      <Button
-        variant="contained"
-        color="primary"
-        onClick={() => window.location.reload()}
-      >
-        Reload Page
+      <Button variant="contained" onClick={() => navigate('/')}>
+        Go Home
       </Button>
     </Box>
   );
-}; 
+};
+
+export default ErrorPage; 

@@ -30,12 +30,13 @@ export default defineConfig(({ mode }) => {
       port: 3020
     },
     build: {
+      outDir: 'dist',
       sourcemap: true,
       rollupOptions: {
         output: {
           manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            mui: ['@mui/material', '@mui/icons-material'],
+            'react-vendor': ['react', 'react-dom'],
+            'mui-vendor': ['@mui/material', '@emotion/react', '@emotion/styled']
           }
         }
       }
