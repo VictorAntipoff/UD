@@ -1,12 +1,22 @@
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-const AuthWrapper = () => {
-  const { isAuthenticated } = useAuth();
-  const location = useLocation();
+export const AuthWrapper = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, isLoading } = useAuth();
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+  useEffect(() => {
+    // If not loading and not authenticated, redirect to login
+    if (!isLoading && !isAuthenticated) {
+      console.log('AuthWrapper: Not authenticated, redirecting to login');
+      navigate('/login', { replace: true });
+    }
+  }, [isAuthenticated, isLoading, navigate]);
+
+  // Show nothing while checking auth status
+  if (isLoading) {
+    return null;
   }
 
   return <Outlet />;

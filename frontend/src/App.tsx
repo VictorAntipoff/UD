@@ -1,26 +1,27 @@
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
-import { ThemeProvider } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material';
 import CssBaseline from '@mui/material/CssBaseline';
-import theme from './theme';
+import theme from './theme/theme';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Suspense } from 'react';
 import { CircularProgress } from '@mui/material';
-
-// Providers
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
 
-// Pages and Components
-import LoginPage from './pages/LoginPage';
-import { HomePage } from './pages/HomePage';
-import AuthWrapper from './components/AuthWrapper';
-import MainLayout from './layouts/MainLayout';
-import { ErrorPage } from './components/ErrorPage';
+// Pages
+import LoginPage from './pages/auth/LoginPage';
+import HomePage from './pages/dashboard/HomePage';
+import ErrorPage from './components/ErrorPage';
 import UserSettings from './pages/settings/UserSettings';
 import AdminSettings from './pages/settings/AdminSettings';
 import WoodCalculator from './pages/factory/WoodCalculator';
-import ProtectedRoute from './components/ProtectedRoute';
 import WoodTypeManagement from './pages/management/WoodTypeManagement';
-import UnauthorizedPage from './pages/UnauthorizedPage';
+import UnauthorizedPage from './pages/auth/UnauthorizedPage';
+import MainLayout from './layouts/MainLayout';
+import { AuthWrapper } from './components/AuthWrapper';
+import { ProtectedRoute } from './components/ProtectedRoute';
+
+const queryClient = new QueryClient();
 
 const router = createBrowserRouter([
   {
@@ -74,12 +75,14 @@ export const App = () => {
   return (
     <ErrorBoundary>
       <Suspense fallback={<CircularProgress />}>
-        <AuthProvider>
-          <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <RouterProvider router={router} />
-          </ThemeProvider>
-        </AuthProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <ThemeProvider theme={theme}>
+              <CssBaseline />
+              <RouterProvider router={router} />
+            </ThemeProvider>
+          </AuthProvider>
+        </QueryClientProvider>
       </Suspense>
     </ErrorBoundary>
   );

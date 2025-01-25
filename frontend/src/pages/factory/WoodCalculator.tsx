@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -131,80 +131,73 @@ export default function WoodCalculator() {
 
   const currentFile = import.meta.url;
 
-  const fetchData = async () => {
+  // Memoize fetchData to prevent recreation on every render
+  const fetchData = useCallback(async () => {
     try {
-      // Check auth first
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        console.error('No valid session');
-        setError('Please log in again');
-        return;
-      }
-
       setIsLoading(true);
-
-      // Check if table exists
-      const tableExists = await checkTableExists('wood_types');
-      if (!tableExists) {
-        console.error('wood_types table does not exist');
-        setError('Database setup incomplete. Please contact support.');
-        return;
-      }
-
-      // Try a simple query first
-      const { error: testError } = await supabase
-        .from('wood_types')
-        .select('id')
-        .limit(1)
-        .single();
-
-      if (testError) {
-        console.error('Test query failed:', testError);
-        setError('Database connection error. Please try again later.');
-        return;
-      }
-
-      // Then fetch wood types
+      
+      // Fetch wood types
       const { data: woodTypesData, error: woodTypesError } = await supabase
         .from('wood_types')
         .select('*')
         .order('name');
 
-      if (woodTypesError) {
-        console.error('Error fetching wood types:', woodTypesError);
-        setError('Failed to load wood types');
-        return;
-      }
-
+      if (woodTypesError) throw woodTypesError;
       setWoodTypes(woodTypesData || []);
 
-      // Then fetch calculations
-      const { data: calculationsData, error: calculationsError } = await supabase
+      // Fetch calculations
+      const { data: historyData, error: historyError } = await supabase
         .from('calculations')
         .select(`
-          *,
+          id,
+          user_id,
+          wood_type_id,
+          thickness,
+          width,
+          length,
+          price_per_plank,
+          volume_m3,
+          planks_per_m3,
+          price_per_m3,
+          notes,
+          created_at,
           wood_type:wood_types(*)
         `)
-        .eq('user_id', session.user.id)
+        .eq('user_id', user?.id)
         .order('created_at', { ascending: false });
 
-      if (calculationsError) {
-        console.error('Error fetching calculations:', calculationsError);
-        setError('Failed to load calculations');
-        return;
-      }
+      if (historyError) throw historyError;
 
-      setHistory(calculationsData.map(mapCalculationFromDB));
-      setError(null);
+      // Transform the data to match CalculationResult interface
+      const transformedHistory = (historyData || []).map(calc => ({
+        id: calc.id,
+        userId: calc.user_id,
+        dimensions: {
+          thickness: calc.thickness || 0,
+          width: calc.width || 0,
+          length: calc.length || 0,
+          pricePerPlank: calc.price_per_plank || 0,
+          woodTypeId: calc.wood_type_id,
+          notes: calc.notes || ''
+        },
+        volumeM3: calc.volume_m3 || 0,
+        planksPerM3: calc.planks_per_m3 || 0,
+        pricePerM3: calc.price_per_m3 || 0,
+        timestamp: calc.created_at,
+        woodType: calc.wood_type || defaultWoodType,
+        notes: calc.notes || ''
+      }));
 
+      setHistory(transformedHistory);
     } catch (error) {
-      console.error('Error in fetchData:', error);
-      setError('An unexpected error occurred');
+      console.error('Error fetching data:', error);
+      setError('Failed to fetch data');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user?.id]);
 
+  // Initial auth check and data fetch
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -217,8 +210,6 @@ export default function WoodCalculator() {
           return;
         }
 
-        setIsLoading(true);
-
         const isConnected = await testSupabaseConnection();
         setDbConnected(isConnected);
         
@@ -228,50 +219,51 @@ export default function WoodCalculator() {
         }
 
         await fetchData();
-
       } catch (error) {
         console.error('Auth check failed:', error);
         setError('Authentication failed. Please try again.');
-      } finally {
-        setIsLoading(false);
       }
     };
 
-    if (!woodTypes.length || !history.length) {
-      checkAuth();
-    }
-  }, [navigate, woodTypes.length, history.length]);
+    checkAuth();
+  }, [navigate, fetchData]); // Remove woodTypes.length and history.length dependencies
 
+  // Health check effect
   useEffect(() => {
-    if (user && dbConnected) {
-      fetchData();
-    }
-  }, [user, dbConnected]);
+    let mounted = true;
+    const controller = new AbortController();
 
-  useEffect(() => {
     const checkHealth = async () => {
       try {
         const response = await axios.get('/api/health', {
-          timeout: 5000,  // 5 second timeout
+          timeout: 5000,
+          signal: controller.signal,
           headers: {
             'Cache-Control': 'no-cache',
             'Pragma': 'no-cache'
           }
         });
         
-        if (response.data && response.data.uptime) {
+        if (mounted && response.data?.uptime) {
           setUptime(response.data.uptime);
         }
       } catch (error) {
-        console.error('Health check failed:', error);
-        setUptime('API Error');
+        if (mounted) {
+          console.error('Health check failed:', error);
+          setUptime('API Error');
+        }
       }
     };
 
     checkHealth();
-    const interval = setInterval(checkHealth, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(checkHealth, 30000); // Increased interval to 30 seconds
+
+    return () => {
+      mounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, []); // Empty dependency array
 
   const handleInputChange = (field: keyof PlankDimensions) => (
     event: React.ChangeEvent<HTMLInputElement>
@@ -292,41 +284,49 @@ export default function WoodCalculator() {
     }));
   };
 
-  const calculateVolume = () => {
-    const { width, thickness, length, pricePerPlank } = dimensions;
-    
-    if (!width || !thickness || !length || !pricePerPlank) {
-      setError('Please fill in all dimensions and price');
-      return;
+  const calculateVolume = useCallback(async () => {
+    try {
+      if (!dimensions.woodTypeId) {
+        setError('Please select a wood type');
+        return;
+      }
+
+      if (!dimensions.thickness || !dimensions.width || !dimensions.length) {
+        setError('Please enter all dimensions');
+        return;
+      }
+
+      if (!dimensions.pricePerPlank) {
+        setError('Please enter price per plank');
+        return;
+      }
+
+      // Convert dimensions to meters
+      const thicknessM = dimensions.thickness * 0.0254; // inches to meters
+      const widthM = dimensions.width * 0.0254;         // inches to meters
+      const lengthM = dimensions.length * 0.3048;       // feet to meters
+
+      // Calculate volume in cubic meters
+      const volumeM3 = thicknessM * widthM * lengthM;
+
+      // Calculate planks per cubic meter
+      const planksPerM3 = 1 / volumeM3;
+
+      // Calculate price per cubic meter
+      const pricePerM3 = dimensions.pricePerPlank * planksPerM3;
+
+      setResult({
+        volumeM3,
+        planksPerM3,
+        pricePerM3
+      });
+
+      setError(null);
+    } catch (error) {
+      console.error('Calculation error:', error);
+      setError('Failed to calculate. Please check your inputs.');
     }
-    
-    const widthMeters = width * 0.0254;
-    const thicknessMeters = thickness * 0.0254;
-    const lengthMeters = length * 0.3048;
-    
-    const plankVolumeM3 = widthMeters * thicknessMeters * lengthMeters;
-    const planksPerM3 = plankVolumeM3 > 0 ? (1 / plankVolumeM3) : 0;
-    const pricePerM3 = planksPerM3 * pricePerPlank;
-
-    const newResult = {
-      volumeM3: plankVolumeM3,
-      planksPerM3: planksPerM3,
-      pricePerM3: pricePerM3
-    };
-
-    setResult(newResult);
-    setError(null);
-
-    setHistory(prev => [{
-      dimensions: { ...dimensions },
-      ...newResult,
-      timestamp: new Date().toLocaleString(),
-      woodType: woodTypes.find(w => w.id === dimensions.woodTypeId) || defaultWoodType,
-      notes: dimensions.notes,
-      id: '',
-      userId: user?.id || ''
-    }, ...prev]);
-  };
+  }, [dimensions]);
 
   const handlePrintCalculation = () => {
     if (!result) return;
@@ -353,58 +353,56 @@ export default function WoodCalculator() {
     }
   };
 
-  const handleCopyCalculation = (item: CalculationResult) => {
+  const handleCopyCalculation = useCallback((item: CalculationResult) => {
+    if (!item?.dimensions) return;
+
     setDimensions({
-      thickness: item.dimensions.thickness,
-      width: item.dimensions.width,
-      length: item.dimensions.length,
-      pricePerPlank: item.dimensions.pricePerPlank,
-      woodTypeId: item.dimensions.woodTypeId,
-      notes: item.dimensions.notes
+      thickness: item.dimensions.thickness || 0,
+      width: item.dimensions.width || 0,
+      length: item.dimensions.length || 0,
+      pricePerPlank: item.dimensions.pricePerPlank || 0,
+      woodTypeId: item.dimensions.woodTypeId || '',
+      notes: item.dimensions.notes || ''
     });
-  };
 
-  const saveCalculation = async () => {
+    // Recalculate with the copied values
+    calculateVolume();
+  }, [calculateVolume]);
+
+  const saveCalculation = useCallback(async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        setError('Please log in again');
-        return;
-      }
-
-      if (!result || !dimensions.woodTypeId) {
-        setError('Missing required data');
+      if (!user?.id || !result || !dimensions.woodTypeId) {
+        setError('Missing required data for saving');
         return;
       }
 
       const calculationData = {
-        user_id: session.user.id,
+        user_id: user.id,
         wood_type_id: dimensions.woodTypeId,
-        thickness: Number(dimensions.thickness),
-        width: Number(dimensions.width),
-        length: Number(dimensions.length),
-        price_per_plank: Number(dimensions.pricePerPlank),
-        volume_m3: Number(result.volumeM3),
-        planks_per_m3: Number(result.planksPerM3),
-        price_per_m3: Number(result.pricePerM3),
+        thickness: dimensions.thickness,
+        width: dimensions.width,
+        length: dimensions.length,
+        price_per_plank: dimensions.pricePerPlank,
+        volume_m3: result.volumeM3,
+        planks_per_m3: result.planksPerM3,
+        price_per_m3: result.pricePerM3,
         notes: dimensions.notes || null
       };
 
-      const { error } = await supabase
+      const { error: saveError } = await supabase
         .from('calculations')
-        .insert([calculationData])
-        .select();
+        .insert([calculationData]);
 
-      if (error) throw error;
+      if (saveError) throw saveError;
 
+      // Refresh data after saving
       await fetchData();
-      setError('');
-
+      setError(null);
     } catch (error) {
-      console.error('Error saving calculation:', error);
+      console.error('Save error:', error);
       setError('Failed to save calculation');
     }
-  };
+  }, [user?.id, dimensions, result, fetchData]);
 
   const deleteCalculation = async (id: string) => {
     try {
@@ -440,6 +438,14 @@ export default function WoodCalculator() {
     notes: item.notes || ''
   });
 
+  if (isLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="200px">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
     <SupabaseErrorBoundary>
       <Container maxWidth="lg" sx={{ py: 3 }}>
@@ -473,179 +479,87 @@ export default function WoodCalculator() {
             </Tooltip>
           )}
         </Box>
-        {isLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={24} />
-          </Box>
-        ) : (
-          <Box sx={{ py: 3 }}>
+        <Box sx={{ py: 3 }}>
+          <Typography 
+            variant="h5"
+            component="h1" 
+            gutterBottom
+            sx={{ 
+              fontSize: '1.1rem',
+              fontWeight: 500,
+              color: '#2c3e50',
+              mb: 2 
+            }}
+          >
+            Wood Calculator
+          </Typography>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          <Paper elevation={0} sx={{ 
+            p: 3, 
+            mb: 3,
+            border: '1px solid #e1e8ed',
+            borderRadius: 2
+          }}>
             <Typography 
-              variant="h5"
-              component="h1" 
+              variant="h6" 
               gutterBottom
               sx={{ 
-                fontSize: '1.1rem',
+                fontSize: '0.95rem',
                 fontWeight: 500,
-                color: '#2c3e50',
+                color: '#34495e',
                 mb: 2 
               }}
             >
-              Wood Calculator
+              Plank Details
             </Typography>
 
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
-
-            <Paper elevation={0} sx={{ 
-              p: 3, 
-              mb: 3,
-              border: '1px solid #e1e8ed',
-              borderRadius: 2
-            }}>
-              <Typography 
-                variant="h6" 
-                gutterBottom
-                sx={{ 
-                  fontSize: '0.95rem',
-                  fontWeight: 500,
-                  color: '#34495e',
-                  mb: 2 
-                }}
-              >
-                Plank Details
-              </Typography>
-
-              <FormControl fullWidth sx={{ mb: 3 }}>
-                <InputLabel>Wood Type</InputLabel>
-                <Select
-                  value={dimensions.woodTypeId}
-                  label="Wood Type"
-                  onChange={(e) => setDimensions(prev => ({
-                    ...prev,
-                    woodTypeId: e.target.value as string
-                  }))}
-                  size="small"
-                  sx={{
-                    '& .MuiSelect-select': {
-                      fontSize: '0.85rem'
-                    }
-                  }}
-                >
-                  {woodTypes.map((type) => (
-                    <MenuItem 
-                      key={type.id} 
-                      value={type.id}
-                      sx={{ fontSize: '0.85rem' }}
-                    >
-                      {type.name} - Grade {type.grade}
-                      {type.origin && ` (${type.origin})`}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    fullWidth
-                    label="Thickness (inches)"
-                    type="number"
-                    value={dimensions.thickness || ''}
-                    onChange={handleInputChange('thickness')}
-                    size="small"
-                    InputProps={{
-                      endAdornment: <InputAdornment position="end">"</InputAdornment>
-                    }}
-                    sx={{ 
-                      '& .MuiInputLabel-root': {
-                        fontSize: '0.85rem'
-                      },
-                      '& .MuiInputBase-input': {
-                        fontSize: '0.85rem'
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    fullWidth
-                    label="Width (inches)"
-                    type="number"
-                    value={dimensions.width || ''}
-                    onChange={handleInputChange('width')}
-                    size="small"
-                    InputProps={{
-                      endAdornment: <InputAdornment position="end">"</InputAdornment>
-                    }}
-                    sx={{ 
-                      '& .MuiInputLabel-root': {
-                        fontSize: '0.85rem'
-                      },
-                      '& .MuiInputBase-input': {
-                        fontSize: '0.85rem'
-                      }
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} sm={4}>
-                  <TextField
-                    fullWidth
-                    label="Length (feet)"
-                    type="number"
-                    value={dimensions.length || ''}
-                    onChange={handleInputChange('length')}
-                    size="small"
-                    InputProps={{
-                      endAdornment: <InputAdornment position="end">'</InputAdornment>
-                    }}
-                    sx={{ 
-                      '& .MuiInputLabel-root': {
-                        fontSize: '0.85rem'
-                      },
-                      '& .MuiInputBase-input': {
-                        fontSize: '0.85rem'
-                      }
-                    }}
-                  />
-                </Grid>
-              </Grid>
-
-              <TextField
-                fullWidth
-                label="Price per Plank (TZS)"
-                value={dimensions.pricePerPlank.toLocaleString()}
-                onChange={handlePriceChange}
+            <FormControl fullWidth sx={{ mb: 3 }}>
+              <InputLabel>Wood Type</InputLabel>
+              <Select
+                value={dimensions.woodTypeId}
+                label="Wood Type"
+                onChange={(e) => setDimensions(prev => ({
+                  ...prev,
+                  woodTypeId: e.target.value as string
+                }))}
                 size="small"
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">TZS</InputAdornment>
-                }}
-                sx={{ 
-                  mb: 3,
-                  '& .MuiInputLabel-root': {
-                    fontSize: '0.85rem'
-                  },
-                  '& .MuiInputBase-input': {
+                sx={{
+                  '& .MuiSelect-select': {
                     fontSize: '0.85rem'
                   }
                 }}
-              />
+              >
+                {woodTypes.map((type) => (
+                  <MenuItem 
+                    key={type.id} 
+                    value={type.id}
+                    sx={{ fontSize: '0.85rem' }}
+                  >
+                    {type.name} - Grade {type.grade}
+                    {type.origin && ` (${type.origin})`}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
 
-              <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  multiline
-                  rows={2}
-                  label="Notes"
-                  value={dimensions.notes}
-                  onChange={(e) => setDimensions(prev => ({ 
-                    ...prev, 
-                    notes: e.target.value 
-                  }))}
+                  label="Thickness (inches)"
+                  type="number"
+                  value={dimensions.thickness || ''}
+                  onChange={handleInputChange('thickness')}
                   size="small"
-                  placeholder="Add any additional notes here..."
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">"</InputAdornment>
+                  }}
                   sx={{ 
                     '& .MuiInputLabel-root': {
                       fontSize: '0.85rem'
@@ -655,332 +569,418 @@ export default function WoodCalculator() {
                     }
                   }}
                 />
-              </Paper>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Width (inches)"
+                  type="number"
+                  value={dimensions.width || ''}
+                  onChange={handleInputChange('width')}
+                  size="small"
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">"</InputAdornment>
+                  }}
+                  sx={{ 
+                    '& .MuiInputLabel-root': {
+                      fontSize: '0.85rem'
+                    },
+                    '& .MuiInputBase-input': {
+                      fontSize: '0.85rem'
+                    }
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Length (feet)"
+                  type="number"
+                  value={dimensions.length || ''}
+                  onChange={handleInputChange('length')}
+                  size="small"
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">'</InputAdornment>
+                  }}
+                  sx={{ 
+                    '& .MuiInputLabel-root': {
+                      fontSize: '0.85rem'
+                    },
+                    '& .MuiInputBase-input': {
+                      fontSize: '0.85rem'
+                    }
+                  }}
+                />
+              </Grid>
+            </Grid>
 
-              <Button
-                variant="contained"
-                onClick={calculateVolume}
-                startIcon={<CalculateIcon />}
+            <TextField
+              fullWidth
+              label="Price per Plank (TZS)"
+              value={dimensions.pricePerPlank.toLocaleString()}
+              onChange={handlePriceChange}
+              size="small"
+              InputProps={{
+                startAdornment: <InputAdornment position="start">TZS</InputAdornment>
+              }}
+              sx={{ 
+                mb: 3,
+                '& .MuiInputLabel-root': {
+                  fontSize: '0.85rem'
+                },
+                '& .MuiInputBase-input': {
+                  fontSize: '0.85rem'
+                }
+              }}
+            />
+
+            <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+              <TextField
                 fullWidth
-              >
-                Calculate
-              </Button>
+                multiline
+                rows={2}
+                label="Notes"
+                value={dimensions.notes}
+                onChange={(e) => setDimensions(prev => ({ 
+                  ...prev, 
+                  notes: e.target.value 
+                }))}
+                size="small"
+                placeholder="Add any additional notes here..."
+                sx={{ 
+                  '& .MuiInputLabel-root': {
+                    fontSize: '0.85rem'
+                  },
+                  '& .MuiInputBase-input': {
+                    fontSize: '0.85rem'
+                  }
+                }}
+              />
             </Paper>
 
-            <Paper elevation={0} sx={{ 
-              p: 2,
-              bgcolor: 'white',
-              borderRadius: 2,
-              border: '1px solid #e1e8ed',
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column'
+            <Button
+              variant="contained"
+              onClick={calculateVolume}
+              startIcon={<CalculateIcon />}
+              fullWidth
+            >
+              Calculate
+            </Button>
+          </Paper>
+
+          <Paper elevation={0} sx={{ 
+            p: 2,
+            bgcolor: 'white',
+            borderRadius: 2,
+            border: '1px solid #e1e8ed',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <Typography 
+              variant="subtitle1" 
+              gutterBottom 
+              sx={{ 
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                color: '#34495e', 
+                mb: 1 
+              }}
+            >
+              Results
+            </Typography>
+            
+            {result ? (
+              <Grid container spacing={1.5}>
+                <Grid item xs={12}>
+                  <Paper elevation={0} sx={{ 
+                    p: 1.5,
+                    bgcolor: '#f8f9fa',
+                    border: '1px solid #e1e8ed',
+                    borderRadius: 2
+                  }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                        Volume per Plank
+                      </Typography>
+                      <Typography variant="body1" sx={{ 
+                        color: '#2c3e50', 
+                        fontWeight: 500,
+                        fontSize: '0.85rem'
+                      }}>
+                        {result.volumeM3.toFixed(4)} m³
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12}>
+                  <Paper elevation={0} sx={{ 
+                    p: 1.5,
+                    bgcolor: '#f8f9fa',
+                    border: '1px solid #e1e8ed',
+                    borderRadius: 2
+                  }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                        Planks per Cubic Meter
+                      </Typography>
+                      <Typography variant="body1" sx={{ 
+                        color: '#2c3e50', 
+                        fontWeight: 500,
+                        fontSize: '0.85rem'
+                      }}>
+                        {result.planksPerM3.toFixed(2)} planks/m³
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12}>
+                  <Paper elevation={0} sx={{ 
+                    p: 1.5,
+                    bgcolor: '#f8f9fa',
+                    border: '1px solid #e1e8ed',
+                    borderRadius: 2,
+                    borderLeft: '4px solid #e74c3c'
+                  }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                        Price per Cubic Meter
+                      </Typography>
+                      <Typography variant="body1" sx={{ 
+                        color: '#e74c3c', 
+                        fontWeight: 500,
+                        fontSize: '0.85rem'
+                      }}>
+                        TZS {formatNumber(result.pricePerM3)}/m³
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
+              </Grid>
+            ) : (
+              <Box sx={{ 
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#95a5a6',
+                p: 2
+              }}>
+                <Typography variant="body2">
+                  Enter dimensions and price to see calculations
+                </Typography>
+              </Box>
+            )}
+          </Paper>
+
+          <Box sx={{ 
+            display: 'flex', 
+            gap: 2, 
+            mt: 2,
+            mb: 2,
+            '& .MuiButton-root': {
+              minWidth: 110,
+              height: 36,
+              textTransform: 'none',
+              fontSize: '0.85rem'
+            }
+          }}>
+            <Button
+              variant="outlined"
+              onClick={handlePrintCalculation}
+              startIcon={<PrintIcon />}
+              disabled={!result}
+              sx={{
+                borderColor: '#e1e8ed',
+                color: '#2c3e50',
+                '&:hover': {
+                  borderColor: '#bdc3c7',
+                  backgroundColor: '#f8f9fa'
+                }
+              }}
+            >
+              Print
+            </Button>
+            <Button
+              variant="contained"
+              onClick={saveCalculation}
+              disabled={!result || !user?.id}
+              sx={{
+                backgroundColor: '#2c3e50',
+                '&:hover': {
+                  backgroundColor: '#34495e'
+                }
+              }}
+            >
+              Save Calculation
+            </Button>
+          </Box>
+
+          <Paper elevation={0} sx={{ 
+            mt: 3, 
+            p: 2,
+            border: '1px solid #e1e8ed',
+            borderRadius: 2
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              mb: 2 
             }}>
               <Typography 
                 variant="subtitle1" 
-                gutterBottom 
                 sx={{ 
+                  color: '#34495e',
                   fontSize: '0.95rem',
-                  fontWeight: 500,
-                  color: '#34495e', 
-                  mb: 1 
+                  fontWeight: 500
                 }}
               >
-                Results
+                Calculation History
               </Typography>
-              
-              {result ? (
-                <Grid container spacing={1.5}>
-                  <Grid item xs={12}>
-                    <Paper elevation={0} sx={{ 
-                      p: 1.5,
-                      bgcolor: '#f8f9fa',
-                      border: '1px solid #e1e8ed',
-                      borderRadius: 2
-                    }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          Volume per Plank
-                        </Typography>
-                        <Typography variant="body1" sx={{ 
-                          color: '#2c3e50', 
-                          fontWeight: 500,
-                          fontSize: '0.85rem'
-                        }}>
-                          {result.volumeM3.toFixed(4)} m³
-                        </Typography>
-                      </Box>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Paper elevation={0} sx={{ 
-                      p: 1.5,
-                      bgcolor: '#f8f9fa',
-                      border: '1px solid #e1e8ed',
-                      borderRadius: 2
-                    }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          Planks per Cubic Meter
-                        </Typography>
-                        <Typography variant="body1" sx={{ 
-                          color: '#2c3e50', 
-                          fontWeight: 500,
-                          fontSize: '0.85rem'
-                        }}>
-                          {result.planksPerM3.toFixed(2)} planks/m³
-                        </Typography>
-                      </Box>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Paper elevation={0} sx={{ 
-                      p: 1.5,
-                      bgcolor: '#f8f9fa',
-                      border: '1px solid #e1e8ed',
-                      borderRadius: 2,
-                      borderLeft: '4px solid #e74c3c'
-                    }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          Price per Cubic Meter
-                        </Typography>
-                        <Typography variant="body1" sx={{ 
-                          color: '#e74c3c', 
-                          fontWeight: 500,
-                          fontSize: '0.85rem'
-                        }}>
-                          TZS {formatNumber(result.pricePerM3)}/m³
-                        </Typography>
-                      </Box>
-                    </Paper>
-                  </Grid>
-                </Grid>
-              ) : (
-                <Box sx={{ 
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#95a5a6',
-                  p: 2
-                }}>
-                  <Typography variant="body2">
-                    Enter dimensions and price to see calculations
-                  </Typography>
-                </Box>
-              )}
-            </Paper>
-
-            <Box sx={{ 
-              display: 'flex', 
-              gap: 2, 
-              mt: 2,
-              mb: 2,
-              '& .MuiButton-root': {
-                minWidth: 110,
-                height: 36,
-                textTransform: 'none',
-                fontSize: '0.85rem'
-              }
-            }}>
-              <Button
-                variant="outlined"
-                onClick={handlePrintCalculation}
-                startIcon={<PrintIcon />}
-                disabled={!result}
-                sx={{
-                  borderColor: '#e1e8ed',
-                  color: '#2c3e50',
-                  '&:hover': {
-                    borderColor: '#bdc3c7',
-                    backgroundColor: '#f8f9fa'
-                  }
-                }}
-              >
-                Print
-              </Button>
-              <Button
-                variant="contained"
-                onClick={saveCalculation}
-                disabled={!result || !user?.id}
-                sx={{
-                  backgroundColor: '#2c3e50',
-                  '&:hover': {
-                    backgroundColor: '#34495e'
-                  }
-                }}
-              >
-                Save Calculation
-              </Button>
             </Box>
 
-            <Paper elevation={0} sx={{ 
-              mt: 3, 
-              p: 2,
-              border: '1px solid #e1e8ed',
-              borderRadius: 2
-            }}>
-              <Box sx={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                mb: 2 
+            <TableContainer>
+              <Table size="small" sx={{
+                '& .MuiTableCell-root': {
+                  fontSize: '0.8rem',
+                  py: 1,
+                  px: 1.5,
+                  whiteSpace: 'nowrap'
+                },
+                '& .MuiTableCell-head': {
+                  fontWeight: 600,
+                  backgroundColor: '#f8f9fa',
+                  color: '#2c3e50'
+                },
+                '& .MuiTableRow-root:hover': {
+                  backgroundColor: '#f8f9fa'
+                },
+                '& .MuiTableBody-root .MuiTableRow-root:last-child .MuiTableCell-root': {
+                  borderBottom: 'none'
+                }
               }}>
-                <Typography 
-                  variant="subtitle1" 
-                  sx={{ 
-                    color: '#34495e',
-                    fontSize: '0.95rem',
-                    fontWeight: 500
-                  }}
-                >
-                  Calculation History
-                </Typography>
-              </Box>
-
-              <TableContainer>
-                <Table size="small" sx={{
-                  '& .MuiTableCell-root': {
-                    fontSize: '0.8rem',
-                    py: 1,
-                    px: 1.5,
-                    whiteSpace: 'nowrap'
-                  },
-                  '& .MuiTableCell-head': {
-                    fontWeight: 600,
-                    backgroundColor: '#f8f9fa',
-                    color: '#2c3e50'
-                  },
-                  '& .MuiTableRow-root:hover': {
-                    backgroundColor: '#f8f9fa'
-                  },
-                  '& .MuiTableBody-root .MuiTableRow-root:last-child .MuiTableCell-root': {
-                    borderBottom: 'none'
-                  }
-                }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Time</TableCell>
-                      <TableCell>Wood Type</TableCell>
-                      <TableCell>Dimensions</TableCell>
-                      <TableCell align="right">Price/Plank</TableCell>
-                      <TableCell align="right">Volume</TableCell>
-                      <TableCell align="right">Planks/m³</TableCell>
-                      <TableCell align="right">Price/m³</TableCell>
-                      <TableCell align="right" sx={{ width: '80px' }}>Actions</TableCell>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Time</TableCell>
+                    <TableCell>Wood Type</TableCell>
+                    <TableCell>Dimensions</TableCell>
+                    <TableCell align="right">Price/Plank</TableCell>
+                    <TableCell align="right">Volume</TableCell>
+                    <TableCell align="right">Planks/m³</TableCell>
+                    <TableCell align="right">Price/m³</TableCell>
+                    <TableCell align="right" sx={{ width: '80px' }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {history.map((item) => (
+                    <TableRow key={item.id} hover>
+                      <TableCell>
+                        {item.timestamp 
+                          ? new Date(item.timestamp).toLocaleString(undefined, {
+                              year: '2-digit',
+                              month: 'numeric',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })
+                          : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {item.woodType 
+                          ? `${item.woodType.name} (${item.woodType.grade})`
+                          : '-'}
+                      </TableCell>
+                      <TableCell>
+                        {item.dimensions.thickness && item.dimensions.width && item.dimensions.length
+                          ? `${item.dimensions.thickness}″×${item.dimensions.width}″×${item.dimensions.length}′`
+                          : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        {item.dimensions.pricePerPlank 
+                          ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
+                          : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        {item.volumeM3 
+                          ? `${item.volumeM3.toFixed(4)}`
+                          : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        {item.planksPerM3 
+                          ? item.planksPerM3.toFixed(2)
+                          : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        {item.pricePerM3 
+                          ? `TZS ${formatNumber(item.pricePerM3)}`
+                          : '-'}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Box sx={{ 
+                          display: 'flex', 
+                          justifyContent: 'flex-end', 
+                          gap: 0.5 
+                        }}>
+                          <Tooltip title="Copy">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => handleCopyCalculation(item)}
+                              sx={{ 
+                                padding: 0.5,
+                                '&:hover': {
+                                  backgroundColor: '#f0f2f5'
+                                }
+                              }}
+                            >
+                              <ContentCopyIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <IconButton 
+                              size="small"
+                              onClick={() => deleteCalculation(item.id)}
+                              sx={{ 
+                                padding: 0.5,
+                                '&:hover': {
+                                  backgroundColor: '#fee2e2',
+                                  color: '#ef4444'
+                                }
+                              }}
+                            >
+                              <DeleteIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                      </TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {history.map((item) => (
-                      <TableRow key={item.id} hover>
-                        <TableCell>
-                          {item.timestamp 
-                            ? new Date(item.timestamp).toLocaleString(undefined, {
-                                year: '2-digit',
-                                month: 'numeric',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })
-                            : '-'}
-                        </TableCell>
-                        <TableCell>
-                          {item.woodType 
-                            ? `${item.woodType.name} (${item.woodType.grade})`
-                            : '-'}
-                        </TableCell>
-                        <TableCell>
-                          {item.dimensions.thickness && item.dimensions.width && item.dimensions.length
-                            ? `${item.dimensions.thickness}″×${item.dimensions.width}″×${item.dimensions.length}′`
-                            : '-'}
-                        </TableCell>
-                        <TableCell align="right">
-                          {item.dimensions.pricePerPlank 
-                            ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
-                            : '-'}
-                        </TableCell>
-                        <TableCell align="right">
-                          {item.volumeM3 
-                            ? `${item.volumeM3.toFixed(4)}`
-                            : '-'}
-                        </TableCell>
-                        <TableCell align="right">
-                          {item.planksPerM3 
-                            ? item.planksPerM3.toFixed(2)
-                            : '-'}
-                        </TableCell>
-                        <TableCell align="right">
-                          {item.pricePerM3 
-                            ? `TZS ${formatNumber(item.pricePerM3)}`
-                            : '-'}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Box sx={{ 
-                            display: 'flex', 
-                            justifyContent: 'flex-end', 
-                            gap: 0.5 
-                          }}>
-                            <Tooltip title="Copy">
-                              <IconButton 
-                                size="small" 
-                                onClick={() => handleCopyCalculation(item)}
-                                sx={{ 
-                                  padding: 0.5,
-                                  '&:hover': {
-                                    backgroundColor: '#f0f2f5'
-                                  }
-                                }}
-                              >
-                                <ContentCopyIcon sx={{ fontSize: '1rem' }} />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete">
-                              <IconButton 
-                                size="small"
-                                onClick={() => deleteCalculation(item.id)}
-                                sx={{ 
-                                  padding: 0.5,
-                                  '&:hover': {
-                                    backgroundColor: '#fee2e2',
-                                    color: '#ef4444'
-                                  }
-                                }}
-                              >
-                                <DeleteIcon sx={{ fontSize: '1rem' }} />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {history.length === 0 && (
-                      <TableRow>
-                        <TableCell 
-                          colSpan={8} 
-                          align="center" 
-                          sx={{ 
-                            py: 4,
-                            color: '#94a3b8',
-                            fontSize: '0.875rem'
-                          }}
-                        >
-                          No calculations yet
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </Paper>
+                  ))}
+                  {history.length === 0 && (
+                    <TableRow>
+                      <TableCell 
+                        colSpan={8} 
+                        align="center" 
+                        sx={{ 
+                          py: 4,
+                          color: '#94a3b8',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        No calculations yet
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Uptime: {uptime || 'Calculating...'}
-              </Typography>
-            </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Uptime: {uptime || 'Calculating...'}
+            </Typography>
           </Box>
-        )}
+        </Box>
       </Container>
     </SupabaseErrorBoundary>
   );

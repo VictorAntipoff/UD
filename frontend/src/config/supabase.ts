@@ -50,7 +50,7 @@ export const testSupabaseConnection = async () => {
 
     console.log('Session found:', session.user.id);
 
-    // Try a basic health check query - just check if we can access the table
+    // Try a basic health check query
     const { data, error: healthError } = await supabase
       .from('wood_types')
       .select('count', { count: 'exact', head: true });
@@ -67,7 +67,6 @@ export const testSupabaseConnection = async () => {
   }
 };
 
-// Simplify table existence check
 export const checkTableExists = async (tableName: string) => {
   try {
     const { data, error } = await supabase
@@ -79,4 +78,4 @@ export const checkTableExists = async (tableName: string) => {
     console.error(`Failed to check table ${tableName}:`, error);
     return false;
   }
-}; 
+};
