@@ -22,17 +22,24 @@ import {
   Tooltip,
   Alert,
   CircularProgress,
-  Chip
+  Chip,
+  Checkbox
 } from '@mui/material';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PrintIcon from '@mui/icons-material/Print';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import EditIcon from '@mui/icons-material/Edit';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase, testSupabaseConnection, checkTableExists } from '../../config/supabase';
 import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import { WoodCalculationReport } from '../../components/reports/WoodCalculationReport';
+import { MultipleWoodCalculationReport } from '../../components/reports/MultipleWoodCalculationReport';
+import { useSnackbar } from 'notistack';
 
 console.log('Environment Variables:', {
   url: import.meta.env.VITE_SUPABASE_URL,
@@ -128,6 +135,8 @@ export default function WoodCalculator() {
   const [dbConnected, setDbConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [uptime, setUptime] = useState<string>('');
+  const { enqueueSnackbar } = useSnackbar();
+  const [selectedCalculations, setSelectedCalculations] = useState<string[]>([]);
 
   const currentFile = import.meta.url;
 
@@ -328,46 +337,41 @@ export default function WoodCalculator() {
     }
   }, [dimensions]);
 
-  const handlePrintCalculation = () => {
-    if (!result) return;
+  const getCalculationData = (): CalculationResult | null => {
+    if (!result || !dimensions.woodTypeId) return null;
     
-    const printContent = `
-      Wood Calculator Results
-      ----------------------
-      Dimensions: ${dimensions.thickness}"×${dimensions.width}"×${dimensions.length}'
-      Wood Type: ${woodTypes.find(w => w.id === dimensions.woodTypeId)?.name || 'N/A'}
-      Price per Plank: TZS ${formatNumber(dimensions.pricePerPlank)}
-      Volume: ${result.volumeM3.toFixed(4)} m³
-      Planks per m³: ${result.planksPerM3.toFixed(2)}
-      Price per m³: TZS ${formatNumber(result.pricePerM3)}
-      Notes: ${dimensions.notes}
-      ----------------------
-      Calculated on: ${new Date().toLocaleString()}
-    `;
-
-    const printWindow = window.open('', '', 'height=600,width=800');
-    if (printWindow) {
-      printWindow.document.write(`<pre>${printContent}</pre>`);
-      printWindow.document.close();
-      printWindow.print();
-    }
+    return {
+      dimensions,
+      volumeM3: result.volumeM3,
+      planksPerM3: result.planksPerM3,
+      pricePerM3: result.pricePerM3,
+      timestamp: new Date().toISOString(),
+      woodType: woodTypes.find(w => w.id === dimensions.woodTypeId) || defaultWoodType,
+      notes: dimensions.notes,
+      id: '',
+      userId: user?.id || ''
+    };
   };
 
-  const handleCopyCalculation = useCallback((item: CalculationResult) => {
-    if (!item?.dimensions) return;
+  const copyCalculationToClipboard = useCallback((calculation: CalculationResult) => {
+    const text = `Wood Calculation Details:
+Wood Type: ${calculation.woodType.name} (Grade ${calculation.woodType.grade})
+Dimensions: ${calculation.dimensions.thickness}″×${calculation.dimensions.width}″×${calculation.dimensions.length}′
+Price per Plank: TZS ${formatNumber(calculation.dimensions.pricePerPlank)}
+Volume: ${calculation.volumeM3.toFixed(4)} m³
+Planks per m³: ${calculation.planksPerM3.toFixed(2)}
+Price per m³: TZS ${formatNumber(calculation.pricePerM3)}
+${calculation.notes ? `\nNotes: ${calculation.notes}` : ''}
+Generated on: ${new Date().toLocaleString()}`;
 
-    setDimensions({
-      thickness: item.dimensions.thickness || 0,
-      width: item.dimensions.width || 0,
-      length: item.dimensions.length || 0,
-      pricePerPlank: item.dimensions.pricePerPlank || 0,
-      woodTypeId: item.dimensions.woodTypeId || '',
-      notes: item.dimensions.notes || ''
-    });
-
-    // Recalculate with the copied values
-    calculateVolume();
-  }, [calculateVolume]);
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        enqueueSnackbar('Calculation copied to clipboard', { variant: 'success' });
+      })
+      .catch(() => {
+        enqueueSnackbar('Failed to copy calculation', { variant: 'error' });
+      });
+  }, [enqueueSnackbar]);
 
   const saveCalculation = useCallback(async () => {
     try {
@@ -419,24 +423,45 @@ export default function WoodCalculator() {
     }
   };
 
-  const mapCalculationFromDB = (item: Calculation): CalculationResult => ({
-    id: item.id,
-    userId: item.user_id,
-    dimensions: {
-      thickness: item.thickness,
-      width: item.width,
-      length: item.length,
-      pricePerPlank: item.price_per_plank,
-      woodTypeId: item.wood_type_id,
-      notes: item.notes || ''
-    },
-    volumeM3: item.volume_m3,
-    planksPerM3: item.planks_per_m3,
-    pricePerM3: item.price_per_m3,
-    timestamp: item.created_at,
-    woodType: item.wood_type,
-    notes: item.notes || ''
-  });
+  const loadCalculationFromHistory = useCallback((item: CalculationResult) => {
+    // Set dimensions from history
+    setDimensions({
+      thickness: item.dimensions.thickness,
+      width: item.dimensions.width,
+      length: item.dimensions.length,
+      pricePerPlank: item.dimensions.pricePerPlank,
+      woodTypeId: item.woodType.id,
+      notes: item.dimensions.notes
+    });
+
+    // Set result from history
+    setResult({
+      volumeM3: item.volumeM3,
+      planksPerM3: item.planksPerM3,
+      pricePerM3: item.pricePerM3
+    });
+
+    // Scroll to top of the calculator
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Show notification
+    enqueueSnackbar('Calculation loaded from history', { 
+      variant: 'success',
+      autoHideDuration: 2000
+    });
+  }, [enqueueSnackbar]);
+
+  const handleSelectCalculation = (id: string) => {
+    setSelectedCalculations(prev => 
+      prev.includes(id) 
+        ? prev.filter(calcId => calcId !== id)
+        : [...prev, id]
+    );
+  };
+
+  const getSelectedCalculations = () => {
+    return history.filter(calc => selectedCalculations.includes(calc.id));
+  };
 
   if (isLoading) {
     return (
@@ -785,22 +810,58 @@ export default function WoodCalculator() {
               fontSize: '0.85rem'
             }
           }}>
-            <Button
-              variant="outlined"
-              onClick={handlePrintCalculation}
-              startIcon={<PrintIcon />}
-              disabled={!result}
-              sx={{
-                borderColor: '#e1e8ed',
-                color: '#2c3e50',
-                '&:hover': {
-                  borderColor: '#bdc3c7',
-                  backgroundColor: '#f8f9fa'
-                }
-              }}
-            >
-              Print
-            </Button>
+            {result && getCalculationData() && (
+              <>
+                <PDFDownloadLink
+                  document={
+                    <WoodCalculationReport 
+                      calculation={getCalculationData()!} 
+                      timestamp={new Date().toISOString()}
+                      user={{
+                        email: user?.email || '',
+                        name: user?.user_metadata?.full_name
+                      }}
+                    />
+                  }
+                  fileName={`wood-calculation-${new Date().toISOString().split('T')[0]}.pdf`}
+                >
+                  {({ loading, error }) => (
+                    <Button
+                      variant="outlined"
+                      startIcon={<PrintIcon />}
+                      disabled={loading || !result}
+                      sx={{
+                        borderColor: '#e1e8ed',
+                        color: '#2c3e50',
+                        '&:hover': {
+                          borderColor: '#bdc3c7',
+                          backgroundColor: '#f8f9fa'
+                        }
+                      }}
+                    >
+                      {loading ? 'Preparing PDF...' : 'Download PDF'}
+                    </Button>
+                  )}
+                </PDFDownloadLink>
+
+                <Button
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => copyCalculationToClipboard(getCalculationData()!)}
+                  sx={{
+                    borderColor: '#e1e8ed',
+                    color: '#2c3e50',
+                    '&:hover': {
+                      borderColor: '#bdc3c7',
+                      backgroundColor: '#f8f9fa'
+                    }
+                  }}
+                >
+                  Copy Details
+                </Button>
+              </>
+            )}
+
             <Button
               variant="contained"
               onClick={saveCalculation}
@@ -862,6 +923,19 @@ export default function WoodCalculator() {
               }}>
                 <TableHead>
                   <TableRow>
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        indeterminate={selectedCalculations.length > 0 && selectedCalculations.length < history.length}
+                        checked={selectedCalculations.length === history.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCalculations(history.map(calc => calc.id));
+                          } else {
+                            setSelectedCalculations([]);
+                          }
+                        }}
+                      />
+                    </TableCell>
                     <TableCell>Time</TableCell>
                     <TableCell>Wood Type</TableCell>
                     <TableCell>Dimensions</TableCell>
@@ -875,6 +949,12 @@ export default function WoodCalculator() {
                 <TableBody>
                   {history.map((item) => (
                     <TableRow key={item.id} hover>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          checked={selectedCalculations.includes(item.id)}
+                          onChange={() => handleSelectCalculation(item.id)}
+                        />
+                      </TableCell>
                       <TableCell>
                         {item.timestamp 
                           ? new Date(item.timestamp).toLocaleString(undefined, {
@@ -922,10 +1002,25 @@ export default function WoodCalculator() {
                           justifyContent: 'flex-end', 
                           gap: 0.5 
                         }}>
+                          <Tooltip title="Load">
+                            <IconButton 
+                              size="small" 
+                              onClick={() => loadCalculationFromHistory(item)}
+                              sx={{ 
+                                padding: 0.5,
+                                '&:hover': {
+                                  backgroundColor: '#e8f5e9',
+                                  color: '#2e7d32'
+                                }
+                              }}
+                            >
+                              <EditIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
+                          </Tooltip>
                           <Tooltip title="Copy">
                             <IconButton 
                               size="small" 
-                              onClick={() => handleCopyCalculation(item)}
+                              onClick={() => copyCalculationToClipboard(item)}
                               sx={{ 
                                 padding: 0.5,
                                 '&:hover': {
@@ -974,6 +1069,40 @@ export default function WoodCalculator() {
               </Table>
             </TableContainer>
           </Paper>
+
+          {selectedCalculations.length > 0 && (
+            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+              <PDFDownloadLink
+                document={
+                  <MultipleWoodCalculationReport
+                    calculations={getSelectedCalculations()}
+                    timestamp={new Date().toISOString()}
+                    user={{
+                      email: user?.email || '',
+                      name: user?.user_metadata?.full_name
+                    }}
+                  />
+                }
+                fileName={`wood-calculations-${new Date().toISOString().split('T')[0]}.pdf`}
+              >
+                {({ loading }) => (
+                  <Button
+                    variant="contained"
+                    startIcon={<PictureAsPdfIcon />}
+                    disabled={loading}
+                    sx={{
+                      backgroundColor: '#2c3e50',
+                      '&:hover': {
+                        backgroundColor: '#34495e'
+                      }
+                    }}
+                  >
+                    Generate Combined Report ({selectedCalculations.length})
+                  </Button>
+                )}
+              </PDFDownloadLink>
+            </Box>
+          )}
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" color="text.secondary">

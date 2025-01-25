@@ -6,6 +6,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { SnackbarProvider } from 'notistack';
 
 // Configure axios defaults
 import axios from 'axios';
@@ -18,6 +19,8 @@ const root = createRoot(container);
 
 root.render(
   <StrictMode>
-    <App />
+    <SnackbarProvider maxSnack={3}>
+      <App />
+    </SnackbarProvider>
   </StrictMode>
 );
