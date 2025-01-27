@@ -7,6 +7,7 @@ import { Suspense } from 'react';
 import { CircularProgress } from '@mui/material';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
+import { DevelopmentProvider } from './contexts/DevelopmentContext';
 
 // Pages
 import LoginPage from './pages/auth/LoginPage';
@@ -77,10 +78,12 @@ export const App = () => {
       <Suspense fallback={<CircularProgress />}>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            <ThemeProvider theme={theme}>
-              <CssBaseline />
-              <RouterProvider router={router} />
-            </ThemeProvider>
+            <DevelopmentProvider>
+              <ThemeProvider theme={theme}>
+                <CssBaseline />
+                <RouterProvider router={router} />
+              </ThemeProvider>
+            </DevelopmentProvider>
           </AuthProvider>
         </QueryClientProvider>
       </Suspense>
