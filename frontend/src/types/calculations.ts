@@ -1,12 +1,3 @@
-export interface WoodType {
-  id: string;
-  name: string;
-  description: string | null;
-  density: number | null;
-  grade: 'A' | 'B' | 'C' | 'D';
-  origin: string | null;
-}
-
 export interface PlankDimensions {
   thickness: number;
   width: number;
@@ -16,7 +7,18 @@ export interface PlankDimensions {
   notes: string;
 }
 
+export interface WoodType {
+  id: string;
+  name: string;
+  description: string | null;
+  density: number | null;
+  grade: 'A' | 'B' | 'C' | 'D';
+  origin: string | null;
+}
+
 export interface CalculationResult {
+  id: string;
+  userId: string;
   dimensions: PlankDimensions;
   volumeM3: number;
   planksPerM3: number;
@@ -24,6 +26,4 @@ export interface CalculationResult {
   timestamp: string;
   woodType: WoodType;
   notes: string;
-  id: string;
-  userId: string;
 } 
