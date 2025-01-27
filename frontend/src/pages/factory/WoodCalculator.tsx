@@ -27,70 +27,25 @@ import {
 } from '@mui/material';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import DeleteIcon from '@mui/icons-material/Delete';
-import PrintIcon from '@mui/icons-material/Print';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EditIcon from '@mui/icons-material/Edit';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, testSupabaseConnection, checkTableExists } from '../../config/supabase';
+import { supabase, testSupabaseConnection } from '../../config/supabase';
 import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { PDFDownloadLink } from '@react-pdf/renderer';
+import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
 import { WoodCalculationReport } from '../../components/reports/WoodCalculationReport';
 import { MultipleWoodCalculationReport } from '../../components/reports/MultipleWoodCalculationReport';
 import { useSnackbar } from 'notistack';
+import type { CalculationResult, WoodType, PlankDimensions } from '../../types/calculations';
+import type { PDFDownloadLinkProps as PDFProps } from '@react-pdf/renderer';
 
 console.log('Environment Variables:', {
   url: import.meta.env.VITE_SUPABASE_URL,
   key: import.meta.env.VITE_SUPABASE_ANON_KEY
 });
-
-interface WoodType {
-  id: string;
-  name: string;
-  description: string | null;
-  density: number | null;
-  grade: 'A' | 'B' | 'C' | 'D';
-  origin: string | null;
-}
-
-interface PlankDimensions {
-  thickness: number;
-  width: number;
-  length: number;
-  pricePerPlank: number;
-  woodTypeId: string;
-  notes: string;
-}
-
-interface Calculation {
-  id: string;
-  user_id: string;
-  wood_type_id: string;
-  thickness: number;
-  width: number;
-  length: number;
-  price_per_plank: number;
-  volume_m3: number;
-  planks_per_m3: number;
-  price_per_m3: number;
-  notes: string | null;
-  created_at: string;
-  wood_type: WoodType;
-}
-
-interface CalculationResult {
-  dimensions: PlankDimensions;
-  volumeM3: number;
-  planksPerM3: number;
-  pricePerM3: number;
-  timestamp: string;
-  woodType: WoodType;
-  notes: string;
-  id: string;
-  userId: string;
-}
 
 // Update the formatNumber function to handle undefined/null values
 const formatNumber = (num: number | null | undefined): string => {
@@ -110,6 +65,44 @@ const defaultWoodType: WoodType = {
   grade: 'A', // Using 'A' as default since grade is an enum
   origin: null
 };
+
+// Add this type for the render function props
+// Removed unused type PDFRenderProps
+
+const PDFDownloadButton: React.FC<{
+  loading: boolean;
+  text: string;
+}> = ({ loading, text }) => (
+  <Button
+    variant="contained"
+    startIcon={<PictureAsPdfIcon />}
+    disabled={loading}
+    sx={{
+      backgroundColor: '#2c3e50',
+      '&:hover': {
+        backgroundColor: '#34495e'
+      }
+    }}
+  >
+    {loading ? 'Generating...' : text}
+  </Button>
+);
+
+interface PDFButtonWrapperProps {
+  document: PDFProps['document'];
+  fileName: string;
+  text: string;
+}
+
+const PDFButtonWrapper: React.FC<PDFButtonWrapperProps> = ({ document, fileName, text }) => (
+  <BlobProvider document={document}>
+    {({ loading }) => (
+      <PDFDownloadLink document={document} fileName={fileName}>
+        <PDFDownloadButton loading={loading} text={text} />
+      </PDFDownloadLink>
+    )}
+  </BlobProvider>
+);
 
 export default function WoodCalculator() {
   const navigate = useNavigate();
@@ -132,7 +125,6 @@ export default function WoodCalculator() {
   const [history, setHistory] = useState<CalculationResult[]>([]);
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [dbConnected, setDbConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [uptime, setUptime] = useState<string>('');
   const { enqueueSnackbar } = useSnackbar();
@@ -145,7 +137,7 @@ export default function WoodCalculator() {
     try {
       setIsLoading(true);
       
-      // Fetch wood types
+      // First fetch wood types
       const { data: woodTypesData, error: woodTypesError } = await supabase
         .from('wood_types')
         .select('*')
@@ -154,53 +146,42 @@ export default function WoodCalculator() {
       if (woodTypesError) throw woodTypesError;
       setWoodTypes(woodTypesData || []);
 
-      // Fetch calculations
-      const { data: historyData, error: historyError } = await supabase
-        .from('calculations')
+      // Then fetch calculations with proper table name and join
+      const { data, error } = await supabase
+        .from('calculations') // Changed from 'wood_calculations' to 'calculations'
         .select(`
-          id,
-          user_id,
-          wood_type_id,
-          thickness,
-          width,
-          length,
-          price_per_plank,
-          volume_m3,
-          planks_per_m3,
-          price_per_m3,
-          notes,
-          created_at,
-          wood_type:wood_types(*)
+          *,
+          wood_type:wood_types!wood_type_id(*)
         `)
         .eq('user_id', user?.id)
         .order('created_at', { ascending: false });
 
-      if (historyError) throw historyError;
+      if (error) throw error;
 
-      // Transform the data to match CalculationResult interface
-      const transformedHistory = (historyData || []).map(calc => ({
-        id: calc.id,
-        userId: calc.user_id,
+      // Transform the data
+      const typedData: CalculationResult[] = data.map((item: any) => ({
+        id: item.id,
+        userId: item.user_id,
         dimensions: {
-          thickness: calc.thickness || 0,
-          width: calc.width || 0,
-          length: calc.length || 0,
-          pricePerPlank: calc.price_per_plank || 0,
-          woodTypeId: calc.wood_type_id,
-          notes: calc.notes || ''
+          thickness: item.thickness,
+          width: item.width,
+          length: item.length,
+          pricePerPlank: item.price_per_plank,
+          woodTypeId: item.wood_type_id,
+          notes: item.notes || ''
         },
-        volumeM3: calc.volume_m3 || 0,
-        planksPerM3: calc.planks_per_m3 || 0,
-        pricePerM3: calc.price_per_m3 || 0,
-        timestamp: calc.created_at,
-        woodType: calc.wood_type || defaultWoodType,
-        notes: calc.notes || ''
+        volumeM3: item.volume_m3,
+        planksPerM3: item.planks_per_m3,
+        pricePerM3: item.price_per_m3,
+        timestamp: item.created_at,
+        woodType: item.wood_type || defaultWoodType,
+        notes: item.notes || ''
       }));
 
-      setHistory(transformedHistory);
-    } catch (error) {
-      console.error('Error fetching data:', error);
-      setError('Failed to fetch data');
+      setHistory(typedData);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch data');
     } finally {
       setIsLoading(false);
     }
@@ -220,7 +201,6 @@ export default function WoodCalculator() {
         }
 
         const isConnected = await testSupabaseConnection();
-        setDbConnected(isConnected);
         
         if (!isConnected) {
           setError('Unable to connect to database. Please try again later.');
@@ -812,37 +792,20 @@ Generated on: ${new Date().toLocaleString()}`;
           }}>
             {result && getCalculationData() && (
               <>
-                <PDFDownloadLink
+                <PDFButtonWrapper
                   document={
-                    <WoodCalculationReport 
-                      calculation={getCalculationData()!} 
+                    <WoodCalculationReport
+                      calculation={getCalculationData()!}
                       timestamp={new Date().toISOString()}
                       user={{
                         email: user?.email || '',
-                        name: user?.user_metadata?.full_name
+                        name: user?.user_metadata?.full_name || ''
                       }}
                     />
                   }
-                  fileName={`wood-calculation-${new Date().toISOString().split('T')[0]}.pdf`}
-                >
-                  {({ loading, error }) => (
-                    <Button
-                      variant="outlined"
-                      startIcon={<PrintIcon />}
-                      disabled={loading || !result}
-                      sx={{
-                        borderColor: '#e1e8ed',
-                        color: '#2c3e50',
-                        '&:hover': {
-                          borderColor: '#bdc3c7',
-                          backgroundColor: '#f8f9fa'
-                        }
-                      }}
-                    >
-                      {loading ? 'Preparing PDF...' : 'Download PDF'}
-                    </Button>
-                  )}
-                </PDFDownloadLink>
+                  fileName={`wood-calculation-${getCalculationData()!.id}.pdf`}
+                  text="Download Report"
+                />
 
                 <Button
                   variant="outlined"
@@ -1072,35 +1035,20 @@ Generated on: ${new Date().toLocaleString()}`;
 
           {selectedCalculations.length > 0 && (
             <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
-              <PDFDownloadLink
+              <PDFButtonWrapper
                 document={
                   <MultipleWoodCalculationReport
                     calculations={getSelectedCalculations()}
                     timestamp={new Date().toISOString()}
                     user={{
                       email: user?.email || '',
-                      name: user?.user_metadata?.full_name
+                      name: user?.user_metadata?.full_name || ''
                     }}
                   />
                 }
                 fileName={`wood-calculations-${new Date().toISOString().split('T')[0]}.pdf`}
-              >
-                {({ loading }) => (
-                  <Button
-                    variant="contained"
-                    startIcon={<PictureAsPdfIcon />}
-                    disabled={loading}
-                    sx={{
-                      backgroundColor: '#2c3e50',
-                      '&:hover': {
-                        backgroundColor: '#34495e'
-                      }
-                    }}
-                  >
-                    Generate Combined Report ({selectedCalculations.length})
-                  </Button>
-                )}
-              </PDFDownloadLink>
+                text={`Generate Combined Report (${selectedCalculations.length})`}
+              />
             </Box>
           )}
 
