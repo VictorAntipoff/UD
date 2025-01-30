@@ -28,27 +28,16 @@
       "destination": "/api/:path*"
     }
   ],
-  "headers": [
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json"
-        },
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "https://ud-frontend-snowy.vercel.app"
-        },
-        {
-          "key": "Access-Control-Allow-Methods",
-          "value": "GET,POST,PUT,DELETE,OPTIONS"
-        },
-        {
-          "key": "Access-Control-Allow-Headers",
-          "value": "Content-Type, Authorization"
-        }
-      ]
+      "src": "/api/(.*)",
+      "dest": "/api/$1",
+      "headers": {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Origin": "https://ud-frontend-snowy.vercel.app",
+        "Access-Control-Allow-Methods": "GET,OPTIONS,PATCH,DELETE,POST,PUT",
+        "Access-Control-Allow-Headers": "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+      }
     }
   ],
   "env": {
