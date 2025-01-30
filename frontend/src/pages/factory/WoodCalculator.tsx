@@ -218,41 +218,63 @@ export default function WoodCalculator() {
   }, [navigate, fetchData]); // Remove woodTypes.length and history.length dependencies
 
   // Health check effect
-  useEffect(() => {
-    let mounted = true;
-    const controller = new AbortController();
-
-    const checkHealth = async () => {
-      try {
-        const response = await axios.get('/api/health', {
-          timeout: 5000,
-          signal: controller.signal,
-          headers: {
-            'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
-          }
+  const checkHealth = useCallback(async () => {
+    try {
+      // Increase timeout and add retry logic
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/health`, {
+        timeout: 10000, // Increase timeout to 10 seconds
+        retries: 3, // Add retries
+        retryDelay: 1000, // Wait 1 second between retries
+        headers: {
+          'Cache-Control': 'no-cache',
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      if (response.data.status === 'ok') {
+        setUptime(response.data.uptime || 'Connected');
+        setError(null);
+      } else {
+        console.warn('Health check returned non-ok status:', response.data);
+        setUptime('Service Degraded');
+      }
+    } catch (error) {
+      // More detailed error logging
+      if (axios.isAxiosError(error)) {
+        console.warn('Health check failed:', {
+          message: error.message,
+          code: error.code,
+          timeout: error.config?.timeout,
+          url: error.config?.url
         });
         
-        if (mounted && response.data?.uptime) {
-          setUptime(response.data.uptime);
+        // Set appropriate message based on error type
+        if (error.code === 'ECONNABORTED') {
+          setUptime('Connection Timeout');
+        } else if (error.code === 'ERR_NETWORK') {
+          setUptime('Network Error');
+        } else {
+          setUptime('Connection Error');
         }
-      } catch (error) {
-        if (mounted) {
-          console.error('Health check failed:', error);
-          setUptime('API Error');
-        }
+      } else {
+        console.error('Unknown error during health check:', error);
+        setUptime('Error');
       }
-    };
+    }
+  }, []);
 
+  useEffect(() => {
+    // Initial check
     checkHealth();
-    const interval = setInterval(checkHealth, 30000); // Increased interval to 30 seconds
 
+    // Set up interval with longer delay
+    const interval = setInterval(checkHealth, 30000); // Check every 30 seconds instead of 5
+
+    // Cleanup
     return () => {
-      mounted = false;
-      controller.abort();
       clearInterval(interval);
     };
-  }, []); // Empty dependency array
+  }, [checkHealth]);
 
   const handleInputChange = (field: keyof PlankDimensions) => (
     event: React.ChangeEvent<HTMLInputElement>

@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { config } from 'dotenv';
+import { expand } from 'dotenv-expand';
 import { PrismaClient } from '@prisma/client';
 import { calculateUptime } from './utils/uptime.js';
 import { HealthCheckResponse, HealthStatus } from './types/health.js';
@@ -11,7 +12,20 @@ import healthRoutes from './routes/health.js';
 import { prisma } from './lib/prisma.js';
 
 // Load environment variables
-config();
+const env = config();
+expand(env);
+
+// Validate required environment variables
+const requiredEnvVars = [
+  'DATABASE_URL',
+  'DIRECT_URL'
+];
+
+requiredEnvVars.forEach(varName => {
+  if (!process.env[varName]) {
+    throw new Error(`Missing required environment variable: ${varName}`);
+  }
+});
 
 // Initialize Fastify app
 const app = Fastify({
