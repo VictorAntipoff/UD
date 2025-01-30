@@ -5,7 +5,13 @@ declare global {
 }
 
 const prisma = global.prisma || new PrismaClient({
-  log: ['warn', 'error']
+  log: ['warn', 'error'],
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  },
+  errorFormat: 'pretty'
 });
 
 if (process.env.NODE_ENV !== 'production') {
@@ -20,6 +26,18 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`Query ${params.model}.${params.action} took ${after - before}ms`);
     return result;
   });
+}
+
+// Add connection testing function
+export async function testConnection() {
+  try {
+    await prisma.$connect();
+    console.log('Successfully connected to database');
+    return true;
+  } catch (error) {
+    console.error('Failed to connect to database:', error);
+    return false;
+  }
 }
 
 export async function disconnect() {
