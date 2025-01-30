@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL || process.env.VITE_API_URL;
 
 const fetchWithTimeout = async (
   url: string, 
@@ -10,7 +10,14 @@ const fetchWithTimeout = async (
   try {
     const response = await fetch(url, {
       ...options,
-      signal: controller.signal
+      signal: controller.signal,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...options.headers,
+      },
+      mode: 'cors'
     });
     clearTimeout(timeoutId);
     return response;
@@ -20,24 +27,18 @@ const fetchWithTimeout = async (
   }
 };
 
-export const checkApiHealth = async () => {
+export const checkApiHealth = async (): Promise<boolean> => {
   try {
-    const response = await fetch(`${API_URL}/api/health`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache'
-      },
-      timeout: 5000
-    });
+    console.log('Checking API health at:', `${API_URL}/api/health`);
     
+    const response = await fetchWithTimeout(`${API_URL}/api/health`, {
+      method: 'GET'
+    });
+
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Health check failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText
-      });
+      console.error('Health check returned non-ok status:', response.status);
+      const text = await response.text();
+      console.error('Response body:', text);
       return false;
     }
     

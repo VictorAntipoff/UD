@@ -3,7 +3,23 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+const allowCors = (fn: Function) => async (req: VercelRequest, res: VercelResponse) => {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', 'https://ud-frontend-snowy.vercel.app');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,PUT,DELETE,PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+
+  // Handle preflight request
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  return await fn(req, res);
+};
+
+const handler = async (req: VercelRequest, res: VercelResponse) => {
   try {
     // Test database connection
     await prisma.$connect();
@@ -11,9 +27,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     res.status(200).json({
       status: 'ok',
-      timestamp: new Date().toISOString(),
       database: 'connected',
-      result
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Health check failed:', error);
@@ -25,4 +40,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } finally {
     await prisma.$disconnect();
   }
-} 
+};
+
+export default allowCors(handler); 
