@@ -11,13 +11,10 @@ const fetchWithTimeout = async (
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
         ...options.headers,
-      },
-      mode: 'cors'
+      }
     });
     clearTimeout(timeoutId);
     return response;

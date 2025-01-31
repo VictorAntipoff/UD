@@ -3,25 +3,19 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const allowCors = (fn: Function) => async (req: VercelRequest, res: VercelResponse) => {
-  // Set CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // Set CORS headers directly in the handler as well
   res.setHeader('Access-Control-Allow-Origin', 'https://ud-frontend-snowy.vercel.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,PUT,DELETE,PATCH');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
 
-  // Handle preflight request
+  // Handle preflight
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
+    res.status(204).end();
     return;
   }
 
-  return await fn(req, res);
-};
-
-const handler = async (req: VercelRequest, res: VercelResponse) => {
   try {
-    // Test database connection
     await prisma.$connect();
     const result = await prisma.$queryRaw`SELECT 1`;
     
@@ -40,6 +34,4 @@ const handler = async (req: VercelRequest, res: VercelResponse) => {
   } finally {
     await prisma.$disconnect();
   }
-};
-
-export default allowCors(handler); 
+} 

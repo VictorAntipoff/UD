@@ -78,9 +78,16 @@ const PDFDownloadButton: React.FC<{
     startIcon={<PictureAsPdfIcon />}
     disabled={loading}
     sx={{
-      backgroundColor: '#2c3e50',
+      bgcolor: '#2c3e50',
+      color: 'white',
+      width: '100%',
+      height: '48px',
+      borderRadius: '8px',
+      textTransform: 'none',
+      fontSize: '0.9rem',
+      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
       '&:hover': {
-        backgroundColor: '#34495e'
+        bgcolor: '#34495e'
       }
     }}
   >
@@ -104,6 +111,30 @@ const PDFButtonWrapper: React.FC<PDFButtonWrapperProps> = ({ document, fileName,
   </BlobProvider>
 );
 
+// Add these theme colors at the top
+const theme = {
+  colors: {
+    primary: {
+      main: '#dc2626', // red-600
+      light: '#ef4444', // red-500
+      dark: '#b91c1c', // red-700
+      contrastText: '#ffffff'
+    },
+    secondary: {
+      main: '#f1f5f9', // slate-100
+      hover: '#e2e8f0' // slate-200
+    },
+    text: {
+      primary: '#334155', // slate-700
+      secondary: '#64748b' // slate-500
+    },
+    border: '#e2e8f0' // slate-200
+  },
+  transitions: {
+    standard: 'all 0.3s ease-in-out'
+  }
+};
+
 export default function WoodCalculator() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -126,7 +157,6 @@ export default function WoodCalculator() {
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [uptime, setUptime] = useState<string>('');
   const { enqueueSnackbar } = useSnackbar();
   const [selectedCalculations, setSelectedCalculations] = useState<string[]>([]);
 
@@ -216,65 +246,6 @@ export default function WoodCalculator() {
 
     checkAuth();
   }, [navigate, fetchData]); // Remove woodTypes.length and history.length dependencies
-
-  // Health check effect
-  const checkHealth = useCallback(async () => {
-    try {
-      // Increase timeout and add retry logic
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/health`, {
-        timeout: 10000, // Increase timeout to 10 seconds
-        retries: 3, // Add retries
-        retryDelay: 1000, // Wait 1 second between retries
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        }
-      });
-      
-      if (response.data.status === 'ok') {
-        setUptime(response.data.uptime || 'Connected');
-        setError(null);
-      } else {
-        console.warn('Health check returned non-ok status:', response.data);
-        setUptime('Service Degraded');
-      }
-    } catch (error) {
-      // More detailed error logging
-      if (axios.isAxiosError(error)) {
-        console.warn('Health check failed:', {
-          message: error.message,
-          code: error.code,
-          timeout: error.config?.timeout,
-          url: error.config?.url
-        });
-        
-        // Set appropriate message based on error type
-        if (error.code === 'ECONNABORTED') {
-          setUptime('Connection Timeout');
-        } else if (error.code === 'ERR_NETWORK') {
-          setUptime('Network Error');
-        } else {
-          setUptime('Connection Error');
-        }
-      } else {
-        console.error('Unknown error during health check:', error);
-        setUptime('Error');
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    // Initial check
-    checkHealth();
-
-    // Set up interval with longer delay
-    const interval = setInterval(checkHealth, 30000); // Check every 30 seconds instead of 5
-
-    // Cleanup
-    return () => {
-      clearInterval(interval);
-    };
-  }, [checkHealth]);
 
   const handleInputChange = (field: keyof PlankDimensions) => (
     event: React.ChangeEvent<HTMLInputElement>
@@ -475,206 +446,186 @@ Generated on: ${new Date().toLocaleString()}`;
 
   return (
     <SupabaseErrorBoundary>
-      <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-          <Typography 
-            variant="h5" 
-            sx={{ 
-              color: '#2c3e50',
-              fontWeight: 500
-            }}
-          >
-            Wood Calculator
-          </Typography>
-          {import.meta.env.DEV && (
-            <Tooltip 
-              title={`File: ${currentFile.split('/src/')[1]}`}
-              arrow
-            >
-              <Chip
-                label="Development"
-                size="small"
-                sx={{
-                  backgroundColor: '#fbbf24',
-                  color: '#78350f',
-                  '& .MuiChip-label': {
-                    fontWeight: 600
-                  },
-                  cursor: 'help'
-                }}
-              />
-            </Tooltip>
-          )}
-        </Box>
-        <Box sx={{ py: 3 }}>
-          <Typography 
-            variant="h5"
-            component="h1" 
-            gutterBottom
-            sx={{ 
-              fontSize: '1.1rem',
-              fontWeight: 500,
-              color: '#2c3e50',
-              mb: 2 
-            }}
-          >
-            Wood Calculator
-          </Typography>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-
-          <Paper elevation={0} sx={{ 
-            p: 3, 
-            mb: 3,
-            border: '1px solid #e1e8ed',
-            borderRadius: 2
-          }}>
+      <Container maxWidth="lg" sx={{ 
+        py: 4,
+        px: { xs: 2, sm: 3 },
+        '& .MuiPaper-root': {
+          transition: theme.transitions.standard
+        }
+      }}>
+        {/* Header Section */}
+        <Box sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          mb: 4 
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <Typography 
-              variant="h6" 
-              gutterBottom
+              variant="h4" 
               sx={{ 
-                fontSize: '0.95rem',
-                fontWeight: 500,
-                color: '#34495e',
-                mb: 2 
+                fontSize: { xs: '1.5rem', sm: '1.75rem' },
+                fontWeight: 600,
+                color: theme.colors.primary.main,
+                transition: theme.transitions.standard
               }}
             >
-              Plank Details
+              Wood Calculator
             </Typography>
+            {import.meta.env.DEV && (
+              <Tooltip title={`File: ${currentFile.split('/src/')[1]}`}>
+                <Chip
+                  label="Development"
+                  size="small"
+                  sx={{
+                    bgcolor: 'warning.light',
+                    color: 'warning.dark',
+                    fontWeight: 600
+                  }}
+                />
+              </Tooltip>
+            )}
+          </Box>
+        </Box>
 
-            <FormControl fullWidth sx={{ mb: 3 }}>
-              <InputLabel>Wood Type</InputLabel>
-              <Select
-                value={dimensions.woodTypeId}
-                label="Wood Type"
-                onChange={(e) => setDimensions(prev => ({
-                  ...prev,
-                  woodTypeId: e.target.value as string
-                }))}
-                size="small"
-                sx={{
-                  '& .MuiSelect-select': {
-                    fontSize: '0.85rem'
-                  }
+        {/* Calculator Section */}
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={7}>
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 3,
+                height: '100%',
+                border: '1px solid',
+                borderColor: theme.colors.border,
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                '&:hover': {
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                  borderColor: theme.colors.primary.light
+                },
+                transition: theme.transitions.standard
+              }}
+            >
+              {/* Input Fields Section */}
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  mb: 3,
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  color: 'text.primary'
                 }}
               >
-                {woodTypes.map((type) => (
-                  <MenuItem 
-                    key={type.id} 
-                    value={type.id}
-                    sx={{ fontSize: '0.85rem' }}
-                  >
-                    {type.name} - Grade {type.grade}
-                    {type.origin && ` (${type.origin})`}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                Plank Details
+              </Typography>
 
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Thickness (inches)"
-                  type="number"
-                  value={dimensions.thickness || ''}
-                  onChange={handleInputChange('thickness')}
+              <FormControl fullWidth sx={{ mb: 3 }}>
+                <InputLabel>Wood Type</InputLabel>
+                <Select
+                  value={dimensions.woodTypeId}
+                  label="Wood Type"
+                  onChange={(e) => setDimensions(prev => ({
+                    ...prev,
+                    woodTypeId: e.target.value as string
+                  }))}
                   size="small"
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">"</InputAdornment>
-                  }}
-                  sx={{ 
-                    '& .MuiInputLabel-root': {
-                      fontSize: '0.85rem'
-                    },
-                    '& .MuiInputBase-input': {
+                  sx={{
+                    '& .MuiSelect-select': {
                       fontSize: '0.85rem'
                     }
                   }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Width (inches)"
-                  type="number"
-                  value={dimensions.width || ''}
-                  onChange={handleInputChange('width')}
-                  size="small"
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">"</InputAdornment>
-                  }}
-                  sx={{ 
-                    '& .MuiInputLabel-root': {
-                      fontSize: '0.85rem'
-                    },
-                    '& .MuiInputBase-input': {
-                      fontSize: '0.85rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Length (feet)"
-                  type="number"
-                  value={dimensions.length || ''}
-                  onChange={handleInputChange('length')}
-                  size="small"
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">'</InputAdornment>
-                  }}
-                  sx={{ 
-                    '& .MuiInputLabel-root': {
-                      fontSize: '0.85rem'
-                    },
-                    '& .MuiInputBase-input': {
-                      fontSize: '0.85rem'
-                    }
-                  }}
-                />
-              </Grid>
-            </Grid>
+                >
+                  {woodTypes.map((type) => (
+                    <MenuItem 
+                      key={type.id} 
+                      value={type.id}
+                      sx={{ fontSize: '0.85rem' }}
+                    >
+                      {type.name} - Grade {type.grade}
+                      {type.origin && ` (${type.origin})`}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
 
-            <TextField
-              fullWidth
-              label="Price per Plank (TZS)"
-              value={dimensions.pricePerPlank.toLocaleString()}
-              onChange={handlePriceChange}
-              size="small"
-              InputProps={{
-                startAdornment: <InputAdornment position="start">TZS</InputAdornment>
-              }}
-              sx={{ 
-                mb: 3,
-                '& .MuiInputLabel-root': {
-                  fontSize: '0.85rem'
-                },
-                '& .MuiInputBase-input': {
-                  fontSize: '0.85rem'
-                }
-              }}
-            />
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Thickness (inches)"
+                    type="number"
+                    value={dimensions.thickness || ''}
+                    onChange={handleInputChange('thickness')}
+                    size="small"
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">"</InputAdornment>
+                    }}
+                    sx={{ 
+                      '& .MuiInputLabel-root': {
+                        fontSize: '0.85rem'
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Width (inches)"
+                    type="number"
+                    value={dimensions.width || ''}
+                    onChange={handleInputChange('width')}
+                    size="small"
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">"</InputAdornment>
+                    }}
+                    sx={{ 
+                      '& .MuiInputLabel-root': {
+                        fontSize: '0.85rem'
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Length (feet)"
+                    type="number"
+                    value={dimensions.length || ''}
+                    onChange={handleInputChange('length')}
+                    size="small"
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">'</InputAdornment>
+                    }}
+                    sx={{ 
+                      '& .MuiInputLabel-root': {
+                        fontSize: '0.85rem'
+                      },
+                      '& .MuiInputBase-input': {
+                        fontSize: '0.85rem'
+                      }
+                    }}
+                  />
+                </Grid>
+              </Grid>
 
-            <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
               <TextField
                 fullWidth
-                multiline
-                rows={2}
-                label="Notes"
-                value={dimensions.notes}
-                onChange={(e) => setDimensions(prev => ({ 
-                  ...prev, 
-                  notes: e.target.value 
-                }))}
+                label="Price per Plank (TZS)"
+                value={dimensions.pricePerPlank.toLocaleString()}
+                onChange={handlePriceChange}
                 size="small"
-                placeholder="Add any additional notes here..."
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">TZS</InputAdornment>
+                }}
                 sx={{ 
+                  mb: 3,
                   '& .MuiInputLabel-root': {
                     fontSize: '0.85rem'
                   },
@@ -683,403 +634,484 @@ Generated on: ${new Date().toLocaleString()}`;
                   }
                 }}
               />
+
+              <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  label="Notes"
+                  value={dimensions.notes}
+                  onChange={(e) => setDimensions(prev => ({ 
+                    ...prev, 
+                    notes: e.target.value 
+                  }))}
+                  size="small"
+                  placeholder="Add any additional notes here..."
+                  sx={{ 
+                    '& .MuiInputLabel-root': {
+                      fontSize: '0.85rem'
+                    },
+                    '& .MuiInputBase-input': {
+                      fontSize: '0.85rem'
+                    }
+                  }}
+                />
+              </Paper>
+
+              <Button
+                variant="contained"
+                onClick={calculateVolume}
+                startIcon={<CalculateIcon />}
+                fullWidth
+                sx={{
+                  bgcolor: theme.colors.primary.main,
+                  '&:hover': {
+                    bgcolor: theme.colors.primary.dark
+                  },
+                  transition: theme.transitions.standard
+                }}
+              >
+                Calculate
+              </Button>
             </Paper>
+          </Grid>
 
-            <Button
-              variant="contained"
-              onClick={calculateVolume}
-              startIcon={<CalculateIcon />}
-              fullWidth
+          <Grid item xs={12} md={5}>
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 3,
+                height: '100%',
+                border: '1px solid',
+                borderColor: theme.colors.border,
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                '&:hover': {
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+                  borderColor: theme.colors.primary.light
+                },
+                transition: theme.transitions.standard
+              }}
             >
-              Calculate
-            </Button>
-          </Paper>
+              {/* Results Section */}
+              <Typography 
+                variant="h6" 
+                sx={{ 
+                  mb: 3,
+                  fontSize: '1.1rem',
+                  fontWeight: 600,
+                  color: 'text.primary'
+                }}
+              >
+                Results
+              </Typography>
 
-          <Paper elevation={0} sx={{ 
-            p: 2,
-            bgcolor: 'white',
+              {result ? (
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: theme.colors.secondary.main,
+                      border: `1px solid ${theme.colors.border}`,
+                      borderRadius: 2,
+                      '&:hover': {
+                        bgcolor: theme.colors.secondary.hover,
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: theme.transitions.standard
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Volume per Plank
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#2c3e50', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          {result.volumeM3.toFixed(4)} m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: theme.colors.secondary.main,
+                      border: `1px solid ${theme.colors.border}`,
+                      borderRadius: 2,
+                      '&:hover': {
+                        bgcolor: theme.colors.secondary.hover,
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: theme.transitions.standard
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Planks per Cubic Meter
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#2c3e50', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          {result.planksPerM3.toFixed(2)} planks/m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: theme.colors.secondary.main,
+                      border: `1px solid ${theme.colors.border}`,
+                      borderRadius: 2,
+                      borderLeft: '4px solid #e74c3c',
+                      '&:hover': {
+                        bgcolor: theme.colors.secondary.hover,
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: theme.transitions.standard
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Price per Cubic Meter
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#e74c3c', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          TZS {formatNumber(result.pricePerM3)}/m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                </Grid>
+              ) : (
+                <Box sx={{ 
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#95a5a6',
+                  p: 2
+                }}>
+                  <Typography variant="body2">
+                    Enter dimensions and price to see calculations
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Action Buttons */}
+              <Box sx={{ 
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                mt: 3,
+                width: '100%'
+              }}>
+                {result && getCalculationData() && (
+                  <>
+                    <Box sx={{ 
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr',
+                      gap: 2,
+                      width: '100%'
+                    }}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<ContentCopyIcon />}
+                        onClick={() => copyCalculationToClipboard(getCalculationData()!)}
+                        sx={{
+                          height: '48px',
+                          borderRadius: '8px',
+                          textTransform: 'none',
+                          fontSize: '0.9rem',
+                          borderColor: theme.colors.border,
+                          color: theme.colors.text.primary,
+                          bgcolor: 'white',
+                          '&:hover': {
+                            borderColor: theme.colors.primary.light,
+                            bgcolor: theme.colors.secondary.main
+                          }
+                        }}
+                      >
+                        Copy Details
+                      </Button>
+
+                      <Button
+                        variant="contained"
+                        onClick={saveCalculation}
+                        disabled={!result || !user?.id}
+                        sx={{
+                          height: '48px',
+                          borderRadius: '8px',
+                          textTransform: 'none',
+                          fontSize: '0.9rem',
+                          bgcolor: theme.colors.primary.main,
+                          color: 'white',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                          '&:hover': {
+                            bgcolor: theme.colors.primary.dark
+                          }
+                        }}
+                      >
+                        Save Calculation
+                      </Button>
+                    </Box>
+
+                    <PDFButtonWrapper
+                      document={
+                        <WoodCalculationReport
+                          calculation={getCalculationData()!}
+                          timestamp={new Date().toISOString()}
+                          user={{
+                            email: user?.email || '',
+                            name: user?.user_metadata?.full_name || ''
+                          }}
+                        />
+                      }
+                      fileName={`wood-calculation-${new Date().toISOString().split('T')[0]}.pdf`}
+                      text="Download Report"
+                    />
+                  </>
+                )}
+              </Box>
+            </Paper>
+          </Grid>
+        </Grid>
+
+        {/* History Section */}
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            mt: 4,
+            p: 3,
+            border: '1px solid',
+            borderColor: theme.colors.border,
             borderRadius: 2,
-            border: '1px solid #e1e8ed',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column'
+            bgcolor: 'background.paper',
+            '&:hover': {
+              boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+              borderColor: theme.colors.primary.light
+            },
+            transition: theme.transitions.standard
+          }}
+        >
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            mb: 2 
           }}>
             <Typography 
               variant="subtitle1" 
-              gutterBottom 
               sx={{ 
+                color: '#34495e',
                 fontSize: '0.95rem',
-                fontWeight: 500,
-                color: '#34495e', 
-                mb: 1 
+                fontWeight: 500
               }}
             >
-              Results
+              Calculation History
             </Typography>
-            
-            {result ? (
-              <Grid container spacing={1.5}>
-                <Grid item xs={12}>
-                  <Paper elevation={0} sx={{ 
-                    p: 1.5,
-                    bgcolor: '#f8f9fa',
-                    border: '1px solid #e1e8ed',
-                    borderRadius: 2
-                  }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                        Volume per Plank
-                      </Typography>
-                      <Typography variant="body1" sx={{ 
-                        color: '#2c3e50', 
-                        fontWeight: 500,
-                        fontSize: '0.85rem'
-                      }}>
-                        {result.volumeM3.toFixed(4)} m³
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12}>
-                  <Paper elevation={0} sx={{ 
-                    p: 1.5,
-                    bgcolor: '#f8f9fa',
-                    border: '1px solid #e1e8ed',
-                    borderRadius: 2
-                  }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                        Planks per Cubic Meter
-                      </Typography>
-                      <Typography variant="body1" sx={{ 
-                        color: '#2c3e50', 
-                        fontWeight: 500,
-                        fontSize: '0.85rem'
-                      }}>
-                        {result.planksPerM3.toFixed(2)} planks/m³
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12}>
-                  <Paper elevation={0} sx={{ 
-                    p: 1.5,
-                    bgcolor: '#f8f9fa',
-                    border: '1px solid #e1e8ed',
-                    borderRadius: 2,
-                    borderLeft: '4px solid #e74c3c'
-                  }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                        Price per Cubic Meter
-                      </Typography>
-                      <Typography variant="body1" sx={{ 
-                        color: '#e74c3c', 
-                        fontWeight: 500,
-                        fontSize: '0.85rem'
-                      }}>
-                        TZS {formatNumber(result.pricePerM3)}/m³
-                      </Typography>
-                    </Box>
-                  </Paper>
-                </Grid>
-              </Grid>
-            ) : (
-              <Box sx={{ 
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#95a5a6',
-                p: 2
-              }}>
-                <Typography variant="body2">
-                  Enter dimensions and price to see calculations
-                </Typography>
-              </Box>
-            )}
-          </Paper>
+          </Box>
 
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 2, 
-            mt: 2,
-            mb: 2,
-            '& .MuiButton-root': {
-              minWidth: 110,
-              height: 36,
-              textTransform: 'none',
-              fontSize: '0.85rem'
-            }
-          }}>
-            {result && getCalculationData() && (
-              <>
-                <PDFButtonWrapper
-                  document={
-                    <WoodCalculationReport
-                      calculation={getCalculationData()!}
-                      timestamp={new Date().toISOString()}
-                      user={{
-                        email: user?.email || '',
-                        name: user?.user_metadata?.full_name || ''
+          <TableContainer>
+            <Table size="small" sx={{
+              '& .MuiTableCell-root': {
+                fontSize: '0.8rem',
+                py: 1,
+                px: 1.5,
+                whiteSpace: 'nowrap',
+                transition: theme.transitions.standard
+              },
+              '& .MuiTableCell-head': {
+                fontWeight: 600,
+                backgroundColor: theme.colors.secondary.main,
+                color: theme.colors.text.primary
+              },
+              '& .MuiTableRow-root': {
+                transition: theme.transitions.standard,
+                '&:hover': {
+                  backgroundColor: theme.colors.secondary.main
+                }
+              },
+              '& .MuiIconButton-root': {
+                transition: theme.transitions.standard,
+                '&:hover': {
+                  transform: 'scale(1.1)'
+                }
+              }
+            }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      indeterminate={selectedCalculations.length > 0 && selectedCalculations.length < history.length}
+                      checked={selectedCalculations.length === history.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCalculations(history.map(calc => calc.id));
+                        } else {
+                          setSelectedCalculations([]);
+                        }
                       }}
                     />
-                  }
-                  fileName={`wood-calculation-${getCalculationData()!.id}.pdf`}
-                  text="Download Report"
-                />
-
-                <Button
-                  variant="outlined"
-                  startIcon={<ContentCopyIcon />}
-                  onClick={() => copyCalculationToClipboard(getCalculationData()!)}
-                  sx={{
-                    borderColor: '#e1e8ed',
-                    color: '#2c3e50',
-                    '&:hover': {
-                      borderColor: '#bdc3c7',
-                      backgroundColor: '#f8f9fa'
-                    }
-                  }}
-                >
-                  Copy Details
-                </Button>
-              </>
-            )}
-
-            <Button
-              variant="contained"
-              onClick={saveCalculation}
-              disabled={!result || !user?.id}
-              sx={{
-                backgroundColor: '#2c3e50',
-                '&:hover': {
-                  backgroundColor: '#34495e'
-                }
-              }}
-            >
-              Save Calculation
-            </Button>
-          </Box>
-
-          <Paper elevation={0} sx={{ 
-            mt: 3, 
-            p: 2,
-            border: '1px solid #e1e8ed',
-            borderRadius: 2
-          }}>
-            <Box sx={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center',
-              mb: 2 
-            }}>
-              <Typography 
-                variant="subtitle1" 
-                sx={{ 
-                  color: '#34495e',
-                  fontSize: '0.95rem',
-                  fontWeight: 500
-                }}
-              >
-                Calculation History
-              </Typography>
-            </Box>
-
-            <TableContainer>
-              <Table size="small" sx={{
-                '& .MuiTableCell-root': {
-                  fontSize: '0.8rem',
-                  py: 1,
-                  px: 1.5,
-                  whiteSpace: 'nowrap'
-                },
-                '& .MuiTableCell-head': {
-                  fontWeight: 600,
-                  backgroundColor: '#f8f9fa',
-                  color: '#2c3e50'
-                },
-                '& .MuiTableRow-root:hover': {
-                  backgroundColor: '#f8f9fa'
-                },
-                '& .MuiTableBody-root .MuiTableRow-root:last-child .MuiTableCell-root': {
-                  borderBottom: 'none'
-                }
-              }}>
-                <TableHead>
-                  <TableRow>
+                  </TableCell>
+                  <TableCell>Time</TableCell>
+                  <TableCell>Wood Type</TableCell>
+                  <TableCell>Dimensions</TableCell>
+                  <TableCell align="right">Price/Plank</TableCell>
+                  <TableCell align="right">Volume</TableCell>
+                  <TableCell align="right">Planks/m³</TableCell>
+                  <TableCell align="right">Price/m³</TableCell>
+                  <TableCell align="right" sx={{ width: '80px' }}>Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {history.map((item) => (
+                  <TableRow key={item.id} hover>
                     <TableCell padding="checkbox">
                       <Checkbox
-                        indeterminate={selectedCalculations.length > 0 && selectedCalculations.length < history.length}
-                        checked={selectedCalculations.length === history.length}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCalculations(history.map(calc => calc.id));
-                          } else {
-                            setSelectedCalculations([]);
-                          }
-                        }}
+                        checked={selectedCalculations.includes(item.id)}
+                        onChange={() => handleSelectCalculation(item.id)}
                       />
                     </TableCell>
-                    <TableCell>Time</TableCell>
-                    <TableCell>Wood Type</TableCell>
-                    <TableCell>Dimensions</TableCell>
-                    <TableCell align="right">Price/Plank</TableCell>
-                    <TableCell align="right">Volume</TableCell>
-                    <TableCell align="right">Planks/m³</TableCell>
-                    <TableCell align="right">Price/m³</TableCell>
-                    <TableCell align="right" sx={{ width: '80px' }}>Actions</TableCell>
+                    <TableCell>
+                      {item.timestamp 
+                        ? new Date(item.timestamp).toLocaleString(undefined, {
+                            year: '2-digit',
+                            month: 'numeric',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : '-'}
+                    </TableCell>
+                    <TableCell>
+                      {item.woodType 
+                        ? `${item.woodType.name} (${item.woodType.grade})`
+                        : '-'}
+                    </TableCell>
+                    <TableCell>
+                      {item.dimensions.thickness && item.dimensions.width && item.dimensions.length
+                        ? `${item.dimensions.thickness}″×${item.dimensions.width}″×${item.dimensions.length}′`
+                        : '-'}
+                    </TableCell>
+                    <TableCell align="right">
+                      {item.dimensions.pricePerPlank 
+                        ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
+                        : '-'}
+                    </TableCell>
+                    <TableCell align="right">
+                      {item.volumeM3 
+                        ? `${item.volumeM3.toFixed(4)}`
+                        : '-'}
+                    </TableCell>
+                    <TableCell align="right">
+                      {item.planksPerM3 
+                        ? item.planksPerM3.toFixed(2)
+                        : '-'}
+                    </TableCell>
+                    <TableCell align="right">
+                      {item.pricePerM3 
+                        ? `TZS ${formatNumber(item.pricePerM3)}`
+                        : '-'}
+                    </TableCell>
+                    <TableCell align="right">
+                      <Box sx={{ 
+                        display: 'flex', 
+                        justifyContent: 'flex-end', 
+                        gap: 0.5 
+                      }}>
+                        <Tooltip title="Load">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => loadCalculationFromHistory(item)}
+                            sx={{ 
+                              padding: 0.5,
+                              '&:hover': {
+                                backgroundColor: '#e8f5e9',
+                                color: '#2e7d32'
+                              }
+                            }}
+                          >
+                            <EditIcon sx={{ fontSize: '1rem' }} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Copy">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => copyCalculationToClipboard(item)}
+                            sx={{ 
+                              padding: 0.5,
+                              '&:hover': {
+                                backgroundColor: '#f0f2f5'
+                              }
+                            }}
+                          >
+                            <ContentCopyIcon sx={{ fontSize: '1rem' }} />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete">
+                          <IconButton 
+                            size="small"
+                            onClick={() => deleteCalculation(item.id)}
+                            sx={{ 
+                              padding: 0.5,
+                              '&:hover': {
+                                backgroundColor: '#fee2e2',
+                                color: '#ef4444'
+                              }
+                            }}
+                          >
+                            <DeleteIcon sx={{ fontSize: '1rem' }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </TableCell>
                   </TableRow>
-                </TableHead>
-                <TableBody>
-                  {history.map((item) => (
-                    <TableRow key={item.id} hover>
-                      <TableCell padding="checkbox">
-                        <Checkbox
-                          checked={selectedCalculations.includes(item.id)}
-                          onChange={() => handleSelectCalculation(item.id)}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {item.timestamp 
-                          ? new Date(item.timestamp).toLocaleString(undefined, {
-                              year: '2-digit',
-                              month: 'numeric',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })
-                          : '-'}
-                      </TableCell>
-                      <TableCell>
-                        {item.woodType 
-                          ? `${item.woodType.name} (${item.woodType.grade})`
-                          : '-'}
-                      </TableCell>
-                      <TableCell>
-                        {item.dimensions.thickness && item.dimensions.width && item.dimensions.length
-                          ? `${item.dimensions.thickness}″×${item.dimensions.width}″×${item.dimensions.length}′`
-                          : '-'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {item.dimensions.pricePerPlank 
-                          ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
-                          : '-'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {item.volumeM3 
-                          ? `${item.volumeM3.toFixed(4)}`
-                          : '-'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {item.planksPerM3 
-                          ? item.planksPerM3.toFixed(2)
-                          : '-'}
-                      </TableCell>
-                      <TableCell align="right">
-                        {item.pricePerM3 
-                          ? `TZS ${formatNumber(item.pricePerM3)}`
-                          : '-'}
-                      </TableCell>
-                      <TableCell align="right">
-                        <Box sx={{ 
-                          display: 'flex', 
-                          justifyContent: 'flex-end', 
-                          gap: 0.5 
-                        }}>
-                          <Tooltip title="Load">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => loadCalculationFromHistory(item)}
-                              sx={{ 
-                                padding: 0.5,
-                                '&:hover': {
-                                  backgroundColor: '#e8f5e9',
-                                  color: '#2e7d32'
-                                }
-                              }}
-                            >
-                              <EditIcon sx={{ fontSize: '1rem' }} />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Copy">
-                            <IconButton 
-                              size="small" 
-                              onClick={() => copyCalculationToClipboard(item)}
-                              sx={{ 
-                                padding: 0.5,
-                                '&:hover': {
-                                  backgroundColor: '#f0f2f5'
-                                }
-                              }}
-                            >
-                              <ContentCopyIcon sx={{ fontSize: '1rem' }} />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="Delete">
-                            <IconButton 
-                              size="small"
-                              onClick={() => deleteCalculation(item.id)}
-                              sx={{ 
-                                padding: 0.5,
-                                '&:hover': {
-                                  backgroundColor: '#fee2e2',
-                                  color: '#ef4444'
-                                }
-                              }}
-                            >
-                              <DeleteIcon sx={{ fontSize: '1rem' }} />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {history.length === 0 && (
-                    <TableRow>
-                      <TableCell 
-                        colSpan={8} 
-                        align="center" 
-                        sx={{ 
-                          py: 4,
-                          color: '#94a3b8',
-                          fontSize: '0.875rem'
-                        }}
-                      >
-                        No calculations yet
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
+                ))}
+                {history.length === 0 && (
+                  <TableRow>
+                    <TableCell 
+                      colSpan={8} 
+                      align="center" 
+                      sx={{ 
+                        py: 4,
+                        color: '#94a3b8',
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      No calculations yet
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
 
-          {selectedCalculations.length > 0 && (
-            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
-              <PDFButtonWrapper
-                document={
-                  <MultipleWoodCalculationReport
-                    calculations={getSelectedCalculations()}
-                    timestamp={new Date().toISOString()}
-                    user={{
-                      email: user?.email || '',
-                      name: user?.user_metadata?.full_name || ''
-                    }}
-                  />
-                }
-                fileName={`wood-calculations-${new Date().toISOString().split('T')[0]}.pdf`}
-                text={`Generate Combined Report (${selectedCalculations.length})`}
-              />
-            </Box>
-          )}
-
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              Uptime: {uptime || 'Calculating...'}
-            </Typography>
+        {selectedCalculations.length > 0 && (
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <PDFButtonWrapper
+              document={
+                <MultipleWoodCalculationReport
+                  calculations={getSelectedCalculations()}
+                  timestamp={new Date().toISOString()}
+                  user={{
+                    email: user?.email || '',
+                    name: user?.user_metadata?.full_name || ''
+                  }}
+                />
+              }
+              fileName={`wood-calculations-${new Date().toISOString().split('T')[0]}.pdf`}
+              text={`Generate Combined Report (${selectedCalculations.length})`}
+            />
           </Box>
-        </Box>
+        )}
       </Container>
     </SupabaseErrorBoundary>
   );
