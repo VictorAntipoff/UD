@@ -1,11 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Supabase URL:', supabaseUrl);
-  console.error('Supabase Anon Key:', supabaseAnonKey ? '[REDACTED]' : 'missing');
   throw new Error('Missing Supabase environment variables');
 }
 
@@ -15,24 +13,70 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+  },
+  db: {
+    schema: 'public'
   },
   global: {
-    headers: {
-      'x-application-name': 'wood-calculator'
+    headers: { 'x-my-custom-header': 'wood-slicer-app' },
+  },
+  realtime: {
+    params: {
+      eventsPerSecond: 10
     }
+  },
+  // Add better timeout and retry settings
+  settings: {
+    networkRetries: 3,
+    persistSession: true,
+    autoRefreshToken: true,
+    timeout: 20000, // 20 seconds timeout
   }
 });
 
-// Add debug logging
+// Add this error handler
 supabase.auth.onAuthStateChange((event, session) => {
-  console.log('Auth state changed:', event, {
-    userId: session?.user?.id,
-    email: session?.user?.email
-  });
+  if (event === 'SIGNED_OUT') {
+    // Handle sign out
+    console.log('User signed out');
+  } else if (event === 'SIGNED_IN') {
+    // Handle sign in
+    console.log('User signed in');
+  }
 });
 
-// Test connection and auth
+// Add connection status check
+let isConnected = false;
+
+export const checkConnection = async (): Promise<boolean> => {
+  try {
+    const start = Date.now();
+    const { data, error } = await supabase
+      .from('wood_types')
+      .select('count', { count: 'exact', head: true })
+      .timeout(5000); // 5 second timeout for health check
+
+    const elapsed = Date.now() - start;
+    console.log(`Connection check took ${elapsed}ms`);
+
+    if (error) {
+      console.error('Connection check failed:', error);
+      isConnected = false;
+      return false;
+    }
+
+    isConnected = true;
+    return true;
+  } catch (error) {
+    console.error('Connection check failed:', error);
+    isConnected = false;
+    return false;
+  }
+};
+
+// Export connection status
+export const getConnectionStatus = () => isConnected;
+
 export const testSupabaseConnection = async () => {
   try {
     console.log('Testing connection...');

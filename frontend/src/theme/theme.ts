@@ -3,59 +3,37 @@ import { createTheme } from '@mui/material/styles';
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#2563eb',
-      light: '#60a5fa',
-      dark: '#1d4ed8',
+      main: '#2c3e50',
+      light: '#34495e',
+      dark: '#1a252f',
     },
     secondary: {
-      main: '#7c3aed',
-      light: '#a78bfa',
-      dark: '#5b21b6',
+      main: '#64748b',
+      light: '#94a3b8',
     },
     error: {
-      main: '#dc2626',
-      light: '#f87171',
-      dark: '#991b1b',
-    },
-    warning: {
-      main: '#d97706',
-      light: '#fbbf24',
-      dark: '#92400e',
-    },
-    success: {
-      main: '#059669',
-      light: '#34d399',
-      dark: '#065f46',
+      main: '#ef4444',
+      light: '#fee2e2',
     },
     background: {
-      default: '#f3f4f6',
+      default: '#ffffff',
       paper: '#ffffff',
     },
+    text: {
+      primary: '#2c3e50',
+      secondary: '#64748b',
+    },
   },
+  shape: {
+    borderRadius: 8,
+  },
+  spacing: 8,
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h1: {
-      fontSize: '2.5rem',
-      fontWeight: 600,
-    },
-    h2: {
-      fontSize: '2rem',
-      fontWeight: 600,
-    },
-    h3: {
-      fontSize: '1.75rem',
-      fontWeight: 600,
-    },
-    h4: {
-      fontSize: '1.5rem',
-      fontWeight: 500,
-    },
+    fontFamily: '"Inter", "Helvetica", "Arial", sans-serif',
     h5: {
-      fontSize: '1.25rem',
-      fontWeight: 500,
+      fontWeight: 600,
     },
     h6: {
-      fontSize: '1rem',
       fontWeight: 500,
     },
   },
@@ -63,7 +41,7 @@ const theme = createTheme({
     MuiPaper: {
       styleOverrides: {
         root: {
-          backgroundImage: 'none',
+          borderColor: '#e2e8f0',
         },
       },
     },
@@ -71,22 +49,6 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           textTransform: 'none',
-          borderRadius: 8,
-        },
-      },
-    },
-    MuiDrawer: {
-      styleOverrides: {
-        paper: {
-          borderRight: 'none',
-          boxShadow: '2px 0 8px rgba(0,0,0,0.1)',
-        },
-      },
-    },
-    MuiAppBar: {
-      styleOverrides: {
-        root: {
-          boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
         },
       },
     },
