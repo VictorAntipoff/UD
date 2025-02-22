@@ -173,6 +173,12 @@ export default function AdminSettings() {
     role: 'USER'
   });
 
+  // First add state for the new role form
+  const [newRole, setNewRole] = useState({
+    name: '',
+    description: ''
+  });
+
   // === Event Handlers ===
   const handleChange = (name: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -216,12 +222,35 @@ export default function AdminSettings() {
     }
   }, []);
 
+  // Add this effect to load saved roles
+  useEffect(() => {
+    const savedRoles = localStorage.getItem('adminRoles');
+    if (savedRoles) {
+      setRoles(JSON.parse(savedRoles));
+    }
+  }, []);
+
   const handleAddRole = () => {
-    setRoles((prevRoles: Role[]) => [...prevRoles, {
-      id: prevRoles.length + 1,
-      name: 'NEW_ROLE',
-      description: 'New role description'
-    }]);
+    if (!newRole.name) {
+      return; // Don't add empty roles
+    }
+
+    const newRoleData: Role = {
+      id: roles.length + 1,
+      name: newRole.name.toUpperCase(),
+      description: newRole.description
+    };
+
+    setRoles(prevRoles => [...prevRoles, newRoleData]);
+    
+    // Save to localStorage
+    localStorage.setItem('adminRoles', JSON.stringify([...roles, newRoleData]));
+
+    // Reset form
+    setNewRole({
+      name: '',
+      description: ''
+    });
   };
 
   const handleEditRole = (roleId: number, updates: Partial<Role>) => {
@@ -262,6 +291,14 @@ export default function AdminSettings() {
       password: '',
       role: 'USER'
     });
+  };
+
+  // Add handler for new role form changes
+  const handleNewRoleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    setNewRole(prev => ({
+      ...prev,
+      [field]: event.target.value
+    }));
   };
 
   // === UI Render ===
@@ -612,6 +649,8 @@ export default function AdminSettings() {
                           name="roleName"
                           variant="outlined"
                           size="small"
+                          value={newRole.name}
+                          onChange={handleNewRoleChange('name')}
                         />
                       </Grid>
                       <Grid item xs={12} md={6}>
@@ -621,6 +660,8 @@ export default function AdminSettings() {
                           name="roleDescription"
                           variant="outlined"
                           size="small"
+                          value={newRole.description}
+                          onChange={handleNewRoleChange('description')}
                         />
                       </Grid>
                       <Grid item xs={12}>
@@ -630,6 +671,7 @@ export default function AdminSettings() {
                             startIcon={<AddIcon />}
                             size="small"
                             onClick={handleAddRole}
+                            disabled={!newRole.name}
                             sx={{
                               bgcolor: '#CC0000',
                               '&:hover': { bgcolor: '#990000' },

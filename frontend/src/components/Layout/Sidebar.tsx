@@ -8,7 +8,8 @@ import {
   useTheme,
   alpha,
   Collapse,
-  Toolbar
+  Toolbar,
+  Badge
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import CalculateIcon from '@mui/icons-material/Calculate';
@@ -21,9 +22,11 @@ import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import ForestIcon from '@mui/icons-material/Forest';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
+import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
+import { supabase } from '../../config/supabase';
 
 const TRANSITION_DURATION = 250;
 
@@ -46,6 +49,7 @@ const Sidebar = ({ width, open }: SidebarProps) => {
   const [managementOpen, setManagementOpen] = useState(
     location.pathname.startsWith('/management')
   );
+  const [pendingCount, setPendingCount] = useState(0);
 
   const handleMenuClick = (setter: (state: boolean) => void) => () => {
     setter(prev => !prev);
@@ -73,6 +77,41 @@ const Sidebar = ({ width, open }: SidebarProps) => {
       },
     },
     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+  };
+
+  useEffect(() => {
+    fetchPendingCount();
+    
+    // Subscribe to changes
+    const channel = supabase
+      .channel('approval_changes')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'approval_requests'
+      }, () => {
+        fetchPendingCount();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const fetchPendingCount = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('approval_requests')
+        .select('id', { count: 'exact' })
+        .eq('status', 'pending');
+      
+      if (error) throw error;
+      setPendingCount(data?.length || 0);
+    } catch (error) {
+      console.error('Error fetching pending count:', error);
+      setPendingCount(0);
+    }
   };
 
   return (
@@ -184,6 +223,25 @@ const Sidebar = ({ width, open }: SidebarProps) => {
                   <ForestIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Types" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={{ ...commonButtonStyles, pl: 4 }}
+                onClick={() => navigate('/management/approvals')}
+                selected={location.pathname === '/management/approvals'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/management/approvals' ? colors.primary : colors.grey.main }}>
+                  <Badge badgeContent={pendingCount} color="error" sx={{
+                    '& .MuiBadge-badge': {
+                      right: -3,
+                      top: 3,
+                    }
+                  }}>
+                    <AssignmentTurnedInIcon />
+                  </Badge>
+                </ListItemIcon>
+                <ListItemText primary="Approvals" />
               </ListItem>
             </List>
           </Collapse>

@@ -28,9 +28,19 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import PrintIcon from '@mui/icons-material/Print';
 import { supabase } from '../../config/supabase';
 import { useTheme, Theme } from '@mui/material/styles';
 import { format } from 'date-fns';
+import { 
+  Document, 
+  Page, 
+  View, 
+  Text, 
+  StyleSheet, 
+  pdf, 
+  Image  // Add Image to imports
+} from '@react-pdf/renderer';
 
 // Add these near the top of your file after other constants
 const TIMEOUT_DURATION = 20000; // 20 seconds
@@ -116,6 +126,22 @@ interface SavedOperation {
   updated_at: string;
 }
 
+// First, add this type near the top with other interfaces
+interface OperationResponse {
+  data: SavedOperation;
+  error: any;
+}
+
+// Add this near your other interfaces
+interface ApprovalRequest {
+  id: string;
+  type: string;
+  status: 'pending' | 'approved' | 'rejected';
+  operation_id: string;
+  requestor_id: string;
+  notes?: string;
+}
+
 // First, add the conversion utilities at the top of the file after imports
 const inchesToCm = (inches: number) => inches * 2.54;
 const feetToMeters = (feet: number) => feet * 0.3048;
@@ -169,6 +195,130 @@ const getStyles = (theme: Theme) => ({
     '&:hover': {
       boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
     }
+  },
+  page: { padding: 30 },
+  header: { marginBottom: 20 },
+  title: { fontSize: 20, marginBottom: 10 },
+  subtitle: { fontSize: 14, color: '#666' },
+  section: { marginBottom: 15 },
+  sectionTitle: { fontSize: 16, marginBottom: 5 },
+});
+
+// Add PDF styles before the OperationReport component
+const pdfStyles = StyleSheet.create({
+  page: {
+    padding: 30,
+    fontFamily: 'Helvetica',
+    fontSize: 8,
+    color: '#1e293b'
+  },
+  logo: {
+    width: 100,
+    marginBottom: 10
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#dc2626',
+    marginBottom: 2
+  },
+  subtitle: {
+    fontSize: 8,
+    color: '#64748b',
+    marginBottom: 10
+  },
+  metadata: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderBottom: 1,
+    borderColor: '#e2e8f0',
+    paddingBottom: 8,
+    marginBottom: 15
+  },
+  metadataText: {
+    fontSize: 7,
+    color: '#64748b'
+  },
+  section: {
+    marginBottom: 15,
+    border: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 4
+  },
+  sectionHeader: {
+    backgroundColor: '#f1f5f9',
+    padding: 6,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    borderBottom: 1,
+    borderColor: '#e2e8f0'
+  },
+  sectionTitle: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: '#0f172a'
+  },
+  contentGrid: {
+    padding: 8
+  },
+  infoRow: {
+    flexDirection: 'row',
+    marginBottom: 4
+  },
+  label: {
+    width: '30%',
+    fontSize: 7,
+    color: '#64748b'
+  },
+  value: {
+    flex: 1,
+    fontSize: 7,
+    color: '#0f172a'
+  },
+  table: {
+    padding: 6
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f8fafc',
+    padding: 4,
+    marginBottom: 2
+  },
+  tableHeaderCell: {
+    fontSize: 7,
+    fontWeight: 'bold',
+    color: '#64748b'
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottom: 1,
+    borderColor: '#f1f5f9',
+    padding: 4
+  },
+  tableCell: {
+    fontSize: 7,
+    color: '#334155'
+  },
+  resultSection: {
+    backgroundColor: '#0f172a',
+    padding: 10,
+    borderRadius: 4,
+    marginTop: 20
+  },
+  resultRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4
+  },
+  resultLabel: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: '#e2e8f0'
+  },
+  resultValue: {
+    fontSize: 8,
+    fontWeight: 'bold',
+    color: '#ffffff'
   }
 });
 
@@ -306,7 +456,7 @@ const combineMatchingSizes = (sizes: (SleeperSize | PlankSize)[]) => {
   return Array.from(sizeMap.values());
 };
 
-// Add this component for the summary section
+// Update the SummarySectionTable component
 const SummarySectionTable = ({ 
   title, 
   items 
@@ -315,6 +465,15 @@ const SummarySectionTable = ({
   items: (SleeperSize | PlankSize)[];
 }) => {
   const combinedItems = combineMatchingSizes(items);
+  
+  // Calculate total volume in m³
+  const totalVolume = items.reduce((total, size) => {
+    const width = (size.width || 0) / 100;   // cm to m
+    const height = (size.height || 0) / 100;  // cm to m
+    const length = (size.length || 0);        // already in meters
+    const quantity = size.quantity || 1;
+    return total + (width * height * length * quantity);
+  }, 0);
 
   return (
     <Paper
@@ -326,9 +485,19 @@ const SummarySectionTable = ({
         borderColor: 'divider',
       }}
     >
-      <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 500 }}>
-        {title}
-      </Typography>
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center',
+        mb: 2 
+      }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+          {title}
+        </Typography>
+        <Typography variant="subtitle2" color="text.secondary">
+          Total Volume: {totalVolume.toFixed(3)} m³
+        </Typography>
+      </Box>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -337,22 +506,33 @@ const SummarySectionTable = ({
             <TableCell>Length (ft)</TableCell>
             <TableCell align="right">Quantity</TableCell>
             <TableCell>Metric</TableCell>
+            <TableCell align="right">Volume (m³)</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
-          {combinedItems.map((item, index) => (
-            <TableRow key={index}>
-              <TableCell>{cmToInches(item.height).toFixed(2)}</TableCell>
-              <TableCell>{cmToInches(item.width).toFixed(2)}</TableCell>
-              <TableCell>{metersToFeet(item.length).toFixed(2)}</TableCell>
-              <TableCell align="right">{item.totalQuantity}</TableCell>
-              <TableCell>
-                <Typography variant="caption" color="text.secondary">
-                  {item.height}cm × {item.width}cm × {item.length}m
-                </Typography>
-              </TableCell>
-            </TableRow>
-          ))}
+          {combinedItems.map((item, index) => {
+            const volumeM3 = (
+              (item.width / 100) * 
+              (item.height / 100) * 
+              item.length * 
+              item.totalQuantity
+            ).toFixed(3);
+            
+            return (
+              <TableRow key={index}>
+                <TableCell>{cmToInches(item.height).toFixed(2)}</TableCell>
+                <TableCell>{cmToInches(item.width).toFixed(2)}</TableCell>
+                <TableCell>{metersToFeet(item.length).toFixed(2)}</TableCell>
+                <TableCell align="right">{item.totalQuantity}</TableCell>
+                <TableCell>
+                  <Typography variant="caption" color="text.secondary">
+                    {item.height}cm × {item.width}cm × {item.length}m
+                  </Typography>
+                </TableCell>
+                <TableCell align="right">{volumeM3}</TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </Paper>
@@ -380,6 +560,125 @@ const calculateOperationVolumes = (operation: SavedOperation) => {
   return { sleeperVolume, plankVolume };
 };
 
+
+// Update the OperationReport component
+const OperationReport = ({ operation }: { operation: SavedOperation }) => {
+  const { sleeperVolume, plankVolume } = calculateOperationVolumes(operation);
+  const wastePercentage = ((parseFloat(sleeperVolume) - parseFloat(plankVolume)) / parseFloat(sleeperVolume)) * 100;
+
+  return (
+    <Document>
+      <Page size="A4" style={pdfStyles.page}>
+        {/* Header */}
+        <Image src="/logo.png" style={pdfStyles.logo} />
+        <Text style={pdfStyles.title}>Wood Slicer Report</Text>
+        <Text style={pdfStyles.subtitle}>Professional Wood Solutions</Text>
+        
+        <View style={pdfStyles.metadata}>
+          <Text style={pdfStyles.metadataText}>Generated: {format(new Date(), 'PPpp')}</Text>
+          <Text style={pdfStyles.metadataText}>Operation #{operation.serial_number}</Text>
+        </View>
+
+        {/* Main Content */}
+        <View style={pdfStyles.section}>
+          <View style={pdfStyles.sectionHeader}>
+            <Text style={pdfStyles.sectionTitle}>WOOD SPECIFICATIONS</Text>
+          </View>
+          
+          <View style={pdfStyles.contentGrid}>
+            <View style={pdfStyles.infoRow}>
+              <Text style={pdfStyles.label}>Wood Type:</Text>
+              <Text style={pdfStyles.value}>{operation.wood_type?.name}</Text>
+            </View>
+            <View style={pdfStyles.infoRow}>
+              <Text style={pdfStyles.label}>Grade:</Text>
+              <Text style={pdfStyles.value}>{operation.wood_type?.grade}</Text>
+            </View>
+            <View style={pdfStyles.infoRow}>
+              <Text style={pdfStyles.label}>Operation Time:</Text>
+              <Text style={pdfStyles.value}>{calculateDuration(operation)}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Sleeper Details */}
+        <View style={pdfStyles.section}>
+          <View style={pdfStyles.sectionHeader}>
+            <Text style={pdfStyles.sectionTitle}>SLEEPER DETAILS</Text>
+          </View>
+          
+          <View style={pdfStyles.table}>
+            <View style={pdfStyles.tableHeader}>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Height</Text>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Width</Text>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Length</Text>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 0.5, textAlign: 'right' }]}>Qty</Text>
+            </View>
+            {operation.sleeper_sizes.map((size, index) => (
+              <View key={index} style={pdfStyles.tableRow}>
+                <Text style={[pdfStyles.tableCell, { flex: 1 }]}>{cmToInches(size.height).toFixed(2)}"</Text>
+                <Text style={[pdfStyles.tableCell, { flex: 1 }]}>{cmToInches(size.width).toFixed(2)}"</Text>
+                <Text style={[pdfStyles.tableCell, { flex: 1 }]}>{metersToFeet(size.length).toFixed(2)}'</Text>
+                <Text style={[pdfStyles.tableCell, { flex: 0.5, textAlign: 'right' }]}>{size.quantity}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Plank Details */}
+        <View style={pdfStyles.section}>
+          <View style={pdfStyles.sectionHeader}>
+            <Text style={pdfStyles.sectionTitle}>PLANK DETAILS</Text>
+          </View>
+          
+          <View style={pdfStyles.table}>
+            <View style={pdfStyles.tableHeader}>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Height</Text>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Width</Text>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Length</Text>
+              <Text style={[pdfStyles.tableHeaderCell, { flex: 0.5, textAlign: 'right' }]}>Qty</Text>
+            </View>
+            {operation.plank_sizes.map((size, index) => (
+              <View key={index} style={pdfStyles.tableRow}>
+                <Text style={[pdfStyles.tableCell, { flex: 1 }]}>{cmToInches(size.height).toFixed(2)}"</Text>
+                <Text style={[pdfStyles.tableCell, { flex: 1 }]}>{cmToInches(size.width).toFixed(2)}"</Text>
+                <Text style={[pdfStyles.tableCell, { flex: 1 }]}>{metersToFeet(size.length).toFixed(2)}'</Text>
+                <Text style={[pdfStyles.tableCell, { flex: 0.5, textAlign: 'right' }]}>{size.quantity}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Results Section */}
+        <View style={pdfStyles.resultSection}>
+          <View style={pdfStyles.resultRow}>
+            <Text style={pdfStyles.resultLabel}>Total Volume:</Text>
+            <Text style={pdfStyles.resultValue}>{sleeperVolume} m³</Text>
+          </View>
+          <View style={pdfStyles.resultRow}>
+            <Text style={pdfStyles.resultLabel}>Plank Volume:</Text>
+            <Text style={pdfStyles.resultValue}>{plankVolume} m³</Text>
+          </View>
+          <View style={pdfStyles.resultRow}>
+            <Text style={pdfStyles.resultLabel}>Waste Percentage:</Text>
+            <Text style={pdfStyles.resultValue}>{wastePercentage.toFixed(2)}%</Text>
+          </View>
+        </View>
+      </Page>
+    </Document>
+  );
+};
+
+// Add this helper function near the top with other utility functions
+const calculateDuration = (operation: SavedOperation) => {
+  const startTime = new Date(operation.start_time || '');
+  const endTime = new Date(operation.updated_at);
+  const duration = endTime.getTime() - startTime.getTime();
+  const hours = Math.floor(duration / (1000 * 60 * 60));
+  const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+};
+
 const WoodSlicer = () => {
   const theme = useTheme();
   const styles = getStyles(theme);
@@ -397,6 +696,9 @@ const WoodSlicer = () => {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [savedOperations, setSavedOperations] = useState<SavedOperation[]>([]);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [showEndDialog, setShowEndDialog] = useState(false);
+  const [showCompletedDialog, setShowCompletedDialog] = useState(false);
+  const [selectedOperation, setSelectedOperation] = useState<SavedOperation | null>(null);
 
   // Add this function before useEffect
   const checkConnection = async () => {
@@ -469,13 +771,8 @@ const WoodSlicer = () => {
     }
   };
 
-  const generateSerialNumber = () => {
-    const date = new Date();
-    const year = date.getFullYear().toString().slice(-2);
-    const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const day = date.getDate().toString().padStart(2, '0');
-    const random = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-    setSerialNumber(`UDS-${year}${month}${day}-${random}`);
+  const generateSerialNumber = (): string => {
+    return `WS-${Date.now().toString(36).toUpperCase()}`;
   };
 
   // Handlers for adding/removing sizes
@@ -496,9 +793,6 @@ const WoodSlicer = () => {
   };
 
   // Handler for starting the operation
-  const handleStart = () => {
-    setStartTime(new Date().toISOString());
-  };
 
   // Update the calculation functions
   const calculateSleeperVolume = () => {
@@ -534,7 +828,7 @@ const WoodSlicer = () => {
     if (sleeperVolume === 0) return '0.00';
     
     const wasteVolume = sleeperVolume - plankVolume;
-    const wastePercentage = (wasteVolume / sleeperVolume) * 100;
+    const wastePercentage = ((wasteVolume / sleeperVolume)) * 100;
     
     return Math.max(0, wastePercentage).toFixed(2);
   };
@@ -585,34 +879,17 @@ const WoodSlicer = () => {
 
     while (attempt < MAX_RETRIES) {
       try {
-        // Check connection first
-        const isConnected = await checkConnection();
-        if (!isConnected) {
-          throw new Error('No connection to server');
+        const session = await supabase.auth.getSession();
+        if (!session.data.session) {
+          throw new Error('No active session');
         }
 
-        // Get current session with timeout
-        const sessionResult = await withTimeout(
-          supabase.auth.getSession(),
-          TIMEOUT_DURATION
-        );
-
-        const { data: { session }, error: sessionError } = sessionResult;
-        
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          throw new Error('Authentication error');
-        }
-
-        if (!session) {
-          throw new Error('Please sign in to save operations');
-        }
-
-        const operationData = {
+        // Rename this first operationData to requestData
+        const requestData = {
           id: operationId || undefined,
           serial_number: serialNumber,
           wood_type_id: selectedWoodType!.id,
-          user_id: session.user.id,
+          user_id: session.data.session.user.id,
           start_time: startTime,
           sleeper_sizes: sleeperSizes,
           plank_sizes: plankSizes,
@@ -621,23 +898,58 @@ const WoodSlicer = () => {
           updated_at: new Date().toISOString()
         };
 
-        // Save with timeout
-        const { error: saveError } = await withTimeout(
-          supabase
-            .from('wood_slicing_operations')
-            .upsert(operationData)
-            .select(),
+        // Save operation
+        const { data: savedOperation, error: saveError } = await withTimeout<OperationResponse>(
+          new Promise((resolve) => {
+            supabase
+              .from('wood_slicing_operations')
+              .upsert(requestData)
+              .select()
+              .single()
+              .then(result => {
+                resolve({
+                  data: result.data as SavedOperation,
+                  error: result.error
+                });
+              });
+          }),
           TIMEOUT_DURATION
         );
 
-        if (saveError) {
+        if (saveError || !savedOperation) {
           console.error('Save error:', saveError);
-          throw saveError;
+          throw saveError || new Error('Failed to save operation');
         }
 
-        setError(null);
-        return;
+        // Calculate waste percentage using the saved operation
+        const { sleeperVolume, plankVolume } = calculateOperationVolumes(savedOperation);
+        const wastePercentage = ((parseFloat(sleeperVolume) - parseFloat(plankVolume)) / parseFloat(sleeperVolume)) * 100;
 
+        // If waste percentage > 10%, create approval request
+        if (wastePercentage > 10) {
+          const approvalData: Partial<ApprovalRequest> = {
+            type: 'high_waste',
+            operation_id: savedOperation.id,
+            requestor_id: session.data.session.user.id,
+            notes: `Operation requires approval due to high waste percentage (${wastePercentage.toFixed(2)}%)`
+          };
+
+          const { error: approvalError } = await supabase
+            .from('approval_requests')
+            .insert(approvalData);
+
+          if (approvalError) {
+            console.error('Error creating approval request:', approvalError);
+            setError('Operation saved but approval request failed');
+            return savedOperation;
+          }
+
+          setError('Operation saved but requires approval due to high waste percentage');
+        } else {
+          setError(null);
+        }
+
+        return savedOperation;
       } catch (error: any) {
         attempt++;
         console.error(`Save attempt ${attempt} failed:`, error);
@@ -671,7 +983,6 @@ const WoodSlicer = () => {
 
       if (error) throw error;
       setSavedOperations(data || []);
-      setShowLoadDialog(true);
     } catch (error) {
       console.error('Error fetching saved operations:', error);
       setError('Failed to load saved operations');
@@ -680,7 +991,7 @@ const WoodSlicer = () => {
     }
   };
 
-  // Update loadOperation function
+  // Update the loadOperation function
   const loadOperation = async (id: string) => {
     try {
       const { data, error } = await supabase
@@ -727,12 +1038,444 @@ const WoodSlicer = () => {
     }
   };
 
-  // Add this useEffect to fetch operations when dialog opens
+  // Update the useEffect to fetch operations for both dialogs
   useEffect(() => {
-    if (showLoadDialog) {
-      fetchSavedOperations();
+    if (showLoadDialog || showCompletedDialog) {
+      // Only fetch if we don't have any operations loaded yet
+      if (savedOperations.length === 0) {
+        fetchSavedOperations();
+      }
     }
-  }, [showLoadDialog]);
+  }, [showLoadDialog, showCompletedDialog]);
+
+  // Add this function to handle both start and end operations
+  const handleOperationToggle = async () => {
+    if (!selectedWoodType) return;
+
+    if (!startTime) {
+      // Starting operation
+      setStartTime(new Date().toISOString());
+      await handleSave(); // Save the operation as in_progress
+    } else {
+      // Show confirmation dialog before ending
+      setShowEndDialog(true);
+    }
+  };
+
+  // Update the EndOperationDialog component
+  const EndOperationDialog = () => (
+    <Dialog
+      open={showEndDialog}
+      onClose={() => setShowEndDialog(false)}
+      maxWidth="xs"
+      fullWidth
+      PaperProps={{
+        sx: {
+          borderRadius: 2,
+        }
+      }}
+    >
+      <DialogTitle sx={{ 
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        px: 3,
+        py: 2
+      }}>
+        End Operation
+      </DialogTitle>
+      <DialogContent sx={{ p: 3, mt: 2 }}>
+        <Typography>
+          Are you sure you want to end this operation? This action cannot be undone.
+        </Typography>
+      </DialogContent>
+      <DialogActions sx={{ 
+        borderTop: `1px solid ${theme.palette.divider}`,
+        px: 3,
+        py: 2
+      }}>
+        <Button
+          onClick={() => setShowEndDialog(false)}
+          variant="outlined"
+          size="small"
+          sx={{
+            borderRadius: 6,
+            textTransform: 'none'
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={async () => {
+            setShowEndDialog(false);
+            // Call the end operation logic here
+            try {
+              const operationData = {
+                id: operationId,
+                status: 'completed',
+                updated_at: new Date().toISOString()
+              };
+
+              const { error } = await supabase
+                .from('wood_slicing_operations')
+                .update(operationData)
+                .eq('id', operationId)
+                .select();
+
+              if (error) throw error;
+
+              // Reset the form
+              setStartTime(null);
+              setOperationId(null);
+              setSerialNumber(generateSerialNumber());
+              setSleeperSizes([defaultSleeperSize]);
+              setPlankSizes([defaultPlankSize]);
+              setSelectedWoodType(null);
+            } catch (error: any) {
+              console.error('Error ending operation:', error);
+              setError(error.message || 'Failed to end operation');
+            }
+          }}
+          variant="contained"
+          color="error"
+          size="small"
+          sx={{
+            borderRadius: 6,
+            textTransform: 'none'
+          }}
+        >
+          End Operation
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Update the CompletedOperationsDialog component
+  const CompletedOperationsDialog = () => (
+    <Dialog
+      open={showCompletedDialog}
+      onClose={() => setShowCompletedDialog(false)}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{
+        sx: { borderRadius: 2 }
+      }}
+    >
+      <DialogTitle sx={{ 
+        borderBottom: `1px solid ${theme.palette.divider}`,
+        px: 3,
+        py: 2
+      }}>
+        Completed Operations
+      </DialogTitle>
+      <DialogContent sx={{ p: 0 }}>
+        {savedOperations.filter(op => op.status === 'completed').length === 0 ? (
+          <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
+            <Typography>No completed operations found</Typography>
+          </Box>
+        ) : (
+          <List sx={{ py: 0 }}>
+            {savedOperations
+              .filter(op => op.status === 'completed')
+              .map((operation) => {
+                const { sleeperVolume } = calculateOperationVolumes(operation);
+                return (
+                  <ListItem
+                    key={operation.id}
+                    sx={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      borderBottom: `1px solid ${theme.palette.divider}`,
+                      py: 2 
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
+                        Operation #{operation.serial_number}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Wood Type: {operation.wood_type?.name} • 
+                        Waste: {operation.waste_percentage?.toFixed(2)}% • 
+                        Volume: {sleeperVolume} m³
+                      </Typography>
+                    </Box>
+                    <Button
+                      size="small"
+                      onClick={() => setSelectedOperation(operation)}
+                      sx={{
+                        borderRadius: 6,
+                        textTransform: 'none'
+                      }}
+                    >
+                      View Details
+                    </Button>
+                  </ListItem>
+                );
+              })}
+          </List>
+        )}
+      </DialogContent>
+      <DialogActions sx={{ 
+        borderTop: `1px solid ${theme.palette.divider}`,
+        px: 2,
+        py: 1.5
+      }}>
+        <Button 
+          onClick={() => setShowCompletedDialog(false)}
+          variant="outlined"
+          size="small"
+          sx={{ borderRadius: 6, textTransform: 'none' }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Update the OperationDetailsDialog component
+  const OperationDetailsDialog = () => {
+    if (!selectedOperation) return null;
+    
+    const { sleeperVolume, plankVolume } = calculateOperationVolumes(selectedOperation);
+    
+    const handlePrint = async () => {
+      try {
+        const blob = await pdf(<OperationReport operation={selectedOperation} />).toBlob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `operation-${selectedOperation.serial_number}.pdf`;
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error('Error generating PDF:', error);
+        setError('Failed to generate report');
+      }
+    };
+
+    return (
+      <Dialog
+        open={Boolean(selectedOperation)}
+        onClose={() => setSelectedOperation(null)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: { 
+            borderRadius: 2,
+            border: 'none',
+            '& .MuiDialog-paper': {
+              border: 'none'
+            }
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          px: 3,
+          py: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          border: 'none'
+        }}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Typography variant="h6">
+              Operation Details
+            </Typography>
+            <Chip
+              label={selectedOperation.serial_number}
+              size="medium"
+              color="primary"
+            />
+          </Stack>
+        </DialogTitle>
+        
+        <DialogContent sx={{ 
+          p: 3,
+          border: 'none'
+        }}>
+          {/* Main Info Section - Single Line Boxes */}
+          <Box sx={{ 
+            display: 'flex', 
+            gap: 2, 
+            mb: 4,
+            flexWrap: 'wrap'
+          }}>
+            {/* Wood Type Box */}
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 2, 
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
+                minWidth: 200,
+                flex: 1
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Wood Type
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 500, mt: 0.5 }}>
+                {selectedOperation.wood_type?.name || 'Unknown'} 
+                {selectedOperation.wood_type?.grade ? ` (Grade ${selectedOperation.wood_type.grade})` : ''}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Waste: {selectedOperation.waste_percentage?.toFixed(2)}%
+              </Typography>
+            </Paper>
+
+            {/* Time Info Box */}
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 2, 
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
+                minWidth: 200,
+                flex: 1
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Operation Time
+              </Typography>
+              <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                <Typography variant="body2">
+                  Start: {format(new Date(selectedOperation.start_time || ''), 'PPpp')}
+                </Typography>
+                <Typography variant="body2">
+                  End: {format(new Date(selectedOperation.updated_at), 'PPpp')}
+                </Typography>
+                <Typography variant="subtitle2" sx={{ color: 'primary.main', fontWeight: 500 }}>
+                  Duration: {calculateDuration(selectedOperation)}
+                </Typography>
+              </Stack>
+            </Paper>
+
+            {/* Volume Info Box */}
+            <Paper 
+              elevation={0} 
+              sx={{ 
+                p: 2, 
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                border: '1px solid',
+                borderColor: 'divider',
+                minWidth: 200,
+                flex: 1
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">
+                Volume Information
+              </Typography>
+              <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                <Typography variant="body2">
+                  Sleeper: {sleeperVolume} m³
+                </Typography>
+                <Typography variant="body2">
+                  Plank: {plankVolume} m³
+                </Typography>
+                <Typography variant="subtitle2" sx={{ color: 'error.main', fontWeight: 500 }}>
+                  Waste: {selectedOperation.waste_percentage?.toFixed(2)}%
+                </Typography>
+              </Stack>
+            </Paper>
+          </Box>
+
+          {/* Sizes Tables Section */}
+          <Stack spacing={3}>
+            {/* Sleeper Sizes Table */}
+            <Paper elevation={0} sx={{ p: 3, borderRadius: 2, bgcolor: 'background.paper' }}>
+              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 500 }}>
+                Sleeper Sizes ({selectedOperation.sleeper_sizes.length})
+              </Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Height</TableCell>
+                    <TableCell>Width</TableCell>
+                    <TableCell>Length</TableCell>
+                    <TableCell align="right">Quantity</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedOperation.sleeper_sizes.map((size, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{cmToInches(size.height).toFixed(2)}"</TableCell>
+                      <TableCell>{cmToInches(size.width).toFixed(2)}"</TableCell>
+                      <TableCell>{metersToFeet(size.length).toFixed(2)}'</TableCell>
+                      <TableCell align="right">{size.quantity} pcs</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+
+            {/* Plank Sizes Table */}
+            <Paper elevation={0} sx={{ p: 3, borderRadius: 2, bgcolor: 'background.paper' }}>
+              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 500 }}>
+                Plank Sizes ({selectedOperation.plank_sizes.length})
+              </Typography>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Height</TableCell>
+                    <TableCell>Width</TableCell>
+                    <TableCell>Length</TableCell>
+                    <TableCell align="right">Quantity</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectedOperation.plank_sizes.map((size, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{cmToInches(size.height).toFixed(2)}"</TableCell>
+                      <TableCell>{cmToInches(size.width).toFixed(2)}"</TableCell>
+                      <TableCell>{metersToFeet(size.length).toFixed(2)}'</TableCell>
+                      <TableCell align="right">{size.quantity} pcs</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Paper>
+          </Stack>
+        </DialogContent>
+        
+        <DialogActions sx={{ 
+          borderTop: `1px solid ${theme.palette.divider}`,
+          px: 3,
+          py: 2,
+          gap: 2
+        }}>
+          <Button
+            onClick={handlePrint}
+            startIcon={<PrintIcon />}
+            variant="contained"
+            size="small"
+            sx={{ 
+              borderRadius: 6,
+              textTransform: 'none'
+            }}
+          >
+            Generate Report
+          </Button>
+          
+          <Button 
+            onClick={() => setSelectedOperation(null)}
+            variant="outlined"
+            size="small"
+            sx={{ 
+              borderRadius: 6,
+              textTransform: 'none'
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+    );
+  };
 
   // Update the LoadOperationDialog component
   const LoadOperationDialog = () => (
@@ -758,7 +1501,7 @@ const WoodSlicer = () => {
         </Stack>
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
-        {savedOperations.length === 0 ? (
+        {savedOperations.filter(op => op.status !== 'completed').length === 0 ? (
           <Box sx={{ 
             p: 4, 
             textAlign: 'center',
@@ -768,108 +1511,110 @@ const WoodSlicer = () => {
           </Box>
         ) : (
           <List sx={{ py: 0 }}>
-            {savedOperations.map((operation) => {
-              const { sleeperVolume, plankVolume } = calculateOperationVolumes(operation);
-              return (
-                <ListItem
-                  key={operation.id}
-                  sx={{
-                    borderBottom: `1px solid ${theme.palette.divider}`,
-                    py: 2,
-                    px: 2,
-                    '&:hover': {
-                      bgcolor: 'action.hover'
-                    }
-                  }}
-                >
-                  <Box sx={{ flex: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                      <Typography variant="subtitle1" component="span" sx={{ fontWeight: 500 }}>
-                        {operation.serial_number}
-                      </Typography>
-                      <Chip
-                        label={operation.status}
+            {savedOperations
+              .filter(op => op.status !== 'completed')
+              .map((operation) => {
+                const { sleeperVolume, plankVolume } = calculateOperationVolumes(operation);
+                return (
+                  <ListItem
+                    key={operation.id}
+                    sx={{
+                      borderBottom: `1px solid ${theme.palette.divider}`,
+                      py: 2,
+                      px: 2,
+                      '&:hover': {
+                        bgcolor: 'action.hover'
+                      }
+                    }}
+                  >
+                    <Box sx={{ flex: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <Typography variant="subtitle1" component="span" sx={{ fontWeight: 500 }}>
+                          {operation.serial_number}
+                        </Typography>
+                        <Chip
+                          label={operation.status}
+                          size="small"
+                          color={
+                            operation.status === 'completed' 
+                              ? 'success'
+                              : operation.status === 'in_progress'
+                                ? 'warning'
+                                : 'default'
+                          }
+                          sx={{ textTransform: 'capitalize' }}
+                        />
+                      </Box>
+                      
+                      <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                        <Grid item xs={12} sm={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Wood Type
+                          </Typography>
+                          <Typography variant="body2">
+                            {operation.wood_type?.name || 'Unknown'} 
+                            {operation.wood_type?.grade ? `(Grade ${operation.wood_type.grade})` : ''}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Total Sleeper Volume
+                          </Typography>
+                          <Typography variant="body2">
+                            {sleeperVolume} m³
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12} sm={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            Total Plank Volume
+                          </Typography>
+                          <Typography variant="body2">
+                            {plankVolume} m³
+                          </Typography>
+                        </Grid>
+                      </Grid>
+
+                      <Box sx={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 1, 
+                        mt: 1,
+                        color: theme.palette.text.secondary 
+                      }}>
+                        <AccessTimeIcon sx={{ fontSize: '1rem' }} />
+                        <Typography variant="body2">
+                          {format(new Date(operation.updated_at), 'MMM d, yyyy h:mm a')}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
+                      <Button
                         size="small"
-                        color={
-                          operation.status === 'completed' 
-                            ? 'success'
-                            : operation.status === 'in_progress'
-                              ? 'warning'
-                              : 'default'
-                        }
-                        sx={{ textTransform: 'capitalize' }}
-                      />
+                        onClick={() => loadOperation(operation.id)}
+                        sx={{
+                          borderRadius: 6,
+                          textTransform: 'none'
+                        }}
+                      >
+                        Load
+                      </Button>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDeleteOperation(operation.id)}
+                        sx={{
+                          color: theme.palette.error.main,
+                          '&:hover': {
+                            bgcolor: theme.palette.error.light
+                          }
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
                     </Box>
-                    
-                    <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                      <Grid item xs={12} sm={4}>
-                        <Typography variant="caption" color="text.secondary">
-                          Wood Type
-                        </Typography>
-                        <Typography variant="body2">
-                          {operation.wood_type?.name || 'Unknown'} 
-                          {operation.wood_type?.grade ? `(Grade ${operation.wood_type.grade})` : ''}
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={4}>
-                        <Typography variant="caption" color="text.secondary">
-                          Total Sleeper Volume
-                        </Typography>
-                        <Typography variant="body2">
-                          {sleeperVolume} m³
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={12} sm={4}>
-                        <Typography variant="caption" color="text.secondary">
-                          Total Plank Volume
-                        </Typography>
-                        <Typography variant="body2">
-                          {plankVolume} m³
-                        </Typography>
-                      </Grid>
-                    </Grid>
-
-                    <Box sx={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: 1, 
-                      mt: 1,
-                      color: theme.palette.text.secondary 
-                    }}>
-                      <AccessTimeIcon sx={{ fontSize: '1rem' }} />
-                      <Typography variant="body2">
-                        {format(new Date(operation.updated_at), 'MMM d, yyyy h:mm a')}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-                    <Button
-                      size="small"
-                      onClick={() => loadOperation(operation.id)}
-                      sx={{
-                        borderRadius: 6,
-                        textTransform: 'none'
-                      }}
-                    >
-                      Load
-                    </Button>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDeleteOperation(operation.id)}
-                      sx={{
-                        color: theme.palette.error.main,
-                        '&:hover': {
-                          bgcolor: theme.palette.error.light
-                        }
-                      }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </ListItem>
-              );
-            })}
+                  </ListItem>
+                );
+              })}
           </List>
         )}
       </DialogContent>
@@ -981,7 +1726,10 @@ const WoodSlicer = () => {
             <Button
               variant="outlined"
               startIcon={<FolderOpenIcon />}
-              onClick={fetchSavedOperations}
+              onClick={() => {
+                fetchSavedOperations();
+                setShowLoadDialog(true);
+              }}
               size="small"
               sx={{
                 borderRadius: 6,
@@ -996,6 +1744,27 @@ const WoodSlicer = () => {
               }}
             >
               Load Operation
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                fetchSavedOperations();
+                setShowCompletedDialog(true);
+              }}
+              size="small"
+              sx={{
+                borderRadius: 6,
+                textTransform: 'none',
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                color: 'white',
+                px: 2,
+                '&:hover': {
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                  bgcolor: 'rgba(255, 255, 255, 0.1)'
+                }
+              }}
+            >
+              Completed Operations
             </Button>
             <Button
               variant="outlined"
@@ -1017,26 +1786,29 @@ const WoodSlicer = () => {
             </Button>
             <Button
               variant="contained"
-              onClick={handleStart}
+              onClick={handleOperationToggle}
               size="small"
               sx={{
                 borderRadius: 6,
                 textTransform: 'none',
-                bgcolor: 'primary.light',
+                bgcolor: startTime ? 'error.main' : 'primary.light',
                 px: 2,
                 '&:hover': {
-                  bgcolor: 'primary.main'
+                  bgcolor: startTime ? 'error.dark' : 'primary.main'
                 }
               }}
             >
-              Start Operation
+              {startTime ? 'End Operation' : 'Start Operation'}
             </Button>
           </Box>
         </Box>
       </Paper>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
+        <Alert 
+          severity={error.includes('requires approval') ? 'warning' : 'error'} 
+          sx={{ mb: 3 }}
+        >
           {error}
         </Alert>
       )}
@@ -1092,15 +1864,8 @@ const WoodSlicer = () => {
                 onClick={addSleeperSize}
                 variant="outlined"
                 size="small"
-                sx={{
-                  py: 0.5,
-                  fontSize: '0.75rem',
-                  '& .MuiSvgIcon-root': {
-                    fontSize: '1rem'
-                  }
-                }}
               >
-                Add Size
+                Add Sleeper Size
               </Button>
             </Box>
             
@@ -1340,7 +2105,7 @@ const WoodSlicer = () => {
               <Button
                 variant="contained"
                 onClick={calculateWaste}
-                disabled={!selectedWoodType || !startTime}
+                disabled={!selectedWoodType}
                 sx={{
                   bgcolor: theme.palette.primary.main,
                   '&:hover': { bgcolor: theme.palette.primary.dark },
@@ -1416,32 +2181,38 @@ const WoodSlicer = () => {
         </Grid>
       </Grid>
       <LoadOperationDialog />
+      <EndOperationDialog />
+      <CompletedOperationsDialog />
+      <OperationDetailsDialog />
       <Grid item xs={12}>
-        <Paper
-          elevation={0}
-          sx={{
-            p: 3,
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            mt: 2
-          }}
-        >
-          <Typography variant="h6" sx={{ mb: 3, fontWeight: 500 }}>
-            Summary
-          </Typography>
-          
-          <Stack spacing={3}>
-            <SummarySectionTable 
-              title="Sleeper Sizes Summary" 
-              items={sleeperSizes} 
-            />
-            <SummarySectionTable 
-              title="Plank Sizes Summary" 
-              items={plankSizes} 
-            />
-          </Stack>
-        </Paper>
+        {(sleeperSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0) || 
+          plankSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0)) && (
+          <Paper
+            elevation={0}
+            sx={{
+              p: 3,
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: 'divider',
+              mt: 2
+            }}
+          >
+            <Typography variant="h6" sx={{ mb: 3, fontWeight: 500 }}>
+              Summary
+            </Typography>
+            
+            <Stack spacing={3}>
+              <SummarySectionTable 
+                title="Sleeper Sizes Summary" 
+                items={sleeperSizes} 
+              />
+              <SummarySectionTable 
+                title="Plank Sizes Summary" 
+                items={plankSizes} 
+              />
+            </Stack>
+          </Paper>
+        )}
       </Grid>
     </Box>
   );
