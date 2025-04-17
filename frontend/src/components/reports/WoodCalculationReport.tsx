@@ -119,6 +119,14 @@ const styles = StyleSheet.create({
   },
   dimensionValue: {
     fontFamily: 'Helvetica-Bold'
+  },
+  contentContainer: {
+    marginTop: 5,
+    marginBottom: 5
+  },
+  text: {
+    fontSize: 10,
+    color: '#2c3e50'
   }
 });
 
@@ -281,13 +289,11 @@ export const WoodCalculationReport = ({ calculation, timestamp, user }: WoodCalc
         </View>
 
         {calculation.notes && (
-          <View style={styles.notes}>
-            <Text style={[styles.sectionTitle, { marginBottom: 5 }]}>
-              <Text>Notes</Text>
-            </Text>
-            <Text>
-              <Text>{calculation.notes}</Text>
-            </Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>REMARKS</Text>
+            <View style={styles.contentContainer}>
+              <Text style={styles.text}>{calculation.notes}</Text>
+            </View>
           </View>
         )}
 

@@ -79,15 +79,8 @@ interface ApprovalRuleForm {
   approver_id: string;
 }
 
-// Add this interface for module-specific conditions
-interface ModuleCondition {
-  value: string;
-  label: string;
-  unit: string;
-}
-
-// Add module-specific conditions mapping
-const MODULE_CONDITIONS: Record<string, ModuleCondition[]> = {
+// Define module-specific conditions
+const MODULE_CONDITIONS: Record<string, Array<{ value: string, label: string, unit: string }>> = {
   WoodSlicer: [
     { value: 'waste_percentage_above', label: 'Waste Percentage Above', unit: '%' },
     { value: 'volume_above', label: 'Volume Above', unit: 'm³' }
@@ -173,7 +166,9 @@ export default function ApprovalsManagement() {
           *,
           approver:profiles!approval_rules_approver_id_fkey (
             id,
-            email
+            email,
+            role,
+            full_name
           )
         `)
         .order('created_at', { ascending: false });
@@ -291,17 +286,6 @@ export default function ApprovalsManagement() {
       console.error('Error creating rule:', error);
       alert(error.message || 'Failed to create rule');
     }
-  };
-
-  // Add this handler for module change
-  const handleModuleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newModule = e.target.value;
-    setRuleForm({
-      ...ruleForm,
-      module: newModule,
-      condition_type: MODULE_CONDITIONS[newModule][0].value, // Reset to first condition
-      condition_value: 10
-    });
   };
 
   const checkAdminStatus = async () => {
@@ -524,7 +508,7 @@ export default function ApprovalsManagement() {
                   <TableCell>{rule.module}</TableCell>
                   <TableCell>
                     {(() => {
-                      const condition = MODULE_CONDITIONS[rule.module].find(
+                      const condition = MODULE_CONDITIONS[rule.module]?.find(
                         c => c.value === rule.condition_type
                       );
                       return condition 
@@ -532,7 +516,17 @@ export default function ApprovalsManagement() {
                         : rule.condition_type;
                     })()}
                   </TableCell>
-                  <TableCell>{rule.approver?.email}</TableCell>
+                  <TableCell>
+                    {rule.approver?.email}
+                    {rule.approver?.role === 'ADMIN' && (
+                      <Chip 
+                        size="small" 
+                        label="Admin" 
+                        color="primary" 
+                        sx={{ ml: 1 }}
+                      />
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Chip
                       label={rule.is_active ? 'Active' : 'Inactive'}
@@ -600,21 +594,29 @@ export default function ApprovalsManagement() {
               fullWidth
               label="Module"
               value={ruleForm.module}
-              onChange={handleModuleChange}
+              onChange={(e) => {
+                const newModule = e.target.value;
+                setRuleForm({
+                  ...ruleForm,
+                  module: newModule,
+                  condition_type: MODULE_CONDITIONS[newModule][0].value
+                });
+              }}
             >
-              <MenuItem value="WoodSlicer">Wood Slicer</MenuItem>
-              <MenuItem value="WoodCalculator">Wood Calculator</MenuItem>
+              {Object.keys(MODULE_CONDITIONS).map(module => (
+                <MenuItem key={module} value={module}>{module}</MenuItem>
+              ))}
             </TextField>
 
             <TextField
               select
               size="small"
               fullWidth
-              label="Condition Type"
+              label="Condition"
               value={ruleForm.condition_type}
               onChange={(e) => setRuleForm({ ...ruleForm, condition_type: e.target.value })}
             >
-              {MODULE_CONDITIONS[ruleForm.module].map((condition) => (
+              {MODULE_CONDITIONS[ruleForm.module].map(condition => (
                 <MenuItem key={condition.value} value={condition.value}>
                   {condition.label}
                 </MenuItem>
@@ -625,14 +627,9 @@ export default function ApprovalsManagement() {
               size="small"
               fullWidth
               type="number"
-              label="Threshold Value"
+              label="Value"
               value={ruleForm.condition_value}
               onChange={(e) => setRuleForm({ ...ruleForm, condition_value: parseFloat(e.target.value) })}
-              InputProps={{
-                endAdornment: MODULE_CONDITIONS[ruleForm.module].find(
-                  c => c.value === ruleForm.condition_type
-                )?.unit || null
-              }}
             />
 
             <TextField
@@ -645,8 +642,9 @@ export default function ApprovalsManagement() {
             >
               {approvers.map(approver => (
                 <MenuItem key={approver.id} value={approver.id}>
-                  {approver.email} {approver.role === 'ADMIN' && '(Admin)'} 
+                  {approver.email}
                   {approver.full_name && ` - ${approver.full_name}`}
+                  {approver.role === 'ADMIN' && ' (Admin)'}
                 </MenuItem>
               ))}
             </TextField>
