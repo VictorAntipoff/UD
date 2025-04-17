@@ -39,7 +39,7 @@ import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
 import { WoodCalculationReport } from '../../components/reports/WoodCalculationReport';
 import { MultipleWoodCalculationReport } from '../../components/reports/MultipleWoodCalculationReport';
 import { useSnackbar } from 'notistack';
-import type { CalculationResult, WoodType, PlankDimensions } from '../../types/calculations';
+import type { CalculationResult, WoodType } from '../../types/calculations';
 import type { PDFDownloadLinkProps as PDFProps } from '@react-pdf/renderer';
 
 console.log('Environment Variables:', {
@@ -78,13 +78,13 @@ const PDFDownloadButton: React.FC<{
     startIcon={<PictureAsPdfIcon />}
     disabled={loading}
     sx={{
-      bgcolor: '#2c3e50',
-      color: 'white',
+      height: '40px',
       width: '100%',
-      height: '48px',
       borderRadius: '8px',
       textTransform: 'none',
       fontSize: '0.9rem',
+      bgcolor: '#2c3e50',
+      color: 'white',
       boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
       '&:hover': {
         bgcolor: '#34495e'
@@ -135,6 +135,17 @@ const theme = {
   }
 };
 
+interface PlankDimensions {
+  thickness: number;
+  width: number;
+  length: number;
+  pricePerPlank: number;
+  woodTypeId: string;
+  notes: string;
+  taxPercentage: number;
+  isPriceWithVAT: boolean;
+}
+
 export default function WoodCalculator() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -144,13 +155,16 @@ export default function WoodCalculator() {
     length: 0,
     pricePerPlank: 0,
     woodTypeId: '',
-    notes: ''
+    notes: '',
+    taxPercentage: 18,
+    isPriceWithVAT: false
   });
 
   const [result, setResult] = useState<{
     volumeM3: number;
     planksPerM3: number;
     pricePerM3: number;
+    pricePerM3WithTax: number;
   } | null>(null);
 
   const [history, setHistory] = useState<CalculationResult[]>([]);
@@ -198,14 +212,18 @@ export default function WoodCalculator() {
           length: item.length,
           pricePerPlank: item.price_per_plank,
           woodTypeId: item.wood_type_id,
-          notes: item.notes || ''
+          notes: item.notes || '',
+          taxPercentage: item.tax_percentage || 0,
+          isPriceWithVAT: false
         },
         volumeM3: item.volume_m3,
         planksPerM3: item.planks_per_m3,
         pricePerM3: item.price_per_m3,
+        pricePerM3WithTax: item.price_per_m3 * (1 + (item.tax_percentage || 0) / 100),
         timestamp: item.created_at,
         woodType: item.wood_type || defaultWoodType,
-        notes: item.notes || ''
+        notes: item.notes || '',
+        taxPercentage: item.tax_percentage || 0
       }));
 
       setHistory(typedData);
@@ -294,13 +312,19 @@ export default function WoodCalculator() {
       // Calculate planks per cubic meter
       const planksPerM3 = 1 / volumeM3;
 
-      // Calculate price per cubic meter
-      const pricePerM3 = dimensions.pricePerPlank * planksPerM3;
+      // Calculate prices based on whether input price includes VAT
+      const priceWithoutVAT = dimensions.isPriceWithVAT
+        ? dimensions.pricePerPlank / (1 + dimensions.taxPercentage / 100)
+        : dimensions.pricePerPlank;
+
+      const pricePerM3 = priceWithoutVAT * planksPerM3;
+      const pricePerM3WithTax = pricePerM3 * (1 + dimensions.taxPercentage / 100);
 
       setResult({
         volumeM3,
         planksPerM3,
-        pricePerM3
+        pricePerM3,
+        pricePerM3WithTax
       });
 
       setError(null);
@@ -322,7 +346,8 @@ export default function WoodCalculator() {
       woodType: woodTypes.find(w => w.id === dimensions.woodTypeId) || defaultWoodType,
       notes: dimensions.notes,
       id: '',
-      userId: user?.id || ''
+      userId: user?.id || '',
+      taxPercentage: dimensions.taxPercentage
     };
   };
 
@@ -331,9 +356,11 @@ export default function WoodCalculator() {
 Wood Type: ${calculation.woodType.name} (Grade ${calculation.woodType.grade})
 Dimensions: ${calculation.dimensions.thickness}″×${calculation.dimensions.width}″×${calculation.dimensions.length}′
 Price per Plank: TZS ${formatNumber(calculation.dimensions.pricePerPlank)}
+Tax Rate: ${calculation.dimensions.taxPercentage}%
 Volume: ${calculation.volumeM3.toFixed(4)} m³
 Planks per m³: ${calculation.planksPerM3.toFixed(2)}
-Price per m³: TZS ${formatNumber(calculation.pricePerM3)}
+Price per m³ (Excl. Tax): TZS ${formatNumber(calculation.pricePerM3)}
+Price per m³ (Incl. Tax): TZS ${formatNumber(calculation.pricePerM3WithTax)}
 ${calculation.notes ? `\nNotes: ${calculation.notes}` : ''}
 Generated on: ${new Date().toLocaleString()}`;
 
@@ -350,8 +377,14 @@ Generated on: ${new Date().toLocaleString()}`;
     try {
       if (!user?.id || !result || !dimensions.woodTypeId) {
         setError('Missing required data for saving');
+        enqueueSnackbar('Please fill in all required fields', { variant: 'error' });
         return;
       }
+
+      // Calculate prices with and without VAT
+      const priceWithoutVAT = dimensions.isPriceWithVAT
+        ? dimensions.pricePerPlank / (1 + dimensions.taxPercentage / 100)
+        : dimensions.pricePerPlank;
 
       const calculationData = {
         user_id: user.id,
@@ -359,27 +392,32 @@ Generated on: ${new Date().toLocaleString()}`;
         thickness: dimensions.thickness,
         width: dimensions.width,
         length: dimensions.length,
-        price_per_plank: dimensions.pricePerPlank,
+        price_per_plank: priceWithoutVAT, // Always store the price without VAT
+        tax_percentage: dimensions.taxPercentage, // Changed from vat_percentage to tax_percentage
         volume_m3: result.volumeM3,
         planks_per_m3: result.planksPerM3,
         price_per_m3: result.pricePerM3,
-        notes: dimensions.notes || null
+        notes: dimensions.notes || ''
       };
 
       const { error: saveError } = await supabase
         .from('calculations')
         .insert([calculationData]);
 
-      if (saveError) throw saveError;
+      if (saveError) {
+        console.error('Supabase error:', saveError);
+        throw new Error(saveError.message);
+      }
 
-      // Refresh data after saving
-      await fetchData();
+      enqueueSnackbar('Calculation saved successfully', { variant: 'success' });
+      await fetchData(); // Refresh the history
       setError(null);
     } catch (error) {
       console.error('Save error:', error);
       setError('Failed to save calculation');
+      enqueueSnackbar('Failed to save calculation', { variant: 'error' });
     }
-  }, [user?.id, dimensions, result, fetchData]);
+  }, [user?.id, dimensions, result, fetchData, enqueueSnackbar]);
 
   const deleteCalculation = async (id: string) => {
     try {
@@ -404,14 +442,17 @@ Generated on: ${new Date().toLocaleString()}`;
       length: item.dimensions.length,
       pricePerPlank: item.dimensions.pricePerPlank,
       woodTypeId: item.woodType.id,
-      notes: item.dimensions.notes
+      notes: item.dimensions.notes,
+      taxPercentage: item.taxPercentage,
+      isPriceWithVAT: true,
     });
 
     // Set result from history
     setResult({
       volumeM3: item.volumeM3,
       planksPerM3: item.planksPerM3,
-      pricePerM3: item.pricePerM3
+      pricePerM3: item.pricePerM3,
+      pricePerM3WithTax: item.pricePerM3
     });
 
     // Scroll to top of the calculator
@@ -520,34 +561,37 @@ Generated on: ${new Date().toLocaleString()}`;
                 Plank Details
               </Typography>
 
-              <FormControl fullWidth sx={{ mb: 3 }}>
-                <InputLabel>Wood Type</InputLabel>
-                <Select
-                  value={dimensions.woodTypeId}
-                  label="Wood Type"
-                  onChange={(e) => setDimensions(prev => ({
-                    ...prev,
-                    woodTypeId: e.target.value as string
-                  }))}
-                  size="small"
-                  sx={{
-                    '& .MuiSelect-select': {
-                      fontSize: '0.85rem'
-                    }
-                  }}
-                >
-                  {woodTypes.map((type) => (
-                    <MenuItem 
-                      key={type.id} 
-                      value={type.id}
-                      sx={{ fontSize: '0.85rem' }}
-                    >
-                      {type.name} - Grade {type.grade}
-                      {type.origin && ` (${type.origin})`}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <TextField
+                select
+                fullWidth
+                label="Wood Type"
+                value={dimensions.woodTypeId}
+                onChange={(e) => setDimensions(prev => ({
+                  ...prev,
+                  woodTypeId: e.target.value as string
+                }))}
+                size="small"
+                sx={{ 
+                  mb: 3,
+                  '& .MuiInputLabel-root': {
+                    fontSize: '0.85rem'
+                  },
+                  '& .MuiInputBase-input': {
+                    fontSize: '0.85rem'
+                  }
+                }}
+              >
+                {woodTypes.map((type) => (
+                  <MenuItem 
+                    key={type.id} 
+                    value={type.id}
+                    sx={{ fontSize: '0.85rem' }}
+                  >
+                    {type.name} - Grade {type.grade}
+                    {type.origin && ` (${type.origin})`}
+                  </MenuItem>
+                ))}
+              </TextField>
 
               <Grid container spacing={2} sx={{ mb: 3 }}>
                 <Grid item xs={12} sm={4}>
@@ -615,25 +659,81 @@ Generated on: ${new Date().toLocaleString()}`;
                 </Grid>
               </Grid>
 
-              <TextField
-                fullWidth
-                label="Price per Plank (TZS)"
-                value={dimensions.pricePerPlank.toLocaleString()}
-                onChange={handlePriceChange}
-                size="small"
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">TZS</InputAdornment>
-                }}
-                sx={{ 
-                  mb: 3,
-                  '& .MuiInputLabel-root': {
-                    fontSize: '0.85rem'
-                  },
-                  '& .MuiInputBase-input': {
-                    fontSize: '0.85rem'
-                  }
-                }}
-              />
+              <Box sx={{ mb: 3 }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="Price per Plank (TZS)"
+                      value={dimensions.pricePerPlank.toLocaleString()}
+                      onChange={handlePriceChange}
+                      size="small"
+                      InputProps={{
+                        startAdornment: <InputAdornment position="start">TZS</InputAdornment>
+                      }}
+                      sx={{ 
+                        '& .MuiInputLabel-root': {
+                          fontSize: '0.85rem'
+                        },
+                        '& .MuiInputBase-input': {
+                          fontSize: '0.85rem'
+                        }
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      select
+                      fullWidth
+                      label="Price Type"
+                      value={dimensions.isPriceWithVAT}
+                      onChange={(e) => setDimensions(prev => ({
+                        ...prev,
+                        isPriceWithVAT: e.target.value === 'true',
+                        pricePerPlank: e.target.value === 'true' 
+                          ? prev.pricePerPlank / (1 + prev.taxPercentage / 100)
+                          : prev.pricePerPlank * (1 + prev.taxPercentage / 100)
+                      }))}
+                      size="small"
+                      sx={{ 
+                        '& .MuiInputLabel-root': {
+                          fontSize: '0.85rem'
+                        },
+                        '& .MuiInputBase-input': {
+                          fontSize: '0.85rem'
+                        }
+                      }}
+                    >
+                      <MenuItem value="false" sx={{ fontSize: '0.85rem' }}>Price without VAT</MenuItem>
+                      <MenuItem value="true" sx={{ fontSize: '0.85rem' }}>Price with VAT</MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <TextField
+                      fullWidth
+                      label="VAT Percentage"
+                      type="number"
+                      value={dimensions.taxPercentage}
+                      onChange={(e) => setDimensions(prev => ({
+                        ...prev,
+                        taxPercentage: parseFloat(e.target.value) || 0
+                      }))}
+                      size="small"
+                      InputProps={{
+                        endAdornment: <InputAdornment position="end">%</InputAdornment>
+                      }}
+                      sx={{ 
+                        '& .MuiInputLabel-root': {
+                          fontSize: '0.85rem'
+                        },
+                        '& .MuiInputBase-input': {
+                          fontSize: '0.85rem'
+                        }
+                      }}
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
 
               <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
                 <TextField
@@ -665,6 +765,10 @@ Generated on: ${new Date().toLocaleString()}`;
                 startIcon={<CalculateIcon />}
                 fullWidth
                 sx={{
+                  height: '40px',
+                  borderRadius: '8px',
+                  textTransform: 'none',
+                  fontSize: '0.9rem',
                   bgcolor: theme.colors.primary.main,
                   '&:hover': {
                     bgcolor: theme.colors.primary.dark
@@ -767,6 +871,32 @@ Generated on: ${new Date().toLocaleString()}`;
                       bgcolor: theme.colors.secondary.main,
                       border: `1px solid ${theme.colors.border}`,
                       borderRadius: 2,
+                      '&:hover': {
+                        bgcolor: theme.colors.secondary.hover,
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: theme.transitions.standard
+                    }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                          Price per Cubic Meter (Excl. Tax)
+                        </Typography>
+                        <Typography variant="body1" sx={{ 
+                          color: '#2c3e50', 
+                          fontWeight: 500,
+                          fontSize: '0.85rem'
+                        }}>
+                          TZS {formatNumber(result.pricePerM3)}/m³
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: theme.colors.secondary.main,
+                      border: `1px solid ${theme.colors.border}`,
+                      borderRadius: 2,
                       borderLeft: '4px solid #e74c3c',
                       '&:hover': {
                         bgcolor: theme.colors.secondary.hover,
@@ -776,15 +906,50 @@ Generated on: ${new Date().toLocaleString()}`;
                     }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-                          Price per Cubic Meter
+                          Price per Cubic Meter (Incl. {dimensions.taxPercentage}% Tax)
                         </Typography>
                         <Typography variant="body1" sx={{ 
                           color: '#e74c3c', 
                           fontWeight: 500,
                           fontSize: '0.85rem'
                         }}>
-                          TZS {formatNumber(result.pricePerM3)}/m³
+                          TZS {formatNumber(result.pricePerM3WithTax)}/m³
                         </Typography>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Paper elevation={0} sx={{ 
+                      p: 1.5,
+                      bgcolor: theme.colors.secondary.main,
+                      border: `1px solid ${theme.colors.border}`,
+                      borderRadius: 2,
+                      '&:hover': {
+                        bgcolor: theme.colors.secondary.hover,
+                        transform: 'translateY(-2px)'
+                      },
+                      transition: theme.transitions.standard
+                    }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+                            Price per Plank
+                          </Typography>
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+                              Without VAT: TZS {formatNumber(dimensions.isPriceWithVAT 
+                                ? dimensions.pricePerPlank / (1 + dimensions.taxPercentage / 100)
+                                : dimensions.pricePerPlank
+                              )}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+                              With VAT: TZS {formatNumber(dimensions.isPriceWithVAT 
+                                ? dimensions.pricePerPlank
+                                : dimensions.pricePerPlank * (1 + dimensions.taxPercentage / 100)
+                              )}
+                            </Typography>
+                          </Box>
+                        </Box>
                       </Box>
                     </Paper>
                   </Grid>
@@ -825,7 +990,7 @@ Generated on: ${new Date().toLocaleString()}`;
                         startIcon={<ContentCopyIcon />}
                         onClick={() => copyCalculationToClipboard(getCalculationData()!)}
                         sx={{
-                          height: '48px',
+                          height: '40px',
                           borderRadius: '8px',
                           textTransform: 'none',
                           fontSize: '0.9rem',
@@ -846,7 +1011,7 @@ Generated on: ${new Date().toLocaleString()}`;
                         onClick={saveCalculation}
                         disabled={!result || !user?.id}
                         sx={{
-                          height: '48px',
+                          height: '40px',
                           borderRadius: '8px',
                           textTransform: 'none',
                           fontSize: '0.9rem',
@@ -871,6 +1036,7 @@ Generated on: ${new Date().toLocaleString()}`;
                             email: user?.email || '',
                             name: user?.user_metadata?.full_name || ''
                           }}
+                          showNotes={true}
                         />
                       }
                       fileName={`wood-calculation-${new Date().toISOString().split('T')[0]}.pdf`}
@@ -1105,6 +1271,7 @@ Generated on: ${new Date().toLocaleString()}`;
                     email: user?.email || '',
                     name: user?.user_metadata?.full_name || ''
                   }}
+                  showNotes={true}
                 />
               }
               fileName={`wood-calculations-${new Date().toISOString().split('T')[0]}.pdf`}
