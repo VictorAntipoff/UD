@@ -5,6 +5,8 @@ export interface PlankDimensions {
   pricePerPlank: number;
   woodTypeId: string;
   notes: string;
+  taxPercentage: number;
+  isPriceWithVAT: boolean;
 }
 
 export interface WoodType {
@@ -23,7 +25,9 @@ export interface CalculationResult {
   volumeM3: number;
   planksPerM3: number;
   pricePerM3: number;
+  pricePerM3WithTax: number;
   timestamp: string;
   woodType: WoodType;
   notes: string;
+  taxPercentage: number;
 } 

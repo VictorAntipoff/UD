@@ -151,6 +151,15 @@ const styles = StyleSheet.create({
   },
   vixText: {
     color: '#dc2626'
+  },
+  remarkSection: {
+    marginTop: 8,
+    marginBottom: 8,
+    backgroundColor: '#f8fafc',
+    padding: '6 8',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e2e8f0'
   }
 });
 
@@ -298,6 +307,13 @@ export const MultipleWoodCalculationReport = ({ calculations, timestamp, user }:
                       </View>
                     </View>
                   </View>
+
+                  {calculation.notes && (
+                    <View style={styles.remarkSection}>
+                      <Text style={styles.label}>Remarks:</Text>
+                      <Text style={styles.value}>{calculation.notes}</Text>
+                    </View>
+                  )}
                 </View>
               </View>
             ))}
