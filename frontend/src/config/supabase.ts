@@ -9,30 +9,16 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 console.log('Initializing Supabase client...');
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-  db: {
-    schema: 'public'
-  },
-  global: {
-    headers: { 'x-my-custom-header': 'wood-slicer-app' },
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10
+export const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true
     }
-  },
-  // Add better timeout and retry settings
-  settings: {
-    networkRetries: 3,
-    persistSession: true,
-    autoRefreshToken: true,
-    timeout: 20000, // 20 seconds timeout
   }
-});
+);
 
 // Add this error handler
 supabase.auth.onAuthStateChange((event, session) => {
