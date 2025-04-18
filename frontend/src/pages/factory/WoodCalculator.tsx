@@ -185,7 +185,10 @@ export default function WoodCalculator() {
       const { data: woodTypesData, error: woodTypesError } = await supabase
         .from('wood_types')
         .select('*')
-        .order('name');
+        .order('name') as { 
+          data: WoodType[] | null; 
+          error: Error | null 
+        };
 
       if (woodTypesError) throw woodTypesError;
       setWoodTypes(woodTypesData || []);
@@ -687,12 +690,9 @@ Generated on: ${new Date().toLocaleString()}`;
                       fullWidth
                       label="Price Type"
                       value={dimensions.isPriceWithVAT}
-                      onChange={(e) => setDimensions(prev => ({
+                      onChange={(e) => setDimensions((prev: PlankDimensions) => ({
                         ...prev,
-                        isPriceWithVAT: e.target.value === 'true',
-                        pricePerPlank: e.target.value === 'true' 
-                          ? prev.pricePerPlank / (1 + prev.taxPercentage / 100)
-                          : prev.pricePerPlank * (1 + prev.taxPercentage / 100)
+                        isPriceWithVAT: e.target.value === 'true'
                       }))}
                       size="small"
                       sx={{ 
