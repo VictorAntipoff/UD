@@ -4,21 +4,17 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+  console.error('Missing Supabase configuration');
 }
 
 console.log('Initializing Supabase client...');
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-  {
-    auth: {
-      autoRefreshToken: true,
-      persistSession: true
-    }
-  }
-);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+});
 
 // Add this error handler
 supabase.auth.onAuthStateChange((event, session) => {
@@ -29,6 +25,11 @@ supabase.auth.onAuthStateChange((event, session) => {
     // Handle sign in
     console.log('User signed in');
   }
+});
+
+// Add this check to verify the client is configured correctly
+supabase.auth.onAuthStateChange((event, session) => {
+  console.log('Auth state changed:', event, session?.user?.id);
 });
 
 // Add connection status check

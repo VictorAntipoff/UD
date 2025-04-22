@@ -1,6 +1,11 @@
 import { RouteObject } from 'react-router-dom';
 import Dashboard from '../pages/dashboard/Dashboard';
-import { WoodCalculator, WoodSlicer } from '../pages/factory';
+import { 
+  WoodCalculator, 
+  WoodSlicer, 
+  DryingProcess,
+  ReceiptProcessing 
+} from '../pages/factory';
 import { UserSettings, AdminSettings } from '../pages/settings';
 import WoodTypeManagement from '../pages/management/WoodTypeManagement';
 import LoginPage from '../pages/auth/LoginPage';
@@ -8,69 +13,86 @@ import UnauthorizedPage from '../pages/auth/UnauthorizedPage';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import Layout from '../components/Layout/Layout';
 import ApprovalsManagement from '../pages/management/ApprovalsManagement';
+import WoodReceipt from '../pages/management/WoodReceipt';
 
-const ProtectedLayout = ({ children }: { children: React.ReactNode }) => {
-  return (
-    <ProtectedRoute>
-      <Layout>{children}</Layout>
-    </ProtectedRoute>
-  );
-};
+const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute>{children}</ProtectedRoute>
+);
 
 export const routes: RouteObject[] = [
   {
     path: '/',
-    element: <ProtectedLayout><Dashboard /></ProtectedLayout>
-  },
-  {
-    path: '/dashboard',
-    element: <ProtectedLayout><Dashboard /></ProtectedLayout>
-  },
-  {
-    path: '/factory',
+    element: <ProtectedLayout><Layout /></ProtectedLayout>,
     children: [
       {
-        path: 'calculator',
-        element: <ProtectedLayout><WoodCalculator /></ProtectedLayout>
+        path: '/',
+        element: <Dashboard />
       },
       {
-        path: 'slicer',
-        element: <ProtectedLayout><WoodSlicer /></ProtectedLayout>
+        path: 'dashboard',
+        element: <Dashboard />
+      },
+      {
+        path: 'factory',
+        children: [
+          {
+            path: 'wood-calculator',
+            element: <WoodCalculator />
+          },
+          {
+            path: 'wood-slicer',
+            element: <WoodSlicer />
+          },
+          {
+            path: 'drying-process',
+            element: <DryingProcess />
+          },
+          {
+            path: 'receipt-processing',
+            element: <ReceiptProcessing />
+          }
+        ]
+      },
+      {
+        path: 'management',
+        children: [
+          {
+            path: 'wood-types',
+            element: <WoodTypeManagement />
+          },
+          {
+            path: 'approvals',
+            element: <ApprovalsManagement />
+          },
+          {
+            path: 'wood-receipt',
+            element: <WoodReceipt />
+          }
+        ]
+      },
+      {
+        path: 'settings',
+        children: [
+          {
+            path: 'user',
+            element: <UserSettings />
+          },
+          {
+            path: 'admin',
+            element: <AdminSettings />
+          }
+        ]
       }
     ]
   },
   {
-    path: '/management',
-    children: [
-      {
-        path: 'wood-types',
-        element: <ProtectedLayout><WoodTypeManagement /></ProtectedLayout>
-      },
-      {
-        path: 'approvals',
-        element: <ProtectedLayout><ApprovalsManagement /></ProtectedLayout>
-      }
-    ]
-  },
-  {
-    path: '/settings',
-    children: [
-      {
-        path: 'user',
-        element: <ProtectedLayout><UserSettings /></ProtectedLayout>
-      },
-      {
-        path: 'admin',
-        element: <ProtectedLayout><AdminSettings /></ProtectedLayout>
-      }
-    ]
-  },
-  {
-    path: '/login',
+    path: 'login',
     element: <LoginPage />
   },
   {
-    path: '/unauthorized',
+    path: 'unauthorized',
     element: <UnauthorizedPage />
   }
-]; 
+];
+
+console.log('Available routes:', routes.map(route => route.path)); 
