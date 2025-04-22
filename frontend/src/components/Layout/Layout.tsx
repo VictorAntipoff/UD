@@ -2,15 +2,12 @@ import { Box } from '@mui/material';
 import { useState } from 'react';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
+import { Outlet } from 'react-router-dom';
 
 const DRAWER_WIDTH = 240;
 const TRANSITION_DURATION = 250;
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
-
-const Layout = ({ children }: LayoutProps) => {
+const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const handleSidebarToggle = () => {
@@ -30,26 +27,19 @@ const Layout = ({ children }: LayoutProps) => {
       <Box
         component="main"
         sx={{
-          position: 'fixed',
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: `calc(100% - ${DRAWER_WIDTH}px)`,
+          flexGrow: 1,
+          width: '100%',
+          minHeight: '100vh',
           mt: '64px',
           p: 3,
-          overflowY: 'auto',
-          transition: theme => theme.transitions.create('width', {
+          pl: sidebarOpen ? `${DRAWER_WIDTH + 24}px` : 3,
+          transition: theme => theme.transitions.create('padding', {
             easing: theme.transitions.easing.sharp,
             duration: TRANSITION_DURATION,
-          }),
-          ...(sidebarOpen ? {
-            width: `calc(100% - ${DRAWER_WIDTH}px)`
-          } : {
-            width: '100%'
           })
         }}
       >
-        {children}
+        <Outlet />
       </Box>
     </Box>
   );

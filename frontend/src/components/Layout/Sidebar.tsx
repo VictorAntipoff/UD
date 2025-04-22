@@ -23,6 +23,8 @@ import ForestIcon from '@mui/icons-material/Forest';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -51,8 +53,8 @@ const Sidebar = ({ width, open }: SidebarProps) => {
   );
   const [pendingCount, setPendingCount] = useState(0);
 
-  const handleMenuClick = (setter: (state: boolean) => void) => () => {
-    setter(prev => !prev);
+  const handleMenuClick = (setter: React.Dispatch<React.SetStateAction<boolean>>) => () => {
+    setter((prev: boolean) => !prev);
   };
 
   const commonButtonStyles = {
@@ -116,11 +118,12 @@ const Sidebar = ({ width, open }: SidebarProps) => {
 
   return (
     <Drawer
-      variant="permanent"
+      variant="persistent"
+      anchor="left"
+      open={open}
       sx={{
         width: width,
         flexShrink: 0,
-        whiteSpace: 'nowrap',
         position: 'fixed',
         '& .MuiDrawer-paper': {
           width: width,
@@ -128,16 +131,13 @@ const Sidebar = ({ width, open }: SidebarProps) => {
           borderRight: `1px solid ${colors.grey.light}`,
           backgroundColor: colors.white,
           mt: '64px',
-          height: 'calc(100% - 64px)',
+          height: 'calc(100vh - 64px)',
           transition: theme.transitions.create('transform', {
             easing: theme.transitions.easing.sharp,
             duration: TRANSITION_DURATION,
           }),
           transform: open ? 'none' : `translateX(-${width}px)`,
           overflowX: 'hidden',
-          '& .MuiList-root': {
-            pt: 0
-          }
         },
       }}
     >
@@ -145,11 +145,6 @@ const Sidebar = ({ width, open }: SidebarProps) => {
         overflowY: 'auto', 
         overflowX: 'hidden',
         height: '100%',
-        opacity: open ? 1 : 0,
-        transition: theme.transitions.create('opacity', {
-          easing: theme.transitions.easing.sharp,
-          duration: TRANSITION_DURATION / 2,
-        }),
       }}>
         <List>
           {/* Dashboard */}
@@ -179,10 +174,13 @@ const Sidebar = ({ width, open }: SidebarProps) => {
               <ListItem
                 button
                 sx={{ ...commonButtonStyles, pl: 4 }}
-                onClick={() => navigate('/factory/calculator')}
-                selected={location.pathname === '/factory/calculator'}
+                onClick={() => {
+                  console.log('Navigating to Wood Calculator');
+                  navigate('/factory/wood-calculator');
+                }}
+                selected={location.pathname === '/factory/wood-calculator'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/factory/calculator' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/factory/wood-calculator' ? colors.primary : colors.grey.main }}>
                   <CalculateIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Calculator" />
@@ -191,13 +189,46 @@ const Sidebar = ({ width, open }: SidebarProps) => {
               <ListItem
                 button
                 sx={{ ...commonButtonStyles, pl: 4 }}
-                onClick={() => navigate('/factory/slicer')}
-                selected={location.pathname === '/factory/slicer'}
+                onClick={() => {
+                  console.log('Navigating to Wood Slicer');
+                  navigate('/factory/wood-slicer');
+                }}
+                selected={location.pathname === '/factory/wood-slicer'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/factory/slicer' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/factory/wood-slicer' ? colors.primary : colors.grey.main }}>
                   <ContentCutIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Slicer" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={{ ...commonButtonStyles, pl: 4 }}
+                onClick={() => {
+                  console.log('Navigating to Drying Process');
+                  navigate('/factory/drying-process');
+                }}
+                selected={location.pathname === '/factory/drying-process'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/factory/drying-process' ? colors.primary : colors.grey.main }}>
+                  <FactoryIcon />
+                </ListItemIcon>
+                <ListItemText primary="Drying Process" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={{ ...commonButtonStyles, pl: 4 }}
+                onClick={() => {
+                  console.log('Navigating to Receipt Processing');
+                  navigate('/factory/receipt-processing');
+                }}
+                selected={location.pathname === '/factory/receipt-processing'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/factory/receipt-processing' ? colors.primary : colors.grey.main }}>
+                  <InventoryIcon />
+                </ListItemIcon>
+                <ListItemText primary="Receipt Processing" />
               </ListItem>
             </List>
           </Collapse>
@@ -223,6 +254,18 @@ const Sidebar = ({ width, open }: SidebarProps) => {
                   <ForestIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Types" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={{ ...commonButtonStyles, pl: 4 }}
+                onClick={() => navigate('/management/wood-receipt')}
+                selected={location.pathname === '/management/wood-receipt'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/management/wood-receipt' ? colors.primary : colors.grey.main }}>
+                  <ReceiptLongIcon />
+                </ListItemIcon>
+                <ListItemText primary="Wood Receipt" />
               </ListItem>
 
               <ListItem

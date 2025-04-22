@@ -15,12 +15,8 @@ import {
   TableHead,
   TableRow,
   IconButton,
-  Select,
   MenuItem,
-  FormControl,
-  InputLabel,
   Tooltip,
-  Alert,
   CircularProgress,
   Chip,
   Checkbox
@@ -34,7 +30,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase, testSupabaseConnection } from '../../config/supabase';
 import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
 import { WoodCalculationReport } from '../../components/reports/WoodCalculationReport';
 import { MultipleWoodCalculationReport } from '../../components/reports/MultipleWoodCalculationReport';
@@ -169,7 +164,7 @@ export default function WoodCalculator() {
 
   const [history, setHistory] = useState<CalculationResult[]>([]);
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { enqueueSnackbar } = useSnackbar();
   const [selectedCalculations, setSelectedCalculations] = useState<string[]>([]);
@@ -345,6 +340,7 @@ export default function WoodCalculator() {
       volumeM3: result.volumeM3,
       planksPerM3: result.planksPerM3,
       pricePerM3: result.pricePerM3,
+      pricePerM3WithTax: result.pricePerM3WithTax,
       timestamp: new Date().toISOString(),
       woodType: woodTypes.find(w => w.id === dimensions.woodTypeId) || defaultWoodType,
       notes: dimensions.notes,
@@ -1036,7 +1032,6 @@ Generated on: ${new Date().toLocaleString()}`;
                             email: user?.email || '',
                             name: user?.user_metadata?.full_name || ''
                           }}
-                          showNotes={true}
                         />
                       }
                       fileName={`wood-calculation-${new Date().toISOString().split('T')[0]}.pdf`}
@@ -1271,7 +1266,6 @@ Generated on: ${new Date().toLocaleString()}`;
                     email: user?.email || '',
                     name: user?.user_metadata?.full_name || ''
                   }}
-                  showNotes={true}
                 />
               }
               fileName={`wood-calculations-${new Date().toISOString().split('T')[0]}.pdf`}
