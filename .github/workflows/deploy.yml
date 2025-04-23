@@ -8,7 +8,7 @@ on:
 jobs:
   deploy-frontend:
     runs-on: ubuntu-latest
-    if: contains(github.event.head_commit.modified, 'frontend/') || contains(github.event.head_commit.added, 'frontend/')
+    if: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Vercel CLI
@@ -24,7 +24,7 @@ jobs:
   
   deploy-backend:
     runs-on: ubuntu-latest
-    if: contains(github.event.head_commit.modified, 'backend/') || contains(github.event.head_commit.added, 'backend/')
+    if: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Vercel CLI
