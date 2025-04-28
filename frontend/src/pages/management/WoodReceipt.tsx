@@ -137,7 +137,7 @@ const WoodReceipt = () => {
     total_pieces: '',
     notes: '',
     status: 'PENDING',
-    lot_number: '',
+    lot_number: 'Auto-generated',
   });
   const [editingReceipt, setEditingReceipt] = useState<EditingReceipt | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -302,7 +302,7 @@ const WoodReceipt = () => {
         total_pieces: '',
         notes: '',
         status: 'PENDING',
-        lot_number: '',
+        lot_number: 'Auto-generated',
       });
     } catch (error: any) {
       console.error('Error creating receipt:', error);
@@ -317,27 +317,24 @@ const WoodReceipt = () => {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    // Reset form after dialog is closed
-    setTimeout(() => {
-      setNewReceipt({
-        wood_type_id: '',
-        supplier: '',
-        purchase_date: new Date().toISOString().split('T')[0],
-        purchase_order: '',
-        total_volume_m3: '',
-        total_pieces: '',
-        notes: '',
-        status: 'PENDING',
-        lot_number: '',
-      });
-    }, 100);
+    setNewReceipt({
+      wood_type_id: '',
+      supplier: '',
+      purchase_date: new Date().toISOString().split('T')[0],
+      purchase_order: '',
+      total_volume_m3: '',
+      total_pieces: '',
+      notes: '',
+      status: 'PENDING',
+      lot_number: 'Auto-generated',
+    });
   };
 
   const handleEditClick = (receipt: WoodReceiptType) => {
     setEditingReceipt({
       ...receipt,
-      total_volume_m3: receipt.total_volume_m3?.toString() ?? '',
-      total_pieces: receipt.total_pieces?.toString() ?? ''
+      total_volume_m3: receipt.total_volume_m3?.toString() || '',
+      total_pieces: receipt.total_pieces?.toString() || '',
     });
     setEditDialogOpen(true);
   };
@@ -681,10 +678,17 @@ const WoodReceipt = () => {
                 <TextField
                   fullWidth
                   label="LOT Number"
-                  value={editingReceipt.lot_number}
-                  onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, lot_number: e.target.value } : null)}
-                  required
-                  sx={textFieldSx}
+                  value={editingReceipt.lot_number || 'N/A'}
+                  InputProps={{
+                    readOnly: true,
+                  }}
+                  sx={{
+                    ...textFieldSx,
+                    '& .MuiInputBase-input.Mui-readOnly': {
+                      color: 'rgba(0, 0, 0, 0.87)',
+                      fontWeight: 500,
+                    },
+                  }}
                 />
               </Grid>
               <Grid item xs={12}>
