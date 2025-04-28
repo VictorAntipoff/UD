@@ -104,6 +104,7 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
                 fontWeight: 500
               }}
             >
+              UDesign
             </Typography>
           </Box>
         </Box>
