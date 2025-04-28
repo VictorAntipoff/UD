@@ -1,10 +1,14 @@
-name: Deploy
+# .github/workflows/deploy.yml
+name: Deploy Applications
+
 on:
   push:
-    branches: [staging, main]
+    branches: [main, staging]
+
 jobs:
   deploy-frontend:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Vercel CLI
@@ -20,6 +24,7 @@ jobs:
   
   deploy-backend:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install Vercel CLI
@@ -29,7 +34,9 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_BACKEND_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           cd backend
           vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
- 
