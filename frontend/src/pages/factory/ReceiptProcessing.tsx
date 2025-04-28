@@ -22,6 +22,7 @@ import {
   TableRow,
   IconButton,
   CircularProgress,
+  Chip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -31,7 +32,7 @@ import type { WoodReceipt } from '../../types/wood-receipt';
 import { colors } from '../../theme/colors';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useTheme } from '@mui/material/styles';
-import { PDFDownloadLink, Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image, BlobProvider } from '@react-pdf/renderer';
 import SaveIcon from '@mui/icons-material/Save';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import logo from '../../assets/images/logo.png';
@@ -82,6 +83,8 @@ interface SleeperMeasurement {
   width: number;
   length: number;
   m3: number;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
 }
 
 interface ReceiptForm {
@@ -93,8 +96,20 @@ interface ReceiptForm {
   date: string;
   status: string;
   purchaseOrder: string;
+  lastModifiedBy?: string;
+  lastModifiedAt?: string;
 }
 
+// Add a new interface for change history
+interface ChangeHistory {
+  id: number;
+  receiptId: string;
+  userId: string;
+  userName: string;
+  action: string;
+  timestamp: string;
+  details: string;
+}
 
 const initialFormState: ReceiptForm = {
   receiptNumber: '',
@@ -131,15 +146,25 @@ const StyledTableContainer = muiStyled(TableContainer)(({ theme }) => ({
   },
 }));
 
-const NumberTextField = muiStyled(TextField)({
+// Add this styled component for compact number fields
+const CompactNumberTextField = muiStyled(TextField)({
+  '& .MuiOutlinedInput-root': {
+    padding: '0 4px',
+    height: 28,
+    background: '#f8fafc',
+    borderRadius: 4,
+    fontSize: '0.95rem',
+    minHeight: 28,
+  },
   '& input': {
     textAlign: 'right',
-    fontSize: '0.875rem',
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    padding: '8px',
-    '@media (max-width: 600px)': {
-      padding: '12px 8px',
-    },
+    padding: '4px 4px',
+    fontSize: '0.95rem',
+    MozAppearance: 'textfield',
+  },
+  '& input[type=number]::-webkit-outer-spin-button, & input[type=number]::-webkit-inner-spin-button': {
+    WebkitAppearance: 'none',
+    margin: 0,
   },
 });
 
@@ -187,72 +212,60 @@ const MobileMeasurements = ({
 
         <Grid container spacing={2}>
           <Grid item xs={4}>
-            <NumberTextField
+            <CompactNumberTextField
               fullWidth
               label="Thickness"
               size="small"
               type="number"
               value={row.thickness || ''}
               onChange={(e) => handleMeasurementChange(row.id, 'thickness', e.target.value)}
-              inputProps={{ 
-                step: "0.5",
-                min: "0",
-                inputMode: "decimal",
+              inputProps={{
+                step: 0.1,
+                min: 0.5,
+                max: 18,
+                maxLength: 5,
+                style: { width: 70, textAlign: 'right' }
               }}
-              InputProps={{
-                endAdornment: <Typography variant="caption">in</Typography>
-              }}
-              sx={{
-                '& .MuiInputBase-root': {
-                  height: '48px',
-                },
-              }}
+              error={row.thickness < 0.5 || row.thickness > 18}
+              helperText={row.thickness < 0.5 || row.thickness > 18 ? "!" : ""}
             />
           </Grid>
           <Grid item xs={4}>
-            <NumberTextField
+            <CompactNumberTextField
               fullWidth
               label="Width"
               size="small"
               type="number"
               value={row.width || ''}
               onChange={(e) => handleMeasurementChange(row.id, 'width', e.target.value)}
-              inputProps={{ 
-                step: "0.5",
-                min: "0",
-                inputMode: "decimal",
+              inputProps={{
+                step: 0.1,
+                min: 0.5,
+                max: 18,
+                maxLength: 5,
+                style: { width: 70, textAlign: 'right' }
               }}
-              InputProps={{
-                endAdornment: <Typography variant="caption">in</Typography>
-              }}
-              sx={{
-                '& .MuiInputBase-root': {
-                  height: '48px',
-                },
-              }}
+              error={row.width < 0.5 || row.width > 18}
+              helperText={row.width < 0.5 || row.width > 18 ? "!" : ""}
             />
           </Grid>
           <Grid item xs={4}>
-            <NumberTextField
+            <CompactNumberTextField
               fullWidth
               label="Length"
               size="small"
               type="number"
               value={row.length || ''}
               onChange={(e) => handleMeasurementChange(row.id, 'length', e.target.value)}
-              inputProps={{ 
-                step: "0.5",
-                min: "0",
-                inputMode: "decimal",
+              inputProps={{
+                step: 0.1,
+                min: 0.5,
+                max: 18,
+                maxLength: 5,
+                style: { width: 70, textAlign: 'right' }
               }}
-              InputProps={{
-                endAdornment: <Typography variant="caption">ft</Typography>
-              }}
-              sx={{
-                '& .MuiInputBase-root': {
-                  height: '48px',
-                },
-              }}
+              error={row.length < 0.5 || row.length > 18}
+              helperText={row.length < 0.5 || row.length > 18 ? "!" : ""}
             />
           </Grid>
         </Grid>
@@ -312,20 +325,20 @@ const pdfStyles = StyleSheet.create({
     color: '#64748b'
   },
   section: {
-    marginBottom: 15
+    marginBottom: 12
   },
   sectionTitle: {
     fontSize: 12,
     fontFamily: 'Helvetica-Bold',
     color: '#2c3e50',
-    marginBottom: 8,
+    marginBottom: 6,
     backgroundColor: '#f8fafc',
-    padding: '6 8',
+    padding: '4 6',
     borderRadius: 4
   },
   row: {
     flexDirection: 'row',
-    marginBottom: 4,
+    marginBottom: 3,
     fontSize: 10
   },
   label: {
@@ -337,14 +350,14 @@ const pdfStyles = StyleSheet.create({
     color: '#2c3e50'
   },
   table: {
-    marginTop: 10
+    marginTop: 6
   },
   tableHeader: {
     flexDirection: 'row',
     backgroundColor: '#f8fafc',
     borderBottomColor: '#e2e8f0',
     borderBottomWidth: 1,
-    padding: '8 6',
+    padding: '4 6',
     fontSize: 9,
     fontFamily: 'Helvetica-Bold',
     color: '#64748b'
@@ -353,14 +366,14 @@ const pdfStyles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomColor: '#e2e8f0',
     borderBottomWidth: 1,
-    padding: '8 6'
+    padding: '3 6'
   },
   tableCell: {
     flex: 1
   },
   result: {
-    marginTop: 15,
-    padding: 10,
+    marginTop: 12,
+    padding: 8,
     backgroundColor: '#f8fafc',
     borderRadius: 4,
     borderLeft: 2,
@@ -436,6 +449,18 @@ const ReceiptPDF = ({ formData, measurements, totalM3 }: ReceiptPDFProps) => (
           <Text style={pdfStyles.label}>Date:</Text>
           <Text style={pdfStyles.value}>{formData.date}</Text>
         </View>
+        {formData.lastModifiedBy && (
+          <View style={pdfStyles.row}>
+            <Text style={pdfStyles.label}>Last Modified By:</Text>
+            <Text style={pdfStyles.value}>{formData.lastModifiedBy}</Text>
+          </View>
+        )}
+        {formData.lastModifiedAt && (
+          <View style={pdfStyles.row}>
+            <Text style={pdfStyles.label}>Last Modified At:</Text>
+            <Text style={pdfStyles.value}>{new Date(formData.lastModifiedAt).toLocaleString()}</Text>
+          </View>
+        )}
       </View>
 
       <View style={pdfStyles.section}>
@@ -480,6 +505,36 @@ const ReceiptPDF = ({ formData, measurements, totalM3 }: ReceiptPDFProps) => (
         </View>
       </View>
 
+      <View style={pdfStyles.section}>
+        <Text style={pdfStyles.sectionTitle}>Sleeper Size Summary</Text>
+        <View style={pdfStyles.table}>
+          <View style={pdfStyles.tableHeader}>
+            <View style={pdfStyles.tableCell}>
+              <Text>Size</Text>
+            </View>
+            <View style={pdfStyles.tableCell}>
+              <Text>Count</Text>
+            </View>
+            <View style={pdfStyles.tableCell}>
+              <Text>Total Volume (m³)</Text>
+            </View>
+          </View>
+          {getSleeperSizeSummary(measurements).map((size, index) => (
+            <View key={index} style={pdfStyles.tableRow}>
+              <View style={pdfStyles.tableCell}>
+                <Text>{size.size}</Text>
+              </View>
+              <View style={pdfStyles.tableCell}>
+                <Text>{size.count}</Text>
+              </View>
+              <View style={pdfStyles.tableCell}>
+                <Text>{size.totalVolume.toFixed(4)}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+
       <View style={pdfStyles.result}>
         <View style={pdfStyles.row}>
           <Text style={pdfStyles.label}>Total Volume:</Text>
@@ -510,74 +565,240 @@ const ReceiptPDF = ({ formData, measurements, totalM3 }: ReceiptPDFProps) => (
   </Document>
 );
 
+const getSleeperSizeSummary = (measurements: SleeperMeasurement[]) => {
+  const sizeMap = new Map<string, { count: number; totalVolume: number }>();
+  
+  measurements.forEach(m => {
+    const sizeKey = `${m.thickness}" × ${m.width}" × ${m.length}'`;
+    
+    if (sizeMap.has(sizeKey)) {
+      const existing = sizeMap.get(sizeKey)!;
+      sizeMap.set(sizeKey, {
+        count: existing.count + 1,
+        totalVolume: existing.totalVolume + m.m3
+      });
+    } else {
+      sizeMap.set(sizeKey, {
+        count: 1,
+        totalVolume: m.m3
+      });
+    }
+  });
+  
+  return Array.from(sizeMap.entries()).map(([size, data]) => ({
+    size,
+    count: data.count,
+    totalVolume: data.totalVolume
+  }));
+};
+
+const SleeperSizeSummary = ({ measurements }: { measurements: SleeperMeasurement[] }) => {
+  const sizeSummary = getSleeperSizeSummary(measurements);
+  
+  if (sizeSummary.length === 0) {
+    return null;
+  }
+  
+  return (
+    <Box sx={{ mt: 3, mb: 2 }}>
+      <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+        Sleeper Size Summary
+      </Typography>
+      <TableContainer component={Paper} sx={{ mb: 3 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Size</TableCell>
+              <TableCell align="center">Count</TableCell>
+              <TableCell align="right">Total Volume (m³)</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {sizeSummary.map((size, index) => (
+              <TableRow key={index}>
+                <TableCell>{size.size}</TableCell>
+                <TableCell align="center">{size.count}</TableCell>
+                <TableCell align="right">{size.totalVolume.toFixed(4)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    </Box>
+  );
+};
+
+const ChangeHistoryDisplay = ({ changeHistory }: { changeHistory: ChangeHistory[] }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (changeHistory.length === 0) {
+    return null;
+  }
+
+  return (
+    <Box sx={{ mt: 3, mb: 2 }}>
+      <Button
+        onClick={() => setIsExpanded(!isExpanded)}
+        sx={{
+          color: 'text.secondary',
+          '&:hover': {
+            backgroundColor: 'rgba(0, 0, 0, 0.04)',
+          },
+          width: '100%',
+          justifyContent: 'flex-start',
+          textTransform: 'none',
+          mb: 1
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+          Change History ({changeHistory.length})
+        </Typography>
+      </Button>
+      
+      {isExpanded && (
+        <TableContainer 
+          component={Paper} 
+          sx={{ 
+            mb: 3,
+            backgroundColor: 'rgba(0, 0, 0, 0.02)',
+            '@media print': {
+              display: 'none'
+            }
+          }}
+        >
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ color: 'text.secondary' }}>Date/Time</TableCell>
+                <TableCell sx={{ color: 'text.secondary' }}>User</TableCell>
+                <TableCell sx={{ color: 'text.secondary' }}>Action</TableCell>
+                <TableCell sx={{ color: 'text.secondary' }}>Details</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {changeHistory.map((entry) => (
+                <TableRow 
+                  key={`${entry.receiptId}-${entry.timestamp}-${entry.action}`}
+                  sx={{ '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' } }}
+                >
+                  <TableCell sx={{ color: 'text.secondary' }}>
+                    {new Date(entry.timestamp).toLocaleString()}
+                  </TableCell>
+                  <TableCell sx={{ color: 'text.secondary' }}>{entry.userName}</TableCell>
+                  <TableCell sx={{ color: 'text.secondary' }}>{entry.action}</TableCell>
+                  <TableCell sx={{ color: 'text.secondary' }}>{entry.details}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </Box>
+  );
+};
+
 const ReceiptProcessing = () => {
   const [formData, setFormData] = useState<ReceiptForm>(initialFormState);
   const [showSuccess, setShowSuccess] = useState(false);
   const [receipts, setReceipts] = useState<WoodReceipt[]>([]);
-  const [loading, setLoading] = useState(false);
   const [measurements, setMeasurements] = useState<SleeperMeasurement[]>([]);
   const [totalM3, setTotalM3] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [showError, setShowError] = useState(false);
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ id: string; email: string } | null>(null);
+  const [changeHistory, setChangeHistory] = useState<ChangeHistory[]>([]);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   useEffect(() => {
-    fetchReceipts();
-  }, []);
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.error('No active session found');
-        // Handle unauthenticated state here (e.g., redirect to login)
-        return;
-      }
-      console.log('Authenticated as:', session.user.email);
-      
-      // Test table access
-      const { error } = await supabase
-        .from('receipt_drafts')
-        .select('count', { count: 'exact', head: true });
-        
-      if (error) {
-        console.error('Table access test failed:', error);
-      } else {
-        console.log('Table access test succeeded');
-      }
+    const init = async () => {
+      await checkAuth();
+      await fetchReceipts();
     };
-
-    checkAuth();
+    init();
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        setCurrentUser({
+          id: session.user.id,
+          email: session.user.email || 'Unknown User'
+        });
+      }
+    } catch (error) {
+      console.error('Error checking auth:', error);
+    }
+  };
 
   const fetchReceipts = async () => {
     try {
-      setLoading(true);
+      console.log('Fetching receipts...');
       const { data, error } = await supabase
         .from('wood_receipts')
         .select('*, wood_type:wood_types(*)')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setReceipts(data || []);
+      if (error) {
+        console.error('Error fetching receipts:', error);
+        throw error;
+      }
+      
+      console.log('Fetched receipts:', data);
+      
+      // Check if receipts have LOT numbers
+      if (data && data.length > 0) {
+        console.log('Receipts with LOT numbers:', data.map(r => ({
+          id: r.id,
+          lot_number: r.lot_number,
+          status: r.status
+        })));
+        
+        // If any receipts don't have LOT numbers, generate them
+        const updatedReceipts = data.map(receipt => {
+          if (!receipt.lot_number) {
+            // Generate a LOT number based on the receipt ID
+            const lotNumber = `LOT-${String(receipt.id).padStart(3, '0')}`;
+            console.log(`Generated LOT number ${lotNumber} for receipt ${receipt.id}`);
+            
+            // Update the receipt in the database
+            supabase
+              .from('wood_receipts')
+              .update({ lot_number: lotNumber })
+              .eq('id', receipt.id)
+              .then(({ error }) => {
+                if (error) {
+                  console.error(`Error updating LOT number for receipt ${receipt.id}:`, error);
+                } else {
+                  console.log(`Successfully updated LOT number for receipt ${receipt.id}`);
+                }
+              });
+            
+            // Return the receipt with the generated LOT number
+            return { ...receipt, lot_number: lotNumber };
+          }
+          return receipt;
+        });
+        
+        setReceipts(updatedReceipts);
+      } else {
+        console.warn('No receipts found or receipts have no LOT numbers');
+        setReceipts([]);
+      }
     } catch (error) {
       console.error('Error fetching receipts:', error);
-    } finally {
-      setLoading(false);
+      setReceipts([]);
     }
   };
 
   const handleLotNumberChange = async (event: SelectChangeEvent<string>) => {
+    console.log('LOT number changed:', event.target.value);
     const selectedLot = event.target.value;
     const selectedReceipt = receipts.find(receipt => receipt.lot_number === selectedLot);
 
+    console.log('Selected receipt:', selectedReceipt);
     if (selectedReceipt) {
       setFormData({
         receiptNumber: selectedLot,
@@ -596,13 +817,11 @@ const ReceiptProcessing = () => {
 
   const validateForm = () => {
     if (!formData.receiptNumber) {
-      setError('Please select a LOT number');
-      setShowError(true);
+      console.error('Please select a LOT number');
       return false;
     }
     if (measurements.length === 0) {
-      setError('Please add at least one measurement');
-      setShowError(true);
+      console.error('Please add at least one measurement');
       return false;
     }
     return true;
@@ -612,18 +831,46 @@ const ReceiptProcessing = () => {
     e.preventDefault();
     if (!validateForm()) return;
     try {
-      setIsProcessing(true);
-      // Update the receipt status to PROCESSING
+      // Convert measurements to receipt items
+      const receiptItems = measurements.map(m => ({
+        length: m.length,
+        width: m.width,
+        height: m.thickness,
+        quantity: 1,
+        volume_m3: m.m3,
+        grade: 'A', // Default grade, adjust if needed
+        notes: m.lastModifiedBy ? `Last modified by ${m.lastModifiedBy} at ${m.lastModifiedAt}` : undefined
+      }));
+
+      // First update the receipt status and total volume
       const { error: receiptError } = await supabase
         .from('wood_receipts')
         .update({ 
           status: 'PROCESSING',
-          processed_measurements: measurements,
-          total_processed_volume: totalM3
+          total_volume_m3: totalM3
         })
         .eq('lot_number', formData.receiptNumber);
 
       if (receiptError) throw receiptError;
+
+      // Get the receipt ID for the given lot number
+      const { data: receiptData, error: receiptIdError } = await supabase
+        .from('wood_receipts')
+        .select('id')
+        .eq('lot_number', formData.receiptNumber)
+        .single();
+
+      if (receiptIdError) throw receiptIdError;
+
+      // Insert the measurements as receipt items
+      const { error: itemsError } = await supabase
+        .from('wood_receipt_items')
+        .insert(receiptItems.map(item => ({
+          ...item,
+          receipt_id: receiptData.id
+        })));
+
+      if (itemsError) throw itemsError;
 
       // Delete the draft after processing
       await supabase
@@ -635,8 +882,6 @@ const ReceiptProcessing = () => {
       await fetchReceipts();
     } catch (error) {
       console.error('Error processing receipt:', error);
-    } finally {
-      setIsProcessing(false);
     }
   };
 
@@ -667,7 +912,12 @@ const ReceiptProcessing = () => {
     setHasUnsavedChanges(true);
     setMeasurements(measurements.map(m => {
       if (m.id === id) {
-        const newMeasurement = { ...m, [field]: parseFloat(value) || 0 };
+        const newMeasurement = { 
+          ...m, 
+          [field]: parseFloat(value) || 0,
+          lastModifiedBy: currentUser?.email || 'Unknown User',
+          lastModifiedAt: new Date().toISOString()
+        };
         if (field === 'thickness' || field === 'width' || field === 'length') {
           newMeasurement.m3 = calculateM3(
             newMeasurement.thickness,
@@ -696,40 +946,90 @@ const ReceiptProcessing = () => {
         return;
       }
 
+      const userId = session.user.id;
+      const userName = session.user.email || 'Unknown User';
+      const timestamp = new Date().toISOString();
+
+      // Prepare the draft data
       const draftData = {
         receipt_id: formData.receiptNumber,
-        measurements: measurements,
-        updated_at: new Date().toISOString()
+        measurements: measurements.map(m => ({
+          ...m,
+          lastModifiedBy: m.lastModifiedBy || userName,
+          lastModifiedAt: m.lastModifiedAt || timestamp
+        })),
+        updated_at: timestamp,
+        updated_by: userId
       };
 
       console.log('Saving draft data:', draftData);
 
       // First check if a draft exists
-      const { data: existingDraft } = await supabase
+      const { data: existingDraft, error: checkError } = await supabase
         .from('receipt_drafts')
-        .select('id')
+        .select('id, receipt_id')
         .eq('receipt_id', formData.receiptNumber)
-        .single();
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Error checking for existing draft:', checkError);
+        throw checkError;
+      }
 
       let error;
       if (existingDraft) {
         // Update existing draft
         const { error: updateError } = await supabase
           .from('receipt_drafts')
-          .update(draftData)
+          .update({
+            measurements: draftData.measurements,
+            updated_at: draftData.updated_at,
+            updated_by: draftData.updated_by
+          })
           .eq('receipt_id', formData.receiptNumber);
         error = updateError;
       } else {
         // Insert new draft
         const { error: insertError } = await supabase
           .from('receipt_drafts')
-          .insert(draftData);
+          .insert([draftData]);
         error = insertError;
       }
 
       if (error) {
         console.error('Error saving draft:', error);
         throw error;
+      }
+
+      // Add to change history
+      const historyEntry = {
+        receipt_id: formData.receiptNumber,
+        user_id: userId,
+        user_name: userName,
+        action: existingDraft ? 'UPDATE' : 'CREATE',
+        timestamp: timestamp,
+        details: `Draft ${existingDraft ? 'updated' : 'created'} with ${measurements.length} measurements`
+      };
+      
+      const { error: historyError } = await supabase
+        .from('receipt_change_history')
+        .insert([historyEntry]);
+        
+      if (historyError) {
+        console.error('Error saving history:', historyError);
+      } else {
+        setChangeHistory(prev => [
+          ...prev,
+          {
+            id: Date.now(),
+            receiptId: historyEntry.receipt_id,
+            userId: historyEntry.user_id,
+            userName: historyEntry.user_name,
+            action: historyEntry.action,
+            timestamp: historyEntry.timestamp,
+            details: historyEntry.details,
+          }
+        ]);
       }
       
       setShowSuccess(true);
@@ -742,47 +1042,108 @@ const ReceiptProcessing = () => {
 
   const loadDraft = async (receiptId: string) => {
     try {
-      console.log('Loading draft for receipt:', receiptId);
-      
+      console.log('Loading data for receipt:', receiptId);
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         console.error('No active session found');
         return;
       }
-      
-      console.log('User authenticated:', session.user.id);
 
-      const { data, error } = await supabase
+      // Always load change history first
+      const { data: historyData, error: historyError } = await supabase
+        .from('receipt_change_history')
+        .select('*')
+        .eq('receipt_id', receiptId)
+        .order('timestamp', { ascending: false });
+
+      if (historyError) {
+        console.error('Error loading history:', historyError);
+      } else {
+        setChangeHistory(historyData || []);
+      }
+
+      // First, try to get the receipt ID from the wood_receipts table
+      const { data: receiptData, error: receiptError } = await supabase
+        .from('wood_receipts')
+        .select('id')
+        .eq('lot_number', receiptId)
+        .single();
+
+      if (receiptError) {
+        console.error('Error getting receipt ID:', receiptError);
+        throw receiptError;
+      }
+
+      // Try to load existing receipt items first
+      const { data: receiptItems, error: itemsError } = await supabase
+        .from('wood_receipt_items')
+        .select('*')
+        .eq('receipt_id', receiptData.id);
+
+      if (itemsError) {
+        console.error('Error loading receipt items:', itemsError);
+      }
+
+      // If we have receipt items, use those
+      if (receiptItems && receiptItems.length > 0) {
+        console.log('Found existing receipt items:', receiptItems);
+        const processedMeasurements = receiptItems.map((item, index) => ({
+          id: index + 1,
+          thickness: item.height || 0, // height in the DB corresponds to thickness
+          width: item.width || 0,
+          length: item.length || 0,
+          m3: item.volume_m3 || calculateM3(
+            item.height || 0,
+            item.width || 0,
+            item.length || 0
+          ),
+          lastModifiedBy: item.notes?.split('Last modified by ')?.[1]?.split(' at ')?.[0] || 'Unknown',
+          lastModifiedAt: item.updated_at || item.created_at || new Date().toISOString()
+        }));
+        console.log('Processed measurements from receipt items:', processedMeasurements);
+        setMeasurements(processedMeasurements);
+        return;
+      }
+
+      // If no receipt items found, try loading from draft
+      const { data: draftData, error: draftError } = await supabase
         .from('receipt_drafts')
         .select('*')
         .eq('receipt_id', receiptId)
         .maybeSingle();
 
-      if (error) {
-        console.error('Error details:', {
-          message: error.message,
-          code: error.code,
-          details: error.details,
-          hint: error.hint
-        });
-        throw error;
+      if (draftError) {
+        console.error('Error loading draft:', draftError);
+        throw draftError;
       }
 
-      if (data) {
-        console.log('Found draft:', data);
-        setMeasurements(data.measurements);
+      if (draftData && draftData.measurements) {
+        console.log('Found draft with measurements:', draftData.measurements);
+        const processedMeasurements = draftData.measurements.map((m: any) => ({
+          id: m.id || Math.random(),
+          thickness: parseFloat(m.thickness) || 0,
+          width: parseFloat(m.width) || 0,
+          length: parseFloat(m.length) || 0,
+          m3: parseFloat(m.m3) || calculateM3(
+            parseFloat(m.thickness) || 0,
+            parseFloat(m.width) || 0,
+            parseFloat(m.length) || 0
+          ),
+          lastModifiedBy: m.lastModifiedBy || 'Unknown',
+          lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
+        }));
+        console.log('Processed measurements from draft:', processedMeasurements);
+        setMeasurements(processedMeasurements);
       } else {
-        console.log('No draft found for receipt:', receiptId);
+        console.log('No data found for receipt:', receiptId);
         setMeasurements([]);
       }
     } catch (error) {
-      console.error('Error loading draft:', error);
-      // Don't throw the error, just clear measurements
+      console.error('Error loading data:', error);
       setMeasurements([]);
     }
   };
-
-
 
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -821,6 +1182,12 @@ const ReceiptProcessing = () => {
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [isSaving, formData.receiptNumber]);
 
+  console.log('Current receipts for dropdown:', receipts.map(r => ({
+    id: r.id,
+    lot_number: r.lot_number,
+    status: r.status
+  })));
+
   return (
     <StyledContainer maxWidth="lg">
       <Typography 
@@ -847,84 +1214,118 @@ const ReceiptProcessing = () => {
                   label="LOT Number"
                   onChange={handleLotNumberChange}
                 >
-                  {receipts
-                    .filter(receipt => receipt.status === 'PENDING')
-                    .map((receipt) => (
-                      <MenuItem 
-                        key={receipt.lot_number} 
-                        value={receipt.lot_number}
-                        sx={{
-                          fontSize: '0.875rem',
-                          fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-                        }}
-                      >
-                        {receipt.lot_number}
-                      </MenuItem>
-                    ))}
+                  {receipts.length === 0 ? (
+                    <MenuItem value="" disabled>
+                      No receipts available
+                    </MenuItem>
+                  ) : (
+                    receipts
+                      .filter(receipt => !['COMPLETED', 'CANCELLED'].includes(receipt.status))
+                      .map((receipt) => {
+                        return (
+                          <MenuItem 
+                            key={receipt.lot_number || receipt.id} 
+                            value={receipt.lot_number || ''}
+                            sx={{
+                              fontSize: '0.875rem',
+                              fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: 1
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                fontSize: '1rem',
+                                fontWeight: 500,
+                                color: '#2c3e50',
+                                fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif'
+                              }}
+                            >
+                              {receipt.lot_number || 'No LOT Number'}
+                              {receipt.status && (
+                                <Chip
+                                  label={receipt.status}
+                                  size="small"
+                                  color={
+                                    receipt.status === 'PENDING' ? 'default' :
+                                    receipt.status === 'RECEIVED' ? 'primary' :
+                                    receipt.status === 'PROCESSING' ? 'warning' :
+                                    'default'
+                                  }
+                                  sx={{
+                                    fontSize: '0.85rem',
+                                    fontWeight: 500,
+                                    height: 24,
+                                    px: 1.5,
+                                    background: receipt.status === 'PROCESSING' ? '#e87722' : undefined,
+                                    color: receipt.status === 'PROCESSING' ? '#fff' : undefined
+                                  }}
+                                />
+                              )}
+                            </Box>
+                          </MenuItem>
+                        );
+                      })
+                  )}
                 </Select>
               </FormControl>
             </Grid>
             
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Wood Type"
-                value={formData.woodTypeName}
-                InputProps={{ readOnly: true }}
-                sx={commonFieldStyles}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Quantity (m³)"
-                value={formData.quantity}
-                InputProps={{ readOnly: true }}
-                sx={commonFieldStyles}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Supplier"
-                value={formData.supplier}
-                InputProps={{ readOnly: true }}
-                sx={commonFieldStyles}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Purchase Order"
-                value={formData.purchaseOrder}
-                InputProps={{ readOnly: true }}
-                sx={commonFieldStyles}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Date"
-                type="date"
-                value={formData.date}
-                InputProps={{ readOnly: true }}
-                InputLabelProps={{ shrink: true }}
-                sx={commonFieldStyles}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Status"
-                value={formData.status}
-                InputProps={{ readOnly: true }}
-                sx={commonFieldStyles}
-              />
+            <Grid item xs={12}>
+              <Grid container spacing={1} alignItems="center" sx={{ mb: 2 }}>
+                <Grid item xs={12} md={4}>
+                  <TextField fullWidth size="small" label="Wood Type" value={formData.woodTypeName} InputProps={{ readOnly: true }} sx={commonFieldStyles} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <TextField fullWidth size="small" label="Quantity (m³)" value={formData.quantity} InputProps={{ readOnly: true }} sx={commonFieldStyles} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <TextField fullWidth size="small" label="Supplier" value={formData.supplier} InputProps={{ readOnly: true }} sx={commonFieldStyles} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <TextField fullWidth size="small" label="Purchase Order" value={formData.purchaseOrder} InputProps={{ readOnly: true }} sx={commonFieldStyles} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <TextField fullWidth size="small" label="Date" type="date" value={formData.date} InputProps={{ readOnly: true }} InputLabelProps={{ shrink: true }} sx={commonFieldStyles} />
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="LOT / Status"
+                    value={formData.receiptNumber}
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: formData.status ? (
+                        <Chip
+                          label={formData.status}
+                          size="small"
+                          color={
+                            formData.status === 'PENDING' ? 'default' :
+                            formData.status === 'RECEIVED' ? 'primary' :
+                            formData.status === 'PROCESSING' ? 'warning' :
+                            'default'
+                          }
+                          sx={{
+                            ml: 1,
+                            fontSize: '0.8rem',
+                            height: 22,
+                            px: 1,
+                            background: formData.status === 'PROCESSING' ? '#e87722' : undefined,
+                            color: formData.status === 'PROCESSING' ? '#fff' : undefined
+                          }}
+                        />
+                      ) : null
+                    }}
+                    sx={commonFieldStyles}
+                  />
+                </Grid>
+              </Grid>
             </Grid>
 
             <Grid item xs={12}>
@@ -987,20 +1388,31 @@ const ReceiptProcessing = () => {
                         >
                           {isSaving ? 'Saving...' : 'Save Draft'}
                         </Button>
-                        <PDFDownloadLink
-                          document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} />}
-                          fileName={`receipt-${formData.receiptNumber}.pdf`}
+                        <BlobProvider
+                          document={<ReceiptPDF 
+                            formData={formData} 
+                            measurements={measurements} 
+                            totalM3={totalM3}
+                          />}
                         >
-                          {({ loading }) => (
+                          {({ url, loading }) => (
                             <Button
                               startIcon={<PictureAsPdfIcon />}
                               variant="outlined"
                               disabled={loading || !formData.receiptNumber}
+                              onClick={() => {
+                                if (url) {
+                                  const link = document.createElement('a');
+                                  link.href = url;
+                                  link.download = `receipt-${formData.receiptNumber}.pdf`;
+                                  link.click();
+                                }
+                              }}
                             >
-                              Generate PDF
+                              {loading ? 'Generating PDF...' : 'Generate PDF'}
                             </Button>
                           )}
-                        </PDFDownloadLink>
+                        </BlobProvider>
                         <Button
                           variant="contained"
                           type="submit"
@@ -1015,108 +1427,135 @@ const ReceiptProcessing = () => {
                 </>
               ) : (
                 <StyledTableContainer>
-                  <Table size="small">
+                  <Table size="small" sx={{
+                    '& .MuiTableCell-root': {
+                      padding: '4px 8px',
+                      fontSize: '0.82rem',
+                    },
+                    '& .MuiInputBase-root': {
+                      fontSize: '0.82rem',
+                      height: 32,
+                    },
+                  }}>
                     <TableHead>
                       <TableRow>
-                        <TableCell align="center" sx={{ width: 80 }}>No</TableCell>
-                        <TableCell align="center">Thickness (in)</TableCell>
-                        <TableCell align="center">Width (in)</TableCell>
-                        <TableCell align="center">Length (ft)</TableCell>
-                        <TableCell align="center">m³</TableCell>
-                        <TableCell align="center" sx={{ width: 70 }}>Action</TableCell>
+                        <TableCell align="center" sx={{ width: 60, fontWeight: 700 }}>No</TableCell>
+                        <TableCell align="center" sx={{ width: 90 }}>Thickness (in)</TableCell>
+                        <TableCell align="center" sx={{ width: 90 }}>Width (in)</TableCell>
+                        <TableCell align="center" sx={{ width: 90 }}>Length (ft)</TableCell>
+                        <TableCell align="center" sx={{ width: 110 }}>m³</TableCell>
+                        <TableCell align="center" sx={{ width: 90 }}>Action</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {measurements.map((row, index) => (
-                        <TableRow key={row.id}>
+                        <TableRow key={row.id} hover sx={{ '&:hover': { backgroundColor: '#f5faff' }, minHeight: 32 }}>
                           <TableCell align="center">{String(index + 1).padStart(3, '0')}</TableCell>
                           <TableCell>
-                            <NumberTextField
-                              fullWidth
+                            <CompactNumberTextField
+                              variant="outlined"
                               size="small"
-                              type="number"
                               value={row.thickness || ''}
-                              onChange={(e) => handleMeasurementChange(row.id, 'thickness', e.target.value)}
-                              inputProps={{ step: "0.5", min: "0" }}
+                              onChange={(e) => {
+                                if (e.target.value.length <= 5) handleMeasurementChange(row.id, 'thickness', e.target.value);
+                              }}
+                              inputProps={{ step: 0.1, min: 0.5, max: 18, maxLength: 5, style: { width: 70, textAlign: 'right' } }}
+                              error={row.thickness < 0.5 || row.thickness > 18}
+                              helperText={row.thickness < 0.5 || row.thickness > 18 ? '!' : ''}
                             />
                           </TableCell>
                           <TableCell>
-                            <NumberTextField
-                              fullWidth
+                            <CompactNumberTextField
+                              variant="outlined"
                               size="small"
-                              type="number"
                               value={row.width || ''}
-                              onChange={(e) => handleMeasurementChange(row.id, 'width', e.target.value)}
-                              inputProps={{ step: "0.5", min: "0" }}
+                              onChange={(e) => {
+                                if (e.target.value.length <= 5) handleMeasurementChange(row.id, 'width', e.target.value);
+                              }}
+                              inputProps={{ step: 0.1, min: 0.5, max: 18, maxLength: 5, style: { width: 70, textAlign: 'right' } }}
+                              error={row.width < 0.5 || row.width > 18}
+                              helperText={row.width < 0.5 || row.width > 18 ? '!' : ''}
                             />
                           </TableCell>
                           <TableCell>
-                            <NumberTextField
-                              fullWidth
+                            <CompactNumberTextField
+                              variant="outlined"
                               size="small"
-                              type="number"
                               value={row.length || ''}
-                              onChange={(e) => handleMeasurementChange(row.id, 'length', e.target.value)}
-                              inputProps={{ step: "0.5", min: "0" }}
+                              onChange={(e) => {
+                                if (e.target.value.length <= 5) handleMeasurementChange(row.id, 'length', e.target.value);
+                              }}
+                              inputProps={{ step: 0.1, min: 0.5, max: 18, maxLength: 5, style: { width: 70, textAlign: 'right' } }}
+                              error={row.length < 0.5 || row.length > 18}
+                              helperText={row.length < 0.5 || row.length > 18 ? '!' : ''}
                             />
                           </TableCell>
-                          <TableCell align="right">
+                          <TableCell align="right" sx={{ fontWeight: 600, width: 110 }}>
                             {row.m3.toFixed(4)}
                           </TableCell>
-                          <TableCell>
+                          <TableCell align="center" sx={{ width: 90 }}>
                             <IconButton 
                               size="small" 
                               onClick={() => handleDeleteRow(row.id)}
                               sx={{ color: colors.error }}
+                              title="Delete Row"
                             >
                               <DeleteIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                const newId = measurements.length > 0 ? Math.max(...measurements.map(m => m.id)) + 1 : 1;
+                                setMeasurements([
+                                  ...measurements.slice(0, index + 1),
+                                  { ...row, id: newId, lastModifiedBy: currentUser?.email || 'Unknown User', lastModifiedAt: new Date().toISOString() },
+                                  ...measurements.slice(index + 1)
+                                ]);
+                              }}
+                              sx={{ color: colors.primary, ml: 0.5 }}
+                              title="Duplicate Row"
+                            >
+                              <AddIcon fontSize="small" />
                             </IconButton>
                           </TableCell>
                         </TableRow>
                       ))}
-                      <TableRow>
-                        <TableCell colSpan={4} align="right" sx={{ fontWeight: 600 }}>
-                          Total m³:
-                        </TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 600 }}>
-                          {totalM3.toFixed(4)}
-                        </TableCell>
-                        <TableCell />
-                      </TableRow>
                     </TableBody>
                   </Table>
                 </StyledTableContainer>
               )}
 
-              <Box sx={{ 
-                mt: 2,
-                display: 'flex',
-                flexDirection: isMobile ? 'column' : 'row',
-                justifyContent: 'space-between',
-                gap: 2,
-              }}>
+              {/* Add Sleeper button at the bottom of the table */}
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
                 <Button
-                  fullWidth={isMobile}
                   startIcon={<AddIcon />}
                   onClick={handleAddRow}
                   sx={{
                     color: colors.primary,
-                    '&:hover': {
-                      backgroundColor: 'rgba(25, 118, 210, 0.04)',
-                    },
-                    fontSize: '0.875rem',
-                    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-                    height: isMobile ? '48px' : 'auto',
+                    fontWeight: 600,
+                    fontSize: '0.95rem',
+                    px: 2.5,
+                    py: 1,
+                    borderRadius: 2,
+                    boxShadow: '0 2px 8px rgba(25, 118, 210, 0.08)',
+                    '&:hover': { bgcolor: 'rgba(25, 118, 210, 0.04)' },
                   }}
                 >
                   Add Sleeper
                 </Button>
-                
-                <Box sx={{ 
+              </Box>
+
+              <SleeperSizeSummary measurements={measurements} />
+              <ChangeHistoryDisplay changeHistory={changeHistory} />
+
+              {/* Action bar for Save/Print/Complete */}
+              {!isMobile && (
+                <Box sx={{
+                  mt: 2,
                   display: 'flex',
+                  flexDirection: 'row',
+                  justifyContent: 'flex-end',
                   gap: 2,
-                  flexWrap: 'wrap',
-                  justifyContent: 'flex-end'
                 }}>
                   <Button
                     variant="outlined"
@@ -1126,22 +1565,27 @@ const ReceiptProcessing = () => {
                   >
                     {isSaving ? 'Saving...' : 'Save Draft'}
                   </Button>
-
-                  <PDFDownloadLink
+                  <BlobProvider
                     document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} />}
-                    fileName={`receipt-${formData.receiptNumber}.pdf`}
                   >
-                    {({ loading }) => (
+                    {({ url, loading }) => (
                       <Button
                         startIcon={<PictureAsPdfIcon />}
                         variant="outlined"
                         disabled={loading || !formData.receiptNumber}
+                        onClick={() => {
+                          if (url) {
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = `receipt-${formData.receiptNumber}.pdf`;
+                            link.click();
+                          }
+                        }}
                       >
-                        Generate PDF
+                        {loading ? 'Generating PDF...' : 'Generate PDF'}
                       </Button>
                     )}
-                  </PDFDownloadLink>
-
+                  </BlobProvider>
                   <Button
                     variant="contained"
                     type="submit"
@@ -1151,31 +1595,6 @@ const ReceiptProcessing = () => {
                     Complete Processing
                   </Button>
                 </Box>
-              </Box>
-
-              {isMobile && (
-                <Paper
-                  sx={{
-                    position: 'fixed',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    p: 2,
-                    backgroundColor: '#fff',
-                    boxShadow: '0px -2px 4px rgba(0, 0, 0, 0.1)',
-                    zIndex: 1000,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                    Total m³:
-                  </Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    {totalM3.toFixed(4)}
-                  </Typography>
-                </Paper>
               )}
             </Grid>
           </Grid>
