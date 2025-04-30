@@ -46,6 +46,10 @@ interface EditingReceipt extends Omit<WoodReceiptType, 'total_volume_m3' | 'tota
   total_pieces: string | number;
 }
 
+interface LotNumberMap {
+  [key: string]: string;
+}
+
 const StyledContainer = styled(Container)(({ theme }) => ({
   backgroundColor: '#f5f5f5',
   minHeight: '100vh',
@@ -210,23 +214,29 @@ const WoodReceipt = () => {
         throw new Error('No active session');
       }
 
-      const { data, error } = await supabase
+      // Try to get just the basic receipts data
+      const { data: receiptsData, error: receiptsError } = await supabase
         .from('wood_receipts')
-        .select('*, wood_type:wood_types(*)')
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Full query error:', error);
-        throw error;
+      if (receiptsError) {
+        console.error('Receipts query error:', receiptsError);
+        throw receiptsError;
       }
 
-      console.log('Fetched receipts:', data?.map(r => ({
-        lot_number: r.lot_number,
-        status: r.status,
-        id: r.id
-      })));
+      // Debug log raw receipts data
+      console.log('Raw receipts data:', receiptsData);
 
-      setReceipts(data || []);
+      // Process the data
+      const processedReceipts = receiptsData?.map(receipt => ({
+        ...receipt,
+        lot_number: receipt.lot_number || 'N/A'
+      })) || [];
+
+      console.log('Processed receipts:', processedReceipts);
+
+      setReceipts(processedReceipts);
     } catch (error: PostgrestError | any) {
       console.error('Error fetching receipts:', {
         message: error.message,

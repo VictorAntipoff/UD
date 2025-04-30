@@ -25,7 +25,11 @@ import {
   Tooltip,
   MenuItem,
   Fade,
-  useTheme
+  useTheme,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import { useState, useEffect } from 'react';
 import PeopleIcon from '@mui/icons-material/People';
@@ -179,6 +183,28 @@ export default function AdminSettings() {
     description: ''
   });
 
+  // Add state for edit user dialog
+  const [editUserDialog, setEditUserDialog] = useState<{
+    open: boolean;
+    user: User | null;
+  }>({
+    open: false,
+    user: null
+  });
+
+  // Update editedUser state to include password
+  const [editedUser, setEditedUser] = useState<{
+    username: string;
+    email: string;
+    role: string;
+    password: string;
+  }>({
+    username: '',
+    email: '',
+    role: '',
+    password: ''
+  });
+
   // === Event Handlers ===
   const handleChange = (name: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
@@ -296,6 +322,54 @@ export default function AdminSettings() {
   // Add handler for new role form changes
   const handleNewRoleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setNewRole(prev => ({
+      ...prev,
+      [field]: event.target.value
+    }));
+  };
+
+  // Add handler for opening edit dialog
+  const handleEditUserClick = (user: User) => {
+    setEditUserDialog({ open: true, user });
+    setEditedUser({
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      password: ''
+    });
+  };
+
+  // Add handler for closing edit dialog
+  const handleCloseEditDialog = () => {
+    setEditUserDialog({ open: false, user: null });
+    setEditedUser({ username: '', email: '', role: '', password: '' });
+  };
+
+  // Add handler for saving edited user
+  const handleSaveEditedUser = () => {
+    if (!editUserDialog.user) return;
+
+    setUsers(prevUsers => prevUsers.map(user => 
+      user.id === editUserDialog.user?.id 
+        ? { ...user, ...editedUser }
+        : user
+    ));
+
+    // Save to localStorage
+    const updatedUsers = users.map(user => 
+      user.id === editUserDialog.user?.id 
+        ? { ...user, ...editedUser }
+        : user
+    );
+    localStorage.setItem('adminUsers', JSON.stringify(updatedUsers));
+
+    handleCloseEditDialog();
+  };
+
+  // Add handler for edit form changes
+  const handleEditedUserChange = (field: keyof typeof editedUser) => (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    setEditedUser(prev => ({
       ...prev,
       [field]: event.target.value
     }));
@@ -466,9 +540,16 @@ export default function AdminSettings() {
                           <TableCell align="right">
                             <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
                               <Tooltip title="Edit User">
-                                <IconButton size="small" color="primary">
-                                  <EditIcon fontSize="small" />
-                                </IconButton>
+                                <span>
+                                  <IconButton 
+                                    size="small" 
+                                    color="primary"
+                                    onClick={() => handleEditUserClick(user)}
+                                    disabled={editUserDialog.open}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
                               </Tooltip>
                               <Tooltip title={user.status === 'active' ? 'Deactivate User' : 'Activate User'}>
                                 <IconButton 
@@ -828,6 +909,152 @@ export default function AdminSettings() {
           </TabPanel>
         </Box>
       </Paper>
+
+      {/* Edit User Dialog */}
+      <Dialog 
+        open={editUserDialog.open} 
+        onClose={handleCloseEditDialog}
+        maxWidth="sm"
+        fullWidth
+        aria-modal="true"
+        PaperProps={{
+          sx: {
+            borderRadius: 1,
+            bgcolor: 'background.paper',
+            boxShadow: theme.shadows[3]
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          px: 3,
+          py: 2,
+          bgcolor: 'primary.main',
+          color: 'white',
+          '& .MuiTypography-root': {
+            fontSize: '1.125rem',
+            fontWeight: 600
+          }
+        }}>
+          Edit User: {editUserDialog.user?.username}
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Box sx={{ pt: 2.5 }}>
+            <Grid container spacing={2.5}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Username"
+                  value={editedUser.username}
+                  onChange={handleEditedUserChange('username')}
+                  variant="outlined"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 1,
+                      fontSize: '0.875rem'
+                    }
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Email"
+                  type="email"
+                  value={editedUser.email}
+                  onChange={handleEditedUserChange('email')}
+                  variant="outlined"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 1,
+                      fontSize: '0.875rem'
+                    }
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Role"
+                  value={editedUser.role}
+                  onChange={handleEditedUserChange('role')}
+                  variant="outlined"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 1,
+                      fontSize: '0.875rem'
+                    }
+                  }}
+                >
+                  <MenuItem value="ADMIN">Admin</MenuItem>
+                  <MenuItem value="USER">User</MenuItem>
+                  <MenuItem value="MANAGER">Manager</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="New Password"
+                  type="password"
+                  value={editedUser.password}
+                  onChange={handleEditedUserChange('password')}
+                  variant="outlined"
+                  placeholder="Leave blank to keep current password"
+                  helperText="Enter new password only if you want to change it"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 1,
+                      fontSize: '0.875rem'
+                    },
+                    '& .MuiFormHelperText-root': {
+                      mx: 0,
+                      mt: 1,
+                      fontSize: '0.75rem'
+                    }
+                  }}
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ 
+          px: 3, 
+          py: 2,
+          borderTop: '1px solid',
+          borderColor: 'divider',
+          gap: 1
+        }}>
+          <Button 
+            onClick={handleCloseEditDialog}
+            variant="outlined"
+            sx={{
+              borderRadius: 1,
+              textTransform: 'none',
+              px: 3,
+              fontSize: '0.875rem'
+            }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleSaveEditedUser} 
+            variant="contained"
+            sx={{
+              bgcolor: '#CC0000',
+              '&:hover': { bgcolor: '#990000' },
+              borderRadius: 1,
+              textTransform: 'none',
+              px: 3,
+              fontSize: '0.875rem',
+              fontWeight: 600
+            }}
+          >
+            Save Changes
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 } 
