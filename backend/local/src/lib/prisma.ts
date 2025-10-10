@@ -11,7 +11,15 @@ const prisma = global.prisma || new PrismaClient({
       url: process.env.DATABASE_URL
     }
   },
-  errorFormat: 'pretty'
+  errorFormat: 'pretty',
+  // Increase connection pool timeout to handle slow Neon database
+  // @ts-ignore
+  __internal: {
+    engine: {
+      connection_limit: 10,
+      pool_timeout: 30
+    }
+  }
 });
 
 if (process.env.NODE_ENV !== 'production') {

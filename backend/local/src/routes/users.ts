@@ -1,15 +1,27 @@
-import { Router, Request, Response } from 'express';
-import { prisma } from '../lib/prisma';
+import { FastifyInstance } from 'fastify';
+import { prisma } from '../lib/prisma.js';
 
-const router = Router();
+async function usersRoutes(fastify: FastifyInstance) {
+  fastify.get('/', async (request, reply) => {
+    try {
+      const users = await prisma.user.findMany({
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+      return users;
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      return reply.status(500).send({ error: 'Failed to fetch users' });
+    }
+  });
+}
 
-router.get('/', async (_req: Request, res: Response) => {
-  try {
-    const users = await prisma.user.findMany();
-    return res.json(users);
-  } catch (error) {
-    return res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-export default router; 
+export default usersRoutes; 

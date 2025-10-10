@@ -83,8 +83,8 @@ const setupServer = async () => {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="icon" href="/favicon_grey.ico">
         <title>UDesign API</title>
-        <link rel="icon" type="image/x-icon" href="/favicon_grey.ico">
         <style>
           :root {
             --glass-bg: rgba(255, 255, 255, 0.9);
@@ -354,16 +354,30 @@ const setupServer = async () => {
   const authRoutes = (await import('./routes/auth.js')).default;
   const projectRoutes = (await import('./routes/projects.js')).default;
   const factoryRoutes = (await import('./routes/factory.js')).default;
+  const usersRoutes = (await import('./routes/users.js')).default;
+  const managementRoutes = (await import('./routes/management.js')).default;
+  const settingsRoutes = (await import('./routes/settings.js')).default;
+  const electricityRoutes = (await import('./routes/electricity.js')).default;
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(projectRoutes, { prefix: '/api/projects' });
   await app.register(factoryRoutes, { prefix: '/api/factory' });
+  await app.register(usersRoutes, { prefix: '/api/users' });
+  await app.register(managementRoutes, { prefix: '/api/management' });
+  await app.register(settingsRoutes, { prefix: '/api/settings' });
+  await app.register(electricityRoutes, { prefix: '/api/electricity' });
 
   // Register static file serving
   await app.register(fastifyStatic, {
-    root: path.join(__dirname, '../../public'),
+    root: path.join(__dirname, '../public'),
     prefix: '/',
-    decorateReply: false
+    decorateReply: false,
+    setHeaders: (res, path) => {
+      if (path.endsWith('favicon_grey.ico')) {
+        res.setHeader('Content-Type', 'image/x-icon');
+        res.setHeader('Cache-Control', 'public, max-age=31536000');
+      }
+    }
   });
 
   // Register health routes
