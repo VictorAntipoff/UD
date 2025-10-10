@@ -1,43 +1,35 @@
-// === Admin Settings Page ===
-// File: frontend/src/pages/settings/AdminSettings.tsx
-// Description: Admin control panel for system settings
-
-import { 
-  Container, 
-  Typography, 
-  Paper, 
-  Grid, 
-  Box, 
-  Card, 
-  CardContent, 
-  Switch,
-  Button,
+import { useState, useEffect } from 'react';
+import {
+  Container,
+  Typography,
+  Paper,
+  Box,
+  Tabs,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Tabs,
-  Tab,
+  Button,
   TextField,
   IconButton,
   Tooltip,
   MenuItem,
-  Fade,
-  useTheme,
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Grid,
+  Card,
+  CardContent,
+  Switch,
+  Chip,
+  Stack,
+  CircularProgress,
 } from '@mui/material';
-import { useState, useEffect } from 'react';
-import PeopleIcon from '@mui/icons-material/People';
-import SettingsIcon from '@mui/icons-material/Settings';
-import EmailIcon from '@mui/icons-material/Email';
-import SecurityIcon from '@mui/icons-material/Security';
-import { useDevelopment } from '../../contexts/DevelopmentContext';
-import { SectionLabel } from '../../components/SectionLabel';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import EditIcon from '@mui/icons-material/Edit';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -45,6 +37,10 @@ import LockResetIcon from '@mui/icons-material/LockReset';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import AddIcon from '@mui/icons-material/Add';
+import SecurityIcon from '@mui/icons-material/Security';
+import { useDevelopment } from '../../contexts/DevelopmentContext';
+import api from '../../lib/api';
+import { alpha, styled } from '@mui/material/styles';
 
 // Types
 interface User {
@@ -55,121 +51,70 @@ interface User {
   status: string;
 }
 
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
 interface Role {
   id: number;
   name: string;
   description: string;
 }
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  const theme = useTheme();
+const StyledContainer = styled(Container)(({ theme }) => ({
+  minHeight: '100vh',
+  paddingTop: theme.spacing(4),
+  paddingBottom: theme.spacing(4),
+  backgroundColor: '#f8fafc',
+}));
 
-  return (
-    <Box
-      role="tabpanel"
-      hidden={value !== index}
-      id={`settings-tabpanel-${index}`}
-      aria-labelledby={`settings-tab-${index}`}
-      {...other}
-      sx={{ 
-        py: 1.5,
-        '& .MuiCard-root': {
-          borderRadius: 1,
-          border: '1px solid',
-          borderColor: 'divider',
-          boxShadow: 'none',
-          '&:hover': {
-            boxShadow: theme.shadows[1],
-            transform: 'translateY(-1px)'
-          }
-        },
-        '& .MuiTableCell-root': {
-          py: 1,
-          px: 1.5,
-          fontSize: '0.875rem'
-        },
-        '& .MuiGrid-root': {
-          '& .MuiGrid-item': {
-            pb: 1.5
-          }
-        },
-        '& .MuiPaper-root': {
-          p: 2,
-          mb: 2
-        },
-        '& .MuiTypography-h6': {
-          fontSize: '1rem',
-          fontWeight: 600,
-          mb: 2
-        },
-        '& .MuiTypography-subtitle1': {
-          fontSize: '0.875rem',
-          fontWeight: 600
-        },
-        '& .MuiFormControl-root': {
-          '& .MuiInputBase-root': {
-            fontSize: '0.875rem'
-          }
-        },
-        '& .MuiCardContent-root': {
-          p: 1.5,
-          '&:last-child': {
-            pb: 1.5
-          }
-        }
-      }}
-    >
-      <Fade in={value === index}>
-        <Box>{value === index && children}</Box>
-      </Fade>
-    </Box>
-  );
-}
+const textFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    '& fieldset': {
+      borderColor: 'rgba(0, 0, 0, 0.12)',
+    },
+    '&:hover fieldset': {
+      borderColor: '#dc2626',
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: '#dc2626',
+    },
+    fontSize: '0.875rem',
+  },
+  '& .MuiInputLabel-root': {
+    color: 'rgba(0, 0, 0, 0.6)',
+    fontSize: '0.875rem',
+    '&.Mui-focused': {
+      color: '#dc2626',
+    },
+  },
+};
 
 export default function AdminSettings() {
-  const theme = useTheme();
-  const [tabValue, setTabValue] = useState(0);
+  const [selectedTab, setSelectedTab] = useState(0);
   const { showLabels, toggleLabels } = useDevelopment();
-  
-  // === State Management ===
+  const [loading, setLoading] = useState(true);
+
+  // State Management
   const [settings, setSettings] = useState({
-    // System Settings
     showDevelopmentLabels: showLabels,
     enableUserRegistration: true,
     enableNotifications: true,
     enableMaintenance: false,
     enableAuditLog: true,
-    // Email Settings
     smtpServer: 'smtp.example.com',
     smtpPort: '587',
     smtpUsername: '',
     smtpPassword: '',
-    // Security Settings
     twoFactorAuth: false,
     passwordExpiry: 90,
-    maxLoginAttempts: 5
+    maxLoginAttempts: 5,
+    electricityPricePerKWh: '0.15'
   });
 
-  // Mock users data
-  const [users, setUsers] = useState<User[]>([
-    { id: 1, username: 'admin', email: 'admin@udesign.com', role: 'ADMIN', status: 'active' },
-    { id: 2, username: 'user1', email: 'user1@udesign.com', role: 'USER', status: 'active' },
-  ]);
-
+  const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([
     { id: 1, name: 'ADMIN', description: 'Full system access' },
     { id: 2, name: 'MANAGER', description: 'Department management access' },
     { id: 3, name: 'USER', description: 'Basic user access' }
   ]);
 
-  // Add this state for the new user form
   const [newUser, setNewUser] = useState({
     username: '',
     email: '',
@@ -177,13 +122,11 @@ export default function AdminSettings() {
     role: 'USER'
   });
 
-  // First add state for the new role form
   const [newRole, setNewRole] = useState({
     name: '',
     description: ''
   });
 
-  // Add state for edit user dialog
   const [editUserDialog, setEditUserDialog] = useState<{
     open: boolean;
     user: User | null;
@@ -192,7 +135,6 @@ export default function AdminSettings() {
     user: null
   });
 
-  // Update editedUser state to include password
   const [editedUser, setEditedUser] = useState<{
     username: string;
     email: string;
@@ -205,7 +147,7 @@ export default function AdminSettings() {
     password: ''
   });
 
-  // === Event Handlers ===
+  // Event Handlers
   const handleChange = (name: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setSettings({
@@ -213,83 +155,78 @@ export default function AdminSettings() {
       [name]: value
     });
 
-    // If changing development labels, update localStorage and context
     if (name === 'showDevelopmentLabels') {
       toggleLabels();
       localStorage.setItem('developmentLabels', JSON.stringify(value));
     }
   };
 
-  const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
+  const handleSaveSettings = async () => {
+    localStorage.setItem('adminSettings', JSON.stringify(settings));
+
+    // Save electricity price to backend
+    try {
+      await api.put('/settings/electricityPricePerKWh', {
+        value: settings.electricityPricePerKWh
+      });
+    } catch (error) {
+      console.error('Error saving electricity price:', error);
+    }
   };
 
   // Load saved settings on component mount
   useEffect(() => {
-    const savedSettings = localStorage.getItem('adminSettings');
-    if (savedSettings) {
-      const parsedSettings = JSON.parse(savedSettings);
-      setSettings(parsedSettings);
-      
-      // Update development labels from saved settings
-      if (parsedSettings.showDevelopmentLabels !== showLabels) {
-        toggleLabels();
-        // Also save to localStorage for DevelopmentContext
-        localStorage.setItem('developmentLabels', JSON.stringify(!showLabels));
+    const loadData = async () => {
+      setLoading(true);
+
+      const savedSettings = localStorage.getItem('adminSettings');
+      if (savedSettings) {
+        const parsedSettings = JSON.parse(savedSettings);
+        setSettings(parsedSettings);
+
+        if (parsedSettings.showDevelopmentLabels !== showLabels) {
+          toggleLabels();
+          localStorage.setItem('developmentLabels', JSON.stringify(!showLabels));
+        }
       }
-    }
-  }, []);
 
-  // Add this effect to load saved users
-  useEffect(() => {
-    const savedUsers = localStorage.getItem('adminUsers');
-    if (savedUsers) {
-      setUsers(JSON.parse(savedUsers));
-    }
-  }, []);
+      // Fetch electricity price setting
+      try {
+        const response = await api.get('/settings/electricityPricePerKWh');
+        if (response.data && response.data.value) {
+          setSettings(prev => ({ ...prev, electricityPricePerKWh: response.data.value }));
+        }
+      } catch (error) {
+        console.error('Error fetching electricity price:', error);
+      }
 
-  // Add this effect to load saved roles
-  useEffect(() => {
-    const savedRoles = localStorage.getItem('adminRoles');
-    if (savedRoles) {
-      setRoles(JSON.parse(savedRoles));
-    }
-  }, []);
+      // Fetch users
+      try {
+        const response = await api.get('/users');
+        const usersData = response.data.map((user: any) => ({
+          id: user.id,
+          username: user.firstName || user.email.split('@')[0],
+          email: user.email,
+          role: user.role,
+          status: user.isActive ? 'active' : 'inactive'
+        }));
+        setUsers(usersData);
+      } catch (error) {
+        console.error('Error fetching users:', error);
+      }
 
-  const handleAddRole = () => {
-    if (!newRole.name) {
-      return; // Don't add empty roles
-    }
+      // Load saved roles
+      const savedRoles = localStorage.getItem('adminRoles');
+      if (savedRoles) {
+        setRoles(JSON.parse(savedRoles));
+      }
 
-    const newRoleData: Role = {
-      id: roles.length + 1,
-      name: newRole.name.toUpperCase(),
-      description: newRole.description
+      setLoading(false);
     };
 
-    setRoles(prevRoles => [...prevRoles, newRoleData]);
-    
-    // Save to localStorage
-    localStorage.setItem('adminRoles', JSON.stringify([...roles, newRoleData]));
+    loadData();
+  }, []);
 
-    // Reset form
-    setNewRole({
-      name: '',
-      description: ''
-    });
-  };
-
-  const handleEditRole = (roleId: number, updates: Partial<Role>) => {
-    setRoles((prevRoles: Role[]) => prevRoles.map((role: Role) => 
-      role.id === roleId ? { ...role, ...updates } : role
-    ));
-  };
-
-  const handleDeleteRole = (roleId: number) => {
-    setRoles((prevRoles: Role[]) => prevRoles.filter((role: Role) => role.id !== roleId));
-  };
-
-  // Add these handlers
   const handleNewUserChange = (name: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setNewUser({
       ...newUser,
@@ -310,7 +247,6 @@ export default function AdminSettings() {
     setUsers(updatedUsers);
     localStorage.setItem('adminUsers', JSON.stringify(updatedUsers));
 
-    // Reset form
     setNewUser({
       username: '',
       email: '',
@@ -319,7 +255,6 @@ export default function AdminSettings() {
     });
   };
 
-  // Add handler for new role form changes
   const handleNewRoleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setNewRole(prev => ({
       ...prev,
@@ -327,7 +262,31 @@ export default function AdminSettings() {
     }));
   };
 
-  // Add handler for opening edit dialog
+  const handleAddRole = () => {
+    if (!newRole.name) return;
+
+    const newRoleData: Role = {
+      id: roles.length + 1,
+      name: newRole.name.toUpperCase(),
+      description: newRole.description
+    };
+
+    const updatedRoles = [...roles, newRoleData];
+    setRoles(updatedRoles);
+    localStorage.setItem('adminRoles', JSON.stringify(updatedRoles));
+
+    setNewRole({
+      name: '',
+      description: ''
+    });
+  };
+
+  const handleDeleteRole = (roleId: number) => {
+    const updatedRoles = roles.filter(role => role.id !== roleId);
+    setRoles(updatedRoles);
+    localStorage.setItem('adminRoles', JSON.stringify(updatedRoles));
+  };
+
   const handleEditUserClick = (user: User) => {
     setEditUserDialog({ open: true, user });
     setEditedUser({
@@ -338,34 +297,25 @@ export default function AdminSettings() {
     });
   };
 
-  // Add handler for closing edit dialog
   const handleCloseEditDialog = () => {
     setEditUserDialog({ open: false, user: null });
     setEditedUser({ username: '', email: '', role: '', password: '' });
   };
 
-  // Add handler for saving edited user
   const handleSaveEditedUser = () => {
     if (!editUserDialog.user) return;
 
-    setUsers(prevUsers => prevUsers.map(user => 
-      user.id === editUserDialog.user?.id 
-        ? { ...user, ...editedUser }
-        : user
-    ));
-
-    // Save to localStorage
-    const updatedUsers = users.map(user => 
-      user.id === editUserDialog.user?.id 
+    const updatedUsers = users.map(user =>
+      user.id === editUserDialog.user?.id
         ? { ...user, ...editedUser }
         : user
     );
-    localStorage.setItem('adminUsers', JSON.stringify(updatedUsers));
 
+    setUsers(updatedUsers);
+    localStorage.setItem('adminUsers', JSON.stringify(updatedUsers));
     handleCloseEditDialog();
   };
 
-  // Add handler for edit form changes
   const handleEditedUserChange = (field: keyof typeof editedUser) => (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -375,338 +325,516 @@ export default function AdminSettings() {
     }));
   };
 
-  // === UI Render ===
-  return (
-    <Container maxWidth="lg" sx={{ mt: 1.5, mb: 3 }}>
-      <SectionLabel text="@AdminSettings" color="primary.main" position="top-left" />
-      
-      {/* Page Header */}
-      <Paper 
-        elevation={0}
-        sx={{ 
-          mb: 1.5,
-          p: 1.5,
-          bgcolor: 'background.paper',
-          borderRadius: 1,
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          border: '1px solid',
-          borderColor: 'divider'
-        }}
-      >
-        <Typography 
-          variant="h5" 
-          sx={{ 
-            fontSize: '1.125rem',
-            color: theme.palette.primary.main,
-            fontWeight: 600
-          }}
-        >
-          Admin Settings
-        </Typography>
-        <Button 
-          variant="contained" 
-          onClick={() => {
-            localStorage.setItem('adminSettings', JSON.stringify(settings));
-          }}
-          size="small"
-          sx={{ 
-            px: 2,
-            py: 0.5,
-            fontSize: '0.8125rem'
-          }}
-        >
-          Save Changes
-        </Button>
-      </Paper>
+  const getStatusColor = (status: string) => {
+    return status === 'active'
+      ? { bg: '#dcfce7', color: '#166534' }
+      : { bg: '#fee2e2', color: '#991b1b' };
+  };
 
-      {/* Settings Tabs */}
-      <Paper 
+  return (
+    <StyledContainer maxWidth="xl">
+      {/* Header */}
+      <Paper
         elevation={0}
-        sx={{ 
-          position: 'relative',
-          borderRadius: 1,
-          overflow: 'hidden',
-          border: '1px solid',
-          borderColor: 'divider'
+        sx={{
+          p: 3,
+          mb: 3,
+          background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+          borderRadius: 2,
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         }}
       >
-        <SectionLabel text="@SettingsTabs" color="info.main" position="top-left" />
-        
-        <Box sx={{ 
-          borderBottom: 1, 
-          borderColor: 'divider'
-        }}>
-          <Tabs 
-            value={tabValue} 
-            onChange={handleTabChange}
-            aria-label="settings tabs"
-            sx={{ 
-              minHeight: 48,
-              '& .MuiTab-root': {
-                minHeight: 48,
-                fontSize: '0.8125rem',
-                px: 2
-              }
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <AdminPanelSettingsIcon sx={{ fontSize: 28, color: 'white' }} />
+            </Box>
+            <Box>
+              <Typography
+                variant="h4"
+                sx={{
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: '1.75rem',
+                  letterSpacing: '-0.025em',
+                }}
+              >
+                Admin Settings
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '0.875rem',
+                  mt: 0.5,
+                }}
+              >
+                Manage users, system settings, and security configurations
+              </Typography>
+            </Box>
+          </Box>
+          <Button
+            variant="contained"
+            onClick={handleSaveSettings}
+            sx={{
+              backgroundColor: 'white',
+              color: '#dc2626',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              textTransform: 'none',
+              px: 3,
+              py: 1,
+              borderRadius: 2,
+              boxShadow: 'none',
+              '&:hover': {
+                backgroundColor: '#f8fafc',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                transform: 'translateY(-2px)',
+              },
+              transition: 'all 0.2s ease',
             }}
           >
-            <Tab 
-              icon={<PeopleIcon />} 
-              label={
-                <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@UsersTab" color="success.light" position="top-right" />
-                  Users
-                </Box>
-              } 
-            />
-            <Tab 
-              icon={<SettingsIcon />} 
-              label={
-                <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@SystemTab" color="success.light" position="top-right" />
-                  System
-                </Box>
-              } 
-            />
-            <Tab 
-              icon={<EmailIcon />} 
-              label={
-                <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@EmailTab" color="success.light" position="top-right" />
-                  Email
-                </Box>
-              } 
-            />
-            <Tab 
-              icon={<SecurityIcon />} 
-              label={
-                <Box sx={{ position: 'relative' }}>
-                  <SectionLabel text="@SecurityTab" color="success.light" position="top-right" />
-                  Security
-                </Box>
-              } 
-            />
-          </Tabs>
+            Save Changes
+          </Button>
         </Box>
+      </Paper>
 
-        {/* Tab Panels */}
-        <Box sx={{ p: 1.5, bgcolor: 'background.default' }}>
-          <TabPanel value={tabValue} index={0}>
-            <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@UsersPanel" color="error.light" position="top-left" />
-              
-              {/* Users List Section */}
-              <Paper sx={{ p: 3, mb: 3 }}>
-                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                  <PeopleIcon color="primary" />
-                  User Management
-                </Typography>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress sx={{ color: '#dc2626' }} />
+        </Box>
+      ) : (
+        <Paper
+          elevation={0}
+          sx={{
+            borderRadius: 2,
+            overflow: 'hidden',
+            border: '1px solid #e2e8f0',
+            backgroundColor: 'white',
+          }}
+        >
+          {/* Tabs */}
+          <Tabs
+            value={selectedTab}
+            onChange={(_, value) => setSelectedTab(value)}
+            sx={{
+              borderBottom: '1px solid #e2e8f0',
+              backgroundColor: '#f8fafc',
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                minHeight: 48,
+                '&.Mui-selected': {
+                  color: '#dc2626',
+                },
+              },
+              '& .MuiTabs-indicator': {
+                backgroundColor: '#dc2626',
+              },
+            }}
+          >
+            <Tab label="Users" />
+            <Tab label="System" />
+            <Tab label="Email" />
+            <Tab label="Security" />
+          </Tabs>
 
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Username</TableCell>
-                        <TableCell>Email</TableCell>
-                        <TableCell>Role</TableCell>
-                        <TableCell>Status</TableCell>
-                        <TableCell align="right">Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {users.map((user) => (
-                        <TableRow key={user.id}>
-                          <TableCell>{user.username}</TableCell>
-                          <TableCell>{user.email}</TableCell>
-                          <TableCell>{user.role}</TableCell>
-                          <TableCell>
-                            <Box
-                              sx={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                px: 1,
-                                py: 0.5,
-                                borderRadius: 1,
-                                bgcolor: user.status === 'active' ? 'success.light' : 'error.light',
-                                color: 'white',
-                                fontSize: '0.75rem',
-                                fontWeight: 'bold'
-                              }}
-                            >
-                              {user.status}
-                            </Box>
+          {/* Tab Content */}
+          <Box sx={{ p: 3 }}>
+            {/* Users Tab */}
+            {selectedTab === 0 && (
+              <Stack spacing={3}>
+                {/* Users Table */}
+                <Paper
+                  elevation={0}
+                  sx={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      p: 2,
+                      backgroundColor: '#f8fafc',
+                      borderBottom: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontSize: '0.9375rem',
+                        fontWeight: 600,
+                        color: '#1e293b',
+                      }}
+                    >
+                      User Management
+                    </Typography>
+                  </Box>
+                  <TableContainer>
+                    <Table>
+                      <TableHead>
+                        <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Username
                           </TableCell>
-                          <TableCell align="right">
-                            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                              <Tooltip title="Edit User">
-                                <span>
-                                  <IconButton 
-                                    size="small" 
-                                    color="primary"
-                                    onClick={() => handleEditUserClick(user)}
-                                    disabled={editUserDialog.open}
-                                  >
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                              <Tooltip title={user.status === 'active' ? 'Deactivate User' : 'Activate User'}>
-                                <IconButton 
-                                  size="small" 
-                                  color={user.status === 'active' ? 'error' : 'success'}
-                                >
-                                  {user.status === 'active' ? (
-                                    <BlockIcon fontSize="small" />
-                                  ) : (
-                                    <CheckCircleIcon fontSize="small" />
-                                  )}
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Reset Password">
-                                <IconButton size="small" color="warning">
-                                  <LockResetIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Delete User">
-                                <IconButton size="small" color="error">
-                                  <DeleteIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Email
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Role
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Status
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Actions
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Paper>
-
-              {/* Create User Section */}
-              <Box sx={{ position: 'relative' }}>
-                <SectionLabel text="@CreateUser" color="success.light" position="top-left" />
-                <Paper sx={{ p: 3, mb: 3 }}>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                    <PersonAddIcon color="primary" />
-                    Create New User
-                  </Typography>
-                  
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label="Username"
-                        name="username"
-                        variant="outlined"
-                        value={newUser.username}
-                        onChange={handleNewUserChange('username')}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label="Email"
-                        name="email"
-                        type="email"
-                        variant="outlined"
-                        value={newUser.email}
-                        onChange={handleNewUserChange('email')}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        fullWidth
-                        label="Password"
-                        name="password"
-                        type="password"
-                        variant="outlined"
-                        value={newUser.password}
-                        onChange={handleNewUserChange('password')}
-                      />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField
-                        select
-                        fullWidth
-                        label="Role"
-                        name="role"
-                        value={newUser.role}
-                        onChange={handleNewUserChange('role')}
-                        variant="outlined"
-                      >
-                        <MenuItem value="ADMIN">Admin</MenuItem>
-                        <MenuItem value="USER">User</MenuItem>
-                        <MenuItem value="MANAGER">Manager</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                        <Button
-                          variant="contained"
-                          startIcon={<PersonAddIcon />}
-                          onClick={handleCreateUser}
-                          sx={{
-                            bgcolor: '#CC0000',
-                            '&:hover': { bgcolor: '#990000' },
-                            px: 4,
-                            py: 1,
-                            textTransform: 'none',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          Create User
-                        </Button>
-                      </Box>
-                    </Grid>
-                  </Grid>
+                      </TableHead>
+                      <TableBody>
+                        {users.map((user) => {
+                          const statusColors = getStatusColor(user.status);
+                          return (
+                            <TableRow
+                              key={user.id}
+                              sx={{
+                                '&:hover': {
+                                  backgroundColor: '#f8fafc',
+                                },
+                                transition: 'background-color 0.2s ease',
+                              }}
+                            >
+                              <TableCell>
+                                <Typography
+                                  sx={{
+                                    fontWeight: 600,
+                                    color: '#1e293b',
+                                    fontSize: '0.875rem',
+                                  }}
+                                >
+                                  {user.username}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Typography sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                                  {user.email}
+                                </Typography>
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={user.role}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: alpha('#dc2626', 0.1),
+                                    color: '#dc2626',
+                                    fontWeight: 600,
+                                    fontSize: '0.75rem',
+                                    height: '24px',
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell>
+                                <Chip
+                                  label={user.status.toUpperCase()}
+                                  size="small"
+                                  sx={{
+                                    backgroundColor: statusColors.bg,
+                                    color: statusColors.color,
+                                    fontWeight: 600,
+                                    fontSize: '0.75rem',
+                                    height: '24px',
+                                  }}
+                                />
+                              </TableCell>
+                              <TableCell align="right">
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+                                  <Tooltip title="Edit User">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleEditUserClick(user)}
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          backgroundColor: alpha('#dc2626', 0.08),
+                                          color: '#dc2626',
+                                        },
+                                      }}
+                                    >
+                                      <EditIcon sx={{ fontSize: '1.25rem' }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title={user.status === 'active' ? 'Deactivate' : 'Activate'}>
+                                    <IconButton
+                                      size="small"
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          backgroundColor: user.status === 'active'
+                                            ? alpha('#dc2626', 0.08)
+                                            : alpha('#16a34a', 0.08),
+                                          color: user.status === 'active' ? '#dc2626' : '#16a34a',
+                                        },
+                                      }}
+                                    >
+                                      {user.status === 'active' ? (
+                                        <BlockIcon sx={{ fontSize: '1.25rem' }} />
+                                      ) : (
+                                        <CheckCircleIcon sx={{ fontSize: '1.25rem' }} />
+                                      )}
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Reset Password">
+                                    <IconButton
+                                      size="small"
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          backgroundColor: alpha('#f59e0b', 0.08),
+                                          color: '#f59e0b',
+                                        },
+                                      }}
+                                    >
+                                      <LockResetIcon sx={{ fontSize: '1.25rem' }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete User">
+                                    <IconButton
+                                      size="small"
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          backgroundColor: alpha('#dc2626', 0.08),
+                                          color: '#dc2626',
+                                        },
+                                      }}
+                                    >
+                                      <DeleteIcon sx={{ fontSize: '1.25rem' }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 </Paper>
-              </Box>
 
-              {/* Role Management Section */}
-              <Box sx={{ position: 'relative' }}>
-                <SectionLabel text="@RoleManagement" color="info.light" position="top-left" />
-                <Paper sx={{ p: 3 }}>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
-                    <SecurityIcon color="primary" />
-                    Role Management
-                  </Typography>
+                {/* Create User Section */}
+                <Paper
+                  elevation={0}
+                  sx={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      p: 2,
+                      backgroundColor: '#f8fafc',
+                      borderBottom: '1px solid #e2e8f0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                    }}
+                  >
+                    <PersonAddIcon sx={{ color: '#dc2626', fontSize: 20 }} />
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontSize: '0.9375rem',
+                        fontWeight: 600,
+                        color: '#1e293b',
+                      }}
+                    >
+                      Create New User
+                    </Typography>
+                  </Box>
+                  <Box sx={{ p: 3 }}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Username"
+                          value={newUser.username}
+                          onChange={handleNewUserChange('username')}
+                          size="small"
+                          sx={textFieldSx}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Email"
+                          type="email"
+                          value={newUser.email}
+                          onChange={handleNewUserChange('email')}
+                          size="small"
+                          sx={textFieldSx}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Password"
+                          type="password"
+                          value={newUser.password}
+                          onChange={handleNewUserChange('password')}
+                          size="small"
+                          sx={textFieldSx}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          select
+                          fullWidth
+                          label="Role"
+                          value={newUser.role}
+                          onChange={handleNewUserChange('role')}
+                          size="small"
+                          sx={textFieldSx}
+                        >
+                          <MenuItem value="ADMIN">Admin</MenuItem>
+                          <MenuItem value="MANAGER">Manager</MenuItem>
+                          <MenuItem value="USER">User</MenuItem>
+                        </TextField>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                          <Button
+                            variant="contained"
+                            startIcon={<PersonAddIcon />}
+                            onClick={handleCreateUser}
+                            disabled={!newUser.username || !newUser.email || !newUser.password}
+                            sx={{
+                              backgroundColor: '#dc2626',
+                              textTransform: 'none',
+                              fontWeight: 600,
+                              px: 3,
+                              '&:hover': {
+                                backgroundColor: '#b91c1c',
+                              },
+                            }}
+                          >
+                            Create User
+                          </Button>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </Paper>
 
-                  {/* Roles Table */}
-                  <TableContainer sx={{ mb: 3 }}>
+                {/* Role Management Section */}
+                <Paper
+                  elevation={0}
+                  sx={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 2,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      p: 2,
+                      backgroundColor: '#f8fafc',
+                      borderBottom: '1px solid #e2e8f0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                    }}
+                  >
+                    <SecurityIcon sx={{ color: '#dc2626', fontSize: 20 }} />
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontSize: '0.9375rem',
+                        fontWeight: 600,
+                        color: '#1e293b',
+                      }}
+                    >
+                      Role Management
+                    </Typography>
+                  </Box>
+
+                  <TableContainer>
                     <Table size="small">
                       <TableHead>
-                        <TableRow>
-                          <TableCell>Role Name</TableCell>
-                          <TableCell>Description</TableCell>
-                          <TableCell align="right">Actions</TableCell>
+                        <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Role Name
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Description
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                            Actions
+                          </TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {roles.map((role) => (
-                          <TableRow key={role.id}>
-                            <TableCell>{role.name}</TableCell>
-                            <TableCell>{role.description}</TableCell>
+                          <TableRow
+                            key={role.id}
+                            sx={{
+                              '&:hover': {
+                                backgroundColor: '#f8fafc',
+                              },
+                              transition: 'background-color 0.2s ease',
+                            }}
+                          >
+                            <TableCell>
+                              <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>
+                                {role.name}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                                {role.description}
+                              </Typography>
+                            </TableCell>
                             <TableCell align="right">
                               <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
                                 <Tooltip title="Edit Role">
-                                  <IconButton 
-                                    size="small" 
-                                    color="primary" 
-                                    onClick={() => handleEditRole(role.id, { 
-                                      name: 'EDITED_ROLE',
-                                      description: 'Edited description'
-                                    })}
+                                  <IconButton
+                                    size="small"
+                                    sx={{
+                                      color: '#64748b',
+                                      '&:hover': {
+                                        backgroundColor: alpha('#dc2626', 0.08),
+                                        color: '#dc2626',
+                                      },
+                                    }}
                                   >
-                                    <EditIcon fontSize="small" />
+                                    <EditIcon sx={{ fontSize: '1.25rem' }} />
                                   </IconButton>
                                 </Tooltip>
                                 <Tooltip title="Delete Role">
-                                  <IconButton 
-                                    size="small" 
-                                    color="error" 
+                                  <IconButton
+                                    size="small"
                                     onClick={() => handleDeleteRole(role.id)}
+                                    sx={{
+                                      color: '#64748b',
+                                      '&:hover': {
+                                        backgroundColor: alpha('#dc2626', 0.08),
+                                        color: '#dc2626',
+                                      },
+                                    }}
                                   >
-                                    <DeleteIcon fontSize="small" />
+                                    <DeleteIcon sx={{ fontSize: '1.25rem' }} />
                                   </IconButton>
                                 </Tooltip>
                               </Box>
@@ -717,344 +845,467 @@ export default function AdminSettings() {
                     </Table>
                   </TableContainer>
 
-                  {/* Create New Role Form */}
-                  <Box sx={{ mt: 3 }}>
-                    <Typography variant="subtitle1" gutterBottom sx={{ fontWeight: 'bold' }}>
+                  <Box sx={{ p: 3, borderTop: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+                    <Typography
+                      sx={{
+                        fontSize: '0.875rem',
+                        fontWeight: 600,
+                        color: '#334155',
+                        mb: 2,
+                      }}
+                    >
                       Create New Role
                     </Typography>
                     <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} md={5}>
                         <TextField
                           fullWidth
                           label="Role Name"
-                          name="roleName"
-                          variant="outlined"
-                          size="small"
                           value={newRole.name}
                           onChange={handleNewRoleChange('name')}
+                          size="small"
+                          sx={textFieldSx}
                         />
                       </Grid>
-                      <Grid item xs={12} md={6}>
+                      <Grid item xs={12} md={5}>
                         <TextField
                           fullWidth
                           label="Description"
-                          name="roleDescription"
-                          variant="outlined"
-                          size="small"
                           value={newRole.description}
                           onChange={handleNewRoleChange('description')}
+                          size="small"
+                          sx={textFieldSx}
                         />
                       </Grid>
-                      <Grid item xs={12}>
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                          <Button
-                            variant="contained"
-                            startIcon={<AddIcon />}
-                            size="small"
-                            onClick={handleAddRole}
-                            disabled={!newRole.name}
-                            sx={{
-                              bgcolor: '#CC0000',
-                              '&:hover': { bgcolor: '#990000' },
-                              px: 3,
-                              textTransform: 'none',
-                              fontWeight: 'bold'
-                            }}
-                          >
-                            Add Role
-                          </Button>
-                        </Box>
+                      <Grid item xs={12} md={2}>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          startIcon={<AddIcon />}
+                          onClick={handleAddRole}
+                          disabled={!newRole.name}
+                          sx={{
+                            backgroundColor: '#dc2626',
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            height: '40px',
+                            '&:hover': {
+                              backgroundColor: '#b91c1c',
+                            },
+                          }}
+                        >
+                          Add
+                        </Button>
                       </Grid>
                     </Grid>
                   </Box>
                 </Paper>
-              </Box>
-            </Box>
-          </TabPanel>
+              </Stack>
+            )}
 
-          <TabPanel value={tabValue} index={1}>
-            <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@SystemPanel" color="error.light" position="top-left" />
-              <Grid container spacing={3}>
-                {/* Development Settings Card */}
-                <Grid item xs={12} md={6}>
-                  <Card sx={{ height: '100%' }}>
-                    <CardContent>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Box>
-                          <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
-                            Development Labels
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Show/hide component labels for development purposes
-                          </Typography>
-                        </Box>
-                        <Switch
-                          checked={settings.showDevelopmentLabels}
-                          onChange={handleChange('showDevelopmentLabels')}
-                          color="primary"
-                        />
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                {/* Other System Settings */}
+            {/* System Tab */}
+            {selectedTab === 1 && (
+              <Grid container spacing={2}>
                 {[
-                  { name: 'enableUserRegistration', label: 'Enable User Registration', description: 'Allow new users to register' },
-                  { name: 'enableNotifications', label: 'Enable Notifications', description: 'System-wide notification settings' },
-                  { name: 'enableMaintenance', label: 'Maintenance Mode', description: 'Put system in maintenance mode' },
-                  { name: 'enableAuditLog', label: 'Enable Audit Log', description: 'Track all system activities' }
+                  {
+                    name: 'showDevelopmentLabels',
+                    label: 'Development Labels',
+                    description: 'Show/hide component labels for development'
+                  },
+                  {
+                    name: 'enableUserRegistration',
+                    label: 'User Registration',
+                    description: 'Allow new users to register'
+                  },
+                  {
+                    name: 'enableNotifications',
+                    label: 'System Notifications',
+                    description: 'Enable system-wide notifications'
+                  },
+                  {
+                    name: 'enableMaintenance',
+                    label: 'Maintenance Mode',
+                    description: 'Put system in maintenance mode'
+                  },
+                  {
+                    name: 'enableAuditLog',
+                    label: 'Audit Logging',
+                    description: 'Track all system activities'
+                  }
                 ].map((setting) => (
                   <Grid item xs={12} md={6} key={setting.name}>
-                    <Card sx={{ height: '100%' }}>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Box>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    <Card
+                      elevation={0}
+                      sx={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 2,
+                        height: '100%',
+                      }}
+                    >
+                      <CardContent sx={{ p: 3 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography
+                              sx={{
+                                fontSize: '0.9375rem',
+                                fontWeight: 600,
+                                color: '#1e293b',
+                                mb: 0.5,
+                              }}
+                            >
                               {setting.label}
                             </Typography>
-                            <Typography variant="body2" color="text.secondary">
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontSize: '0.8125rem',
+                                color: '#64748b',
+                              }}
+                            >
                               {setting.description}
                             </Typography>
                           </Box>
                           <Switch
                             checked={settings[setting.name as keyof typeof settings] as boolean}
                             onChange={handleChange(setting.name)}
-                            color="primary"
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: '#dc2626',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: '#dc2626',
+                              },
+                            }}
                           />
                         </Box>
                       </CardContent>
                     </Card>
                   </Grid>
                 ))}
-              </Grid>
-            </Box>
-          </TabPanel>
 
-          <TabPanel value={tabValue} index={2}>
-            <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@EmailPanel" color="error.light" position="top-left" />
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
-                        SMTP Settings
+                {/* Electricity Price Configuration */}
+                <Grid item xs={12}>
+                  <Card
+                    elevation={0}
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                      mt: 2,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        p: 2,
+                        backgroundColor: '#f8fafc',
+                        borderBottom: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontSize: '0.9375rem',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                        }}
+                      >
+                        Drying Process Configuration
                       </Typography>
-                      <Box sx={{ mt: 2 }}>
-                        <Grid container spacing={2}>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="SMTP Server"
-                              value={settings.smtpServer}
-                              onChange={handleChange('smtpServer')}
-                            />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              label="SMTP Port"
-                              value={settings.smtpPort}
-                              onChange={handleChange('smtpPort')}
-                            />
-                          </Grid>
+                    </Box>
+                    <CardContent sx={{ p: 3 }}>
+                      <Grid container spacing={2}>
+                        <Grid item xs={12} md={6}>
+                          <TextField
+                            fullWidth
+                            label="Electricity Price per kWh ($)"
+                            type="number"
+                            value={settings.electricityPricePerKWh}
+                            onChange={(e) => setSettings({ ...settings, electricityPricePerKWh: e.target.value })}
+                            size="small"
+                            sx={textFieldSx}
+                            inputProps={{ step: 0.01, min: 0 }}
+                            helperText="Used to calculate drying process costs"
+                          />
                         </Grid>
-                      </Box>
+                      </Grid>
                     </CardContent>
                   </Card>
                 </Grid>
               </Grid>
-            </Box>
-          </TabPanel>
+            )}
 
-          <TabPanel value={tabValue} index={3}>
-            <Box sx={{ position: 'relative' }}>
-              <SectionLabel text="@SecurityPanel" color="error.light" position="top-left" />
-              <Grid container spacing={3}>
+            {/* Email Tab */}
+            {selectedTab === 2 && (
+              <Paper
+                elevation={0}
+                sx={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                }}
+              >
+                <Box
+                  sx={{
+                    p: 2,
+                    backgroundColor: '#f8fafc',
+                    borderBottom: '1px solid #e2e8f0',
+                  }}
+                >
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontSize: '0.9375rem',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                    }}
+                  >
+                    SMTP Configuration
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 3 }}>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} md={8}>
+                      <TextField
+                        fullWidth
+                        label="SMTP Server"
+                        value={settings.smtpServer}
+                        onChange={handleChange('smtpServer')}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        label="SMTP Port"
+                        value={settings.smtpPort}
+                        onChange={handleChange('smtpPort')}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Username"
+                        value={settings.smtpUsername}
+                        onChange={handleChange('smtpUsername')}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        fullWidth
+                        label="Password"
+                        type="password"
+                        value={settings.smtpPassword}
+                        onChange={handleChange('smtpPassword')}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </Grid>
+                  </Grid>
+                </Box>
+              </Paper>
+            )}
+
+            {/* Security Tab */}
+            {selectedTab === 3 && (
+              <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
-                        Security Settings
-                      </Typography>
-                      <Box sx={{ mt: 2 }}>
-                        <Grid container spacing={2}>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              type="number"
-                              label="Password Expiry (days)"
-                              value={settings.passwordExpiry}
-                              onChange={handleChange('passwordExpiry')}
-                            />
-                          </Grid>
-                          <Grid item xs={12}>
-                            <TextField
-                              fullWidth
-                              type="number"
-                              label="Max Login Attempts"
-                              value={settings.maxLoginAttempts}
-                              onChange={handleChange('maxLoginAttempts')}
-                            />
-                          </Grid>
-                        </Grid>
+                  <Card
+                    elevation={0}
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <CardContent sx={{ p: 3 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography
+                            sx={{
+                              fontSize: '0.9375rem',
+                              fontWeight: 600,
+                              color: '#1e293b',
+                              mb: 0.5,
+                            }}
+                          >
+                            Two-Factor Authentication
+                          </Typography>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontSize: '0.8125rem',
+                              color: '#64748b',
+                            }}
+                          >
+                            Require 2FA for all users
+                          </Typography>
+                        </Box>
+                        <Switch
+                          checked={settings.twoFactorAuth}
+                          onChange={handleChange('twoFactorAuth')}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': {
+                              color: '#dc2626',
+                            },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                              backgroundColor: '#dc2626',
+                            },
+                          }}
+                        />
                       </Box>
                     </CardContent>
                   </Card>
                 </Grid>
+                <Grid item xs={12} md={6}>
+                  <Card
+                    elevation={0}
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <CardContent sx={{ p: 3 }}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label="Password Expiry (days)"
+                        value={settings.passwordExpiry}
+                        onChange={handleChange('passwordExpiry')}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Card
+                    elevation={0}
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <CardContent sx={{ p: 3 }}>
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label="Max Login Attempts"
+                        value={settings.maxLoginAttempts}
+                        onChange={handleChange('maxLoginAttempts')}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </CardContent>
+                  </Card>
+                </Grid>
               </Grid>
-            </Box>
-          </TabPanel>
-        </Box>
-      </Paper>
+            )}
+          </Box>
+        </Paper>
+      )}
 
       {/* Edit User Dialog */}
-      <Dialog 
-        open={editUserDialog.open} 
+      <Dialog
+        open={editUserDialog.open}
         onClose={handleCloseEditDialog}
         maxWidth="sm"
         fullWidth
-        aria-modal="true"
         PaperProps={{
           sx: {
-            borderRadius: 1,
-            bgcolor: 'background.paper',
-            boxShadow: theme.shadows[3]
+            borderRadius: 3,
           }
         }}
       >
-        <DialogTitle sx={{ 
-          borderBottom: '1px solid',
-          borderColor: 'divider',
-          px: 3,
-          py: 2,
-          bgcolor: 'primary.main',
-          color: 'white',
-          '& .MuiTypography-root': {
-            fontSize: '1.125rem',
-            fontWeight: 600
-          }
-        }}>
+        <DialogTitle
+          sx={{
+            fontSize: '1.25rem',
+            fontWeight: 700,
+            color: '#1e293b',
+            borderBottom: '1px solid #e2e8f0',
+            pb: 2,
+          }}
+        >
           Edit User: {editUserDialog.user?.username}
         </DialogTitle>
-        <DialogContent sx={{ p: 3 }}>
-          <Box sx={{ pt: 2.5 }}>
-            <Grid container spacing={2.5}>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Username"
-                  value={editedUser.username}
-                  onChange={handleEditedUserChange('username')}
-                  variant="outlined"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: 1,
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="Email"
-                  type="email"
-                  value={editedUser.email}
-                  onChange={handleEditedUserChange('email')}
-                  variant="outlined"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: 1,
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  select
-                  fullWidth
-                  label="Role"
-                  value={editedUser.role}
-                  onChange={handleEditedUserChange('role')}
-                  variant="outlined"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: 1,
-                      fontSize: '0.875rem'
-                    }
-                  }}
-                >
-                  <MenuItem value="ADMIN">Admin</MenuItem>
-                  <MenuItem value="USER">User</MenuItem>
-                  <MenuItem value="MANAGER">Manager</MenuItem>
-                </TextField>
-              </Grid>
-              <Grid item xs={12}>
-                <TextField
-                  fullWidth
-                  label="New Password"
-                  type="password"
-                  value={editedUser.password}
-                  onChange={handleEditedUserChange('password')}
-                  variant="outlined"
-                  placeholder="Leave blank to keep current password"
-                  helperText="Enter new password only if you want to change it"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: 1,
-                      fontSize: '0.875rem'
-                    },
-                    '& .MuiFormHelperText-root': {
-                      mx: 0,
-                      mt: 1,
-                      fontSize: '0.75rem'
-                    }
-                  }}
-                />
-              </Grid>
-            </Grid>
-          </Box>
+        <DialogContent sx={{ py: 3, px: 3 }}>
+          <Stack spacing={2.5} sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              label="Username"
+              value={editedUser.username}
+              onChange={handleEditedUserChange('username')}
+              size="small"
+              sx={textFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="Email"
+              type="email"
+              value={editedUser.email}
+              onChange={handleEditedUserChange('email')}
+              size="small"
+              sx={textFieldSx}
+            />
+            <TextField
+              select
+              fullWidth
+              label="Role"
+              value={editedUser.role}
+              onChange={handleEditedUserChange('role')}
+              size="small"
+              sx={textFieldSx}
+            >
+              <MenuItem value="ADMIN">Admin</MenuItem>
+              <MenuItem value="MANAGER">Manager</MenuItem>
+              <MenuItem value="USER">User</MenuItem>
+            </TextField>
+            <TextField
+              fullWidth
+              label="New Password"
+              type="password"
+              value={editedUser.password}
+              onChange={handleEditedUserChange('password')}
+              placeholder="Leave blank to keep current password"
+              helperText="Enter new password only if you want to change it"
+              size="small"
+              sx={textFieldSx}
+            />
+          </Stack>
         </DialogContent>
-        <DialogActions sx={{ 
-          px: 3, 
-          py: 2,
-          borderTop: '1px solid',
-          borderColor: 'divider',
-          gap: 1
-        }}>
-          <Button 
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: '1px solid #e2e8f0' }}>
+          <Button
             onClick={handleCloseEditDialog}
-            variant="outlined"
             sx={{
-              borderRadius: 1,
+              color: '#64748b',
               textTransform: 'none',
-              px: 3,
-              fontSize: '0.875rem'
+              fontWeight: 600,
+              '&:hover': {
+                backgroundColor: '#f1f5f9',
+              },
             }}
           >
             Cancel
           </Button>
-          <Button 
-            onClick={handleSaveEditedUser} 
+          <Button
+            onClick={handleSaveEditedUser}
             variant="contained"
             sx={{
-              bgcolor: '#CC0000',
-              '&:hover': { bgcolor: '#990000' },
-              borderRadius: 1,
+              backgroundColor: '#dc2626',
               textTransform: 'none',
+              fontWeight: 600,
               px: 3,
-              fontSize: '0.875rem',
-              fontWeight: 600
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
             }}
           >
             Save Changes
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </StyledContainer>
   );
-} 
+}

@@ -27,9 +27,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import EditIcon from '@mui/icons-material/Edit';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useAuth } from '../../hooks/useAuth';
-import { supabase, testSupabaseConnection } from '../../config/supabase';
-import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 import { useNavigate } from 'react-router-dom';
+import api from '../../lib/api';
 import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
 import { WoodCalculationReport } from '../../components/reports/WoodCalculationReport';
 import { MultipleWoodCalculationReport } from '../../components/reports/MultipleWoodCalculationReport';
@@ -37,10 +36,6 @@ import { useSnackbar } from 'notistack';
 import type { CalculationResult, WoodType } from '../../types/calculations';
 import type { PDFDownloadLinkProps as PDFProps } from '@react-pdf/renderer';
 
-console.log('Environment Variables:', {
-  url: import.meta.env.VITE_SUPABASE_URL,
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY
-});
 
 // Update the formatNumber function to handle undefined/null values
 const formatNumber = (num: number | null | undefined): string => {
@@ -100,7 +95,9 @@ const PDFButtonWrapper: React.FC<PDFButtonWrapperProps> = ({ document, fileName,
   <BlobProvider document={document}>
     {({ loading }) => (
       <PDFDownloadLink document={document} fileName={fileName}>
-        <PDFDownloadButton loading={loading} text={text} />
+        {({ loading: pdfLoading }) => (
+          <PDFDownloadButton loading={loading || pdfLoading} text={text} />
+        )}
       </PDFDownloadLink>
     )}
   </BlobProvider>
@@ -173,34 +170,26 @@ export default function WoodCalculator() {
 
   // Memoize fetchData to prevent recreation on every render
   const fetchData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      
-      // First fetch wood types
-      const { data: woodTypesData, error: woodTypesError } = await supabase
-        .from('wood_types')
-        .select('*')
-        .order('name') as { 
-          data: WoodType[] | null; 
-          error: Error | null 
-        };
+    if (!user?.id) return;
 
-      if (woodTypesError) throw woodTypesError;
+    setIsLoading(true);
+    try {
+      // Fetch wood types from backend API
+      const woodTypesResponse = await fetch('http://localhost:3010/api/factory/wood-types');
+      if (!woodTypesResponse.ok) {
+        throw new Error('Failed to fetch wood types');
+      }
+      const woodTypesData = await woodTypesResponse.json();
       setWoodTypes(woodTypesData || []);
 
-      // Then fetch calculations with proper table name and join
-      const { data, error } = await supabase
-        .from('calculations') // Changed from 'wood_calculations' to 'calculations'
-        .select(`
-          *,
-          wood_type:wood_types!wood_type_id(*)
-        `)
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false });
+      // Fetch calculations from backend API
+      const calculationsResponse = await fetch(`http://localhost:3010/api/factory/calculations?user_id=${user.id}`);
+      if (!calculationsResponse.ok) {
+        throw new Error('Failed to fetch calculations');
+      }
+      const data = await calculationsResponse.json();
 
-      if (error) throw error;
-
-      // Transform the data
+      // Transform the data to match frontend expectations
       const typedData: CalculationResult[] = data.map((item: any) => ({
         id: item.id,
         userId: item.user_id,
@@ -233,35 +222,16 @@ export default function WoodCalculator() {
     }
   }, [user?.id]);
 
-  // Initial auth check and data fetch
+  // Initial data fetch
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session?.user) {
-          const currentUrl = window.location.pathname + window.location.search;
-          sessionStorage.setItem('redirectUrl', currentUrl);
-          navigate('/login', { replace: true });
-          return;
-        }
-
-        const isConnected = await testSupabaseConnection();
-        
-        if (!isConnected) {
-          setError('Unable to connect to database. Please try again later.');
-          return;
-        }
-
-        await fetchData();
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        setError('Authentication failed. Please try again.');
-      }
-    };
-
-    checkAuth();
-  }, [navigate, fetchData]); // Remove woodTypes.length and history.length dependencies
+    if (!user?.id) {
+      const currentUrl = window.location.pathname + window.location.search;
+      sessionStorage.setItem('redirectUrl', currentUrl);
+      navigate('/login', { replace: true });
+      return;
+    }
+    fetchData();
+  }, [user, navigate, fetchData]);
 
   const handleInputChange = (field: keyof PlankDimensions) => (
     event: React.ChangeEvent<HTMLInputElement>
@@ -399,13 +369,17 @@ Generated on: ${new Date().toLocaleString()}`;
         notes: dimensions.notes || ''
       };
 
-      const { error: saveError } = await supabase
-        .from('calculations')
-        .insert([calculationData]);
+      const response = await fetch('http://localhost:3010/api/factory/calculations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(calculationData)
+      });
 
-      if (saveError) {
-        console.error('Supabase error:', saveError);
-        throw new Error(saveError.message);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save calculation');
       }
 
       enqueueSnackbar('Calculation saved successfully', { variant: 'success' });
@@ -420,12 +394,14 @@ Generated on: ${new Date().toLocaleString()}`;
 
   const deleteCalculation = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('calculations')
-        .delete()
-        .eq('id', id);
+      const response = await fetch(`http://localhost:3010/api/factory/calculations/${id}`, {
+        method: 'DELETE',
+      });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete calculation');
+      }
 
       setHistory(prev => prev.filter(item => item.id !== id));
     } catch (error) {
@@ -485,7 +461,6 @@ Generated on: ${new Date().toLocaleString()}`;
   }
 
   return (
-    <SupabaseErrorBoundary>
       <Container maxWidth="lg" sx={{ 
         py: 4,
         px: { xs: 2, sm: 3 },
@@ -1274,6 +1249,5 @@ Generated on: ${new Date().toLocaleString()}`;
           </Box>
         )}
       </Container>
-    </SupabaseErrorBoundary>
   );
 } 

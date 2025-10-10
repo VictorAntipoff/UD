@@ -23,45 +23,50 @@ import {
   TableBody,
   TableCell,
   TableRow,
-  MenuItem,
-  TableContainer
+  TableContainer,
+  Container
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PrintIcon from '@mui/icons-material/Print';
-import { supabase } from '../../config/supabase';
-import { useTheme, Theme } from '@mui/material/styles';
+import ContentCutIcon from '@mui/icons-material/ContentCut';
+import { styled, alpha } from '@mui/material/styles';
+import api from '../../lib/api';
 import { format } from 'date-fns';
-import { 
-  Document, 
-  Page, 
-  View, 
-  Text, 
-  StyleSheet, 
-  pdf, 
-  Image  // Add Image to imports
+import {
+  Document,
+  Page,
+  View,
+  Text,
+  StyleSheet,
+  pdf,
+  Image
 } from '@react-pdf/renderer';
 import { v4 as uuidv4 } from 'uuid';
 
-// Add these near the top of your file after other constants
-const TIMEOUT_DURATION = 20000; // 20 seconds
+// Constants
+const TIMEOUT_DURATION = 20000;
 const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000; // 2 seconds
+const RETRY_DELAY = 2000;
 
-// Add this utility function
+// Utility functions
 const withTimeout = <T,>(promise: Promise<T>, timeout: number): Promise<T> => {
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) => 
+    new Promise<T>((_, reject) =>
       setTimeout(() => reject(new Error('Request timed out')), timeout)
     )
   ]);
 };
 
-// Add this utility function
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const inchesToCm = (inches: number) => inches * 2.54;
+const feetToMeters = (feet: number) => feet * 0.3048;
+const cmToInches = (cm: number) => cm / 2.54;
+const metersToFeet = (m: number) => m / 0.3048;
 
 // Interfaces
 interface WoodType {
@@ -122,6 +127,7 @@ interface SavedOperation {
   id: string;
   serial_number: string;
   wood_type_id: string;
+  lot_number?: string | null;
   wood_type?: WoodType;
   start_time: string | null;
   sleeper_sizes: SleeperSize[];
@@ -130,31 +136,42 @@ interface SavedOperation {
   waste_percentage: number | null;
   created_at: string;
   updated_at: string;
-  notes?: string; // Add this line
-}
-
-// First, add this type near the top with other interfaces
-interface OperationResponse {
-  data: SavedOperation;
-  error: any;
-}
-
-// Add this near your other interfaces
-interface ApprovalRequest {
-  id: string;
-  type: string;
-  status: 'pending' | 'approved' | 'rejected';
-  operation_id: string;
-  requestor_id: string;
   notes?: string;
 }
 
-// First, add the conversion utilities at the top of the file after imports
-const inchesToCm = (inches: number) => inches * 2.54;
-const feetToMeters = (feet: number) => feet * 0.3048;
-const cmToInches = (cm: number) => cm / 2.54;
-const metersToFeet = (m: number) => m / 0.3048;
+type OperationStatus = 'draft' | 'in_progress' | 'completed';
 
+// Styled Components
+const StyledContainer = styled(Container)(({ theme }) => ({
+  minHeight: '100vh',
+  paddingTop: theme.spacing(4),
+  paddingBottom: theme.spacing(4),
+  backgroundColor: '#f8fafc',
+}));
+
+const textFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    '& fieldset': {
+      borderColor: 'rgba(0, 0, 0, 0.12)',
+    },
+    '&:hover fieldset': {
+      borderColor: '#dc2626',
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: '#dc2626',
+    },
+    fontSize: '0.875rem',
+  },
+  '& .MuiInputLabel-root': {
+    color: 'rgba(0, 0, 0, 0.6)',
+    fontSize: '0.875rem',
+    '&.Mui-focused': {
+      color: '#dc2626',
+    },
+  },
+};
+
+// Default values
 const defaultSleeperSize: SleeperSize = {
   id: crypto.randomUUID(),
   sequence: 1,
@@ -174,47 +191,7 @@ const defaultPlankSize: PlankSize = {
   quantity: 1
 };
 
-// Add a type for the theme to ensure proper typing
-const getStyles = (theme: Theme) => ({
-  headerPaper: {
-    p: 3,
-    mb: 3,
-    borderRadius: 2,
-    border: `1px solid ${theme.palette.divider}`,
-    background: `linear-gradient(45deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
-    color: 'white'
-  },
-  contentPaper: {
-    p: 3,
-    mb: 3,
-    borderRadius: 2,
-    border: `1px solid ${theme.palette.divider}`,
-    transition: 'all 0.2s ease-in-out',
-    '&:hover': {
-      boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
-    }
-  },
-  resultsPaper: {
-    p: 3,
-    borderRadius: 2,
-    border: `1px solid ${theme.palette.divider}`,
-    background: theme.palette.background.paper,
-    position: 'sticky',
-    top: 24,
-    transition: 'all 0.2s ease-in-out',
-    '&:hover': {
-      boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
-    }
-  },
-  page: { padding: 30 },
-  header: { marginBottom: 20 },
-  title: { fontSize: 20, marginBottom: 10 },
-  subtitle: { fontSize: 14, color: '#666' },
-  section: { marginBottom: 15 },
-  sectionTitle: { fontSize: 16, marginBottom: 5 },
-});
-
-// Add PDF styles before the OperationReport component
+// PDF Styles
 const pdfStyles = StyleSheet.create({
   page: {
     padding: 30,
@@ -332,13 +309,13 @@ const pdfStyles = StyleSheet.create({
   }
 });
 
-// Update the DimensionInput component
-const DimensionInput = ({ 
-  label, 
-  value, 
-  onChange, 
-  unit, 
-  convertedValue, 
+// Helper Components
+const DimensionInput = ({
+  label,
+  value,
+  onChange,
+  unit,
+  convertedValue,
 }: {
   label: string;
   value: number;
@@ -355,9 +332,9 @@ const DimensionInput = ({
     onChange={(e) => onChange(Number(e.target.value))}
     InputProps={{
       endAdornment: (
-        <Box 
-          component="span" 
-          sx={{ 
+        <Box
+          component="span"
+          sx={{
             display: 'flex',
             alignItems: 'center',
             color: 'text.secondary',
@@ -367,9 +344,9 @@ const DimensionInput = ({
           }}
         >
           {unit}
-          <Typography 
-            variant="caption" 
-            sx={{ 
+          <Typography
+            variant="caption"
+            sx={{
               ml: 0.5,
               color: 'text.disabled',
               fontSize: '0.65rem'
@@ -380,26 +357,13 @@ const DimensionInput = ({
         </Box>
       )
     }}
-    sx={{
-      '& .MuiOutlinedInput-root': {
-        borderRadius: 1,
-        backgroundColor: 'background.paper',
-      },
-      '& .MuiInputLabel-root': {
-        fontSize: '0.875rem'
-      },
-      '& input': {
-        py: 1,
-        fontSize: '0.875rem'
-      }
-    }}
+    sx={textFieldSx}
   />
 );
 
-// Add this new component for quantity input
-const QuantityInput = ({ 
-  value, 
-  onChange 
+const QuantityInput = ({
+  value,
+  onChange
 }: {
   value: number;
   onChange: (value: number) => void;
@@ -414,9 +378,9 @@ const QuantityInput = ({
     InputProps={{
       inputProps: { min: 1 },
       endAdornment: (
-        <Box 
-          component="span" 
-          sx={{ 
+        <Box
+          component="span"
+          sx={{
             display: 'flex',
             alignItems: 'center',
             color: 'text.secondary',
@@ -429,30 +393,18 @@ const QuantityInput = ({
         </Box>
       )
     }}
-    sx={{
-      '& .MuiOutlinedInput-root': {
-        borderRadius: 1,
-        backgroundColor: 'background.paper',
-      },
-      '& .MuiInputLabel-root': {
-        fontSize: '0.875rem'
-      },
-      '& input': {
-        py: 1,
-        fontSize: '0.875rem'
-      }
-    }}
+    sx={textFieldSx}
   />
 );
 
-// Add these helper functions at the top
+// Helper functions
 const generateSizeKey = (size: SleeperSize | PlankSize) => {
   return `${size.height}-${size.width}-${size.length}`;
 };
 
 const combineMatchingSizes = (sizes: (SleeperSize | PlankSize)[]) => {
   const sizeMap = new Map<string, (SleeperSize | PlankSize) & { totalQuantity: number }>();
-  
+
   sizes.forEach(size => {
     const key = generateSizeKey(size);
     if (sizeMap.has(key)) {
@@ -462,35 +414,85 @@ const combineMatchingSizes = (sizes: (SleeperSize | PlankSize)[]) => {
       sizeMap.set(key, { ...size, totalQuantity: size.quantity });
     }
   });
-  
+
   return Array.from(sizeMap.values());
 };
 
-// Update the formatSize function to include both metric and imperial
+const formatDimension = (value: number, unit: string) => {
+  if (unit === 'm') {
+    return `${Number(value).toFixed(2)}${unit}`;
+  }
+  if (unit === 'cm') {
+    return `${Number(value).toFixed(1)}${unit}`;
+  }
+  return `${value}${unit}`;
+};
+
 const formatSize = (size: SleeperSize | PlankSize, parentLength?: number) => {
   const height = size.height || 0;
   const width = size.width || 0;
   const length = parentLength || size.length || 0;
 
-  return `${formatDimension(height, 'cm')} (${cmToInches(height).toFixed(1)}") × 
-          ${formatDimension(width, 'cm')} (${cmToInches(width).toFixed(1)}") × 
+  return `${formatDimension(height, 'cm')} (${cmToInches(height).toFixed(1)}") ×
+          ${formatDimension(width, 'cm')} (${cmToInches(width).toFixed(1)}") ×
           ${formatDimension(length, 'm')} (${metersToFeet(length).toFixed(1)}')`;
 };
 
-// Update the SummarySectionTable component
-const SummarySectionTable = ({ 
-  title, 
+const calculateDuration = (operation: SavedOperation) => {
+  const startTime = new Date(operation.start_time || '');
+  const endTime = new Date(operation.updated_at);
+  const duration = endTime.getTime() - startTime.getTime();
+  const hours = Math.floor(duration / (1000 * 60 * 60));
+  const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${minutes}m`;
+};
+
+const calculateOperationVolumes = (operation: SavedOperation) => {
+  const sleeperVolume = operation.sleeper_sizes.reduce((total, size) => {
+    const width = (size.width || 0) / 100;
+    const height = (size.height || 0) / 100;
+    const length = (size.length || 0);
+    const quantity = size.quantity || 1;
+    return total + (width * height * length * quantity);
+  }, 0).toFixed(3);
+
+  const plankVolume = operation.plank_sizes.reduce((total, size) => {
+    const width = (size.width || 0) / 100;
+    const height = (size.height || 0) / 100;
+    const length = (size.length || 0);
+    const quantity = size.quantity || 1;
+    return total + (width * height * length * quantity);
+  }, 0).toFixed(3);
+
+  return { sleeperVolume, plankVolume };
+};
+
+const getStatusColor = (status: string): "default" | "primary" | "warning" | "success" => {
+  switch (status) {
+    case 'draft':
+      return 'default';
+    case 'in_progress':
+      return 'warning';
+    case 'completed':
+      return 'success';
+    default:
+      return 'default';
+  }
+};
+
+// Summary Section Table Component
+const SummarySectionTable = ({
+  title,
   items,
   type,
   sleeperSizes
-}: { 
+}: {
   title: string;
   items: (SleeperSize | PlankSize)[];
   type: 'sleeper' | 'plank';
   sleeperSizes: SleeperSize[];
 }) => {
-  // Group items by sequence if they're planks
-  const groupedItems = type === 'plank' 
+  const groupedItems = type === 'plank'
     ? items.reduce((groups, item) => {
         const plank = item as PlankSize;
         const key = plank.parentSequence;
@@ -502,23 +504,22 @@ const SummarySectionTable = ({
       }, {} as Record<number, PlankSize[]>)
     : null;
 
-  // Calculate total volume in m³
   const totalVolume = items.reduce((total, item) => {
     if (type === 'plank') {
       const plank = item as PlankSize;
       const parentSleeper = sleeperSizes.find(s => s.sequence === plank.parentSequence);
       if (!parentSleeper) return total;
 
-      const width = (plank.width || 0) / 100;   // cm to m
-      const height = (plank.height || 0) / 100;  // cm to m
-      const length = parentSleeper.length;        // use parent sleeper length
+      const width = (plank.width || 0) / 100;
+      const height = (plank.height || 0) / 100;
+      const length = parentSleeper.length;
       const quantity = plank.quantity || 1;
       return total + (width * height * length * quantity);
     } else {
       const sleeper = item as SleeperSize;
-      const width = (sleeper.width || 0) / 100;   // cm to m
-      const height = (sleeper.height || 0) / 100;  // cm to m
-      const length = sleeper.length || 0;          // already in meters
+      const width = (sleeper.width || 0) / 100;
+      const height = (sleeper.height || 0) / 100;
+      const length = sleeper.length || 0;
       const quantity = sleeper.quantity || 1;
       return total + (width * height * length * quantity);
     }
@@ -526,43 +527,64 @@ const SummarySectionTable = ({
 
   return (
     <Box>
-      <Typography variant="subtitle1" sx={{ mb: 2 }}>
+      <Typography
+        variant="subtitle1"
+        sx={{
+          mb: 2,
+          fontWeight: 600,
+          color: '#1e293b',
+          fontSize: '0.95rem'
+        }}
+      >
         {title} - Total Volume: {totalVolume.toFixed(3)} m³
       </Typography>
       {type === 'plank' && groupedItems ? (
-        // Render planks grouped by sleeper
         Object.entries(groupedItems).map(([sleeperSeq, planks]) => {
           const parentSleeper = sleeperSizes.find(s => s.sequence === Number(sleeperSeq));
           return (
             <Box key={sleeperSeq} sx={{ mb: 3 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1, color: 'primary.main' }}>
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  mb: 1.5,
+                  color: '#dc2626',
+                  fontWeight: 600,
+                  fontSize: '0.875rem'
+                }}
+              >
                 From Sleeper #{sleeperSeq}
               </Typography>
               <TableContainer>
                 <Table size="small">
                   <TableHead>
-                    <TableRow>
-                      <TableCell>Plank No.</TableCell>
-                      <TableCell>Dimensions (Metric / Imperial)</TableCell>
-                      <TableCell>Quantity</TableCell>
-                      <TableCell>Volume</TableCell>
+                    <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                      <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Plank No.</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Dimensions (Metric / Imperial)</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Quantity</TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Volume</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {planks.map((plank) => {
                       const volumeM3 = parentSleeper ? (
-                        (plank.width / 100) * 
-                        (plank.height / 100) * 
-                        parentSleeper.length * 
+                        (plank.width / 100) *
+                        (plank.height / 100) *
+                        parentSleeper.length *
                         plank.quantity
                       ) : 0;
-                      
+
                       return (
-                        <TableRow key={plank.id}>
-                          <TableCell>{plank.sequence}</TableCell>
-                          <TableCell>{formatSize(plank, parentSleeper?.length)}</TableCell>
-                          <TableCell>{plank.quantity}</TableCell>
-                          <TableCell>{volumeM3.toFixed(3)} m³</TableCell>
+                        <TableRow
+                          key={plank.id}
+                          sx={{
+                            '&:hover': { bgcolor: '#f8fafc' },
+                            transition: 'background-color 0.2s ease',
+                          }}
+                        >
+                          <TableCell sx={{ fontSize: '0.875rem' }}>{plank.sequence}</TableCell>
+                          <TableCell sx={{ fontSize: '0.875rem' }}>{formatSize(plank, parentSleeper?.length)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.875rem' }}>{plank.quantity}</TableCell>
+                          <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#dc2626' }}>{volumeM3.toFixed(3)} m³</TableCell>
                         </TableRow>
                       );
                     })}
@@ -573,32 +595,37 @@ const SummarySectionTable = ({
           );
         })
       ) : (
-        // Render sleepers normally
         <TableContainer>
           <Table size="small">
             <TableHead>
-              <TableRow>
-                <TableCell>No.</TableCell>
-                <TableCell>Dimensions (Metric / Imperial)</TableCell>
-                <TableCell>Quantity</TableCell>
-                <TableCell>Volume</TableCell>
+              <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>No.</TableCell>
+                <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Dimensions (Metric / Imperial)</TableCell>
+                <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Quantity</TableCell>
+                <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Volume</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {items.map((item) => {
                 const volumeM3 = (
-                  (item.width / 100) * 
-                  (item.height / 100) * 
-                  item.length * 
+                  (item.width / 100) *
+                  (item.height / 100) *
+                  item.length *
                   item.quantity
                 );
-                
+
                 return (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.sequence}</TableCell>
-                    <TableCell>{formatSize(item)}</TableCell>
-                    <TableCell>{item.quantity}</TableCell>
-                    <TableCell>{volumeM3.toFixed(3)} m³</TableCell>
+                  <TableRow
+                    key={item.id}
+                    sx={{
+                      '&:hover': { bgcolor: '#f8fafc' },
+                      transition: 'background-color 0.2s ease',
+                    }}
+                  >
+                    <TableCell sx={{ fontSize: '0.875rem' }}>{item.sequence}</TableCell>
+                    <TableCell sx={{ fontSize: '0.875rem' }}>{formatSize(item)}</TableCell>
+                    <TableCell sx={{ fontSize: '0.875rem' }}>{item.quantity}</TableCell>
+                    <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#dc2626' }}>{volumeM3.toFixed(3)} m³</TableCell>
                   </TableRow>
                 );
               })}
@@ -610,29 +637,7 @@ const SummarySectionTable = ({
   );
 };
 
-// Add this helper function to calculate volumes for saved operations
-const calculateOperationVolumes = (operation: SavedOperation) => {
-  const sleeperVolume = operation.sleeper_sizes.reduce((total, size) => {
-    const width = (size.width || 0) / 100;   // cm to m
-    const height = (size.height || 0) / 100;  // cm to m
-    const length = (size.length || 0);        // already in meters
-    const quantity = size.quantity || 1;
-    return total + (width * height * length * quantity);
-  }, 0).toFixed(3);
-
-  const plankVolume = operation.plank_sizes.reduce((total, size) => {
-    const width = (size.width || 0) / 100;   // cm to m
-    const height = (size.height || 0) / 100;  // cm to m
-    const length = (size.length || 0);        // already in meters
-    const quantity = size.quantity || 1;
-    return total + (width * height * length * quantity);
-  }, 0).toFixed(3);
-
-  return { sleeperVolume, plankVolume };
-};
-
-
-// Update the OperationReport component
+// PDF Report Components
 const OperationReport = ({ operation }: { operation: SavedOperation }) => {
   const { sleeperVolume, plankVolume } = calculateOperationVolumes(operation);
   const wastePercentage = ((parseFloat(sleeperVolume) - parseFloat(plankVolume)) / parseFloat(sleeperVolume)) * 100;
@@ -640,22 +645,20 @@ const OperationReport = ({ operation }: { operation: SavedOperation }) => {
   return (
     <Document>
       <Page size="A4" style={pdfStyles.page}>
-        {/* Header */}
         <Image src="/logo.png" style={pdfStyles.logo} />
         <Text style={pdfStyles.title}>Wood Slicer Report</Text>
         <Text style={pdfStyles.subtitle}>Professional Wood Solutions</Text>
-        
+
         <View style={pdfStyles.metadata}>
           <Text style={pdfStyles.metadataText}>Generated: {format(new Date(), 'PPpp')}</Text>
           <Text style={pdfStyles.metadataText}>Operation #{operation.serial_number}</Text>
         </View>
 
-        {/* Main Content */}
         <View style={pdfStyles.section}>
           <View style={pdfStyles.sectionHeader}>
             <Text style={pdfStyles.sectionTitle}>WOOD SPECIFICATIONS</Text>
           </View>
-          
+
           <View style={pdfStyles.contentGrid}>
             <View style={pdfStyles.infoRow}>
               <Text style={pdfStyles.label}>Wood Type:</Text>
@@ -672,12 +675,11 @@ const OperationReport = ({ operation }: { operation: SavedOperation }) => {
           </View>
         </View>
 
-        {/* Sleeper Details */}
         <View style={pdfStyles.section}>
           <View style={pdfStyles.sectionHeader}>
             <Text style={pdfStyles.sectionTitle}>SLEEPER DETAILS</Text>
           </View>
-          
+
           <View style={pdfStyles.table}>
             <View style={pdfStyles.tableHeader}>
               <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Height</Text>
@@ -696,12 +698,11 @@ const OperationReport = ({ operation }: { operation: SavedOperation }) => {
           </View>
         </View>
 
-        {/* Plank Details */}
         <View style={pdfStyles.section}>
           <View style={pdfStyles.sectionHeader}>
             <Text style={pdfStyles.sectionTitle}>PLANK DETAILS</Text>
           </View>
-          
+
           <View style={pdfStyles.table}>
             <View style={pdfStyles.tableHeader}>
               <Text style={[pdfStyles.tableHeaderCell, { flex: 1 }]}>Height</Text>
@@ -720,7 +721,6 @@ const OperationReport = ({ operation }: { operation: SavedOperation }) => {
           </View>
         </View>
 
-        {/* Move Notes Section before Results Section */}
         {operation.notes && (
           <View style={[pdfStyles.section, { marginBottom: 20 }]}>
             <View style={pdfStyles.sectionHeader}>
@@ -732,7 +732,6 @@ const OperationReport = ({ operation }: { operation: SavedOperation }) => {
           </View>
         )}
 
-        {/* Results Section */}
         <View style={pdfStyles.resultSection}>
           <View style={pdfStyles.resultRow}>
             <Text style={pdfStyles.resultLabel}>Total Volume:</Text>
@@ -752,19 +751,16 @@ const OperationReport = ({ operation }: { operation: SavedOperation }) => {
   );
 };
 
-// Add a new component for combined reports
 const CombinedOperationReport = ({ operations }: { operations: SavedOperation[] }) => {
   return (
     <Document>
       <Page size="A4" style={pdfStyles.page}>
-        {/* Header */}
         <Image src="/logo.png" style={pdfStyles.logo} />
         <Text style={pdfStyles.title}>Combined Wood Slicing Report</Text>
         <Text style={pdfStyles.subtitle}>
           {format(new Date(), 'PPpp')}
         </Text>
 
-        {/* Summary Section */}
         <View style={[pdfStyles.section, { marginTop: 20 }]}>
           <View style={pdfStyles.sectionHeader}>
             <Text style={pdfStyles.sectionTitle}>OPERATIONS SUMMARY</Text>
@@ -787,14 +783,12 @@ const CombinedOperationReport = ({ operations }: { operations: SavedOperation[] 
           </View>
         </View>
 
-        {/* Detailed Operations */}
         {operations.map((operation, index) => (
           <View key={index} wrap={false} style={{ marginTop: 20, borderTop: 1, borderColor: '#e2e8f0', paddingTop: 10 }}>
             <Text style={[pdfStyles.sectionTitle, { marginBottom: 10 }]}>
               Operation #{operation.serial_number}
             </Text>
 
-            {/* Operation Details */}
             <View style={pdfStyles.contentGrid}>
               <View style={pdfStyles.infoRow}>
                 <Text style={pdfStyles.label}>Wood Type:</Text>
@@ -812,7 +806,6 @@ const CombinedOperationReport = ({ operations }: { operations: SavedOperation[] 
               </View>
             </View>
 
-            {/* Remarks Section */}
             {operation.notes && (
               <View style={[pdfStyles.section, { marginTop: 10 }]}>
                 <View style={pdfStyles.sectionHeader}>
@@ -830,7 +823,6 @@ const CombinedOperationReport = ({ operations }: { operations: SavedOperation[] 
   );
 };
 
-// Add a function to generate the combined report
 const generateCombinedReport = async (operations: SavedOperation[]) => {
   try {
     const blob = await pdf(<CombinedOperationReport operations={operations} />).toBlob();
@@ -846,36 +838,139 @@ const generateCombinedReport = async (operations: SavedOperation[]) => {
   }
 };
 
-// Add this helper function near the top with other utility functions
-const calculateDuration = (operation: SavedOperation) => {
-  const startTime = new Date(operation.start_time || '');
-  const endTime = new Date(operation.updated_at);
-  const duration = endTime.getTime() - startTime.getTime();
-  const hours = Math.floor(duration / (1000 * 60 * 60));
-  const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
-  return `${hours}h ${minutes}m`;
+// Paste Dialog Component
+const PasteSleeperDialog = ({
+  open,
+  onClose,
+  onPaste
+}: {
+  open: boolean;
+  onClose: () => void;
+  onPaste: (sleepers: SleeperSize[]) => void;
+}) => {
+  const [pasteValue, setPasteValue] = useState('');
+
+  const parseExcelData = (text: string): SleeperSize[] => {
+    const rows = text.split('\n').filter(row => row.trim());
+    return rows.map((row, index) => {
+      const cells = row.split('\t');
+      return {
+        id: uuidv4(),
+        sequence: index + 1,
+        height: inchesToCm(parseFloat(cells[0]) || 0),
+        width: inchesToCm(parseFloat(cells[1]) || 0),
+        length: feetToMeters(parseFloat(cells[2]) || 0),
+        quantity: parseInt(cells[3]) || 1
+      };
+    });
+  };
+
+  const handlePaste = () => {
+    try {
+      const sleepers = parseExcelData(pasteValue);
+      onPaste(sleepers);
+      onClose();
+      setPasteValue('');
+    } catch (error) {
+      console.error('Error parsing paste data:', error);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: { borderRadius: 3 }
+      }}
+    >
+      <DialogTitle
+        sx={{
+          fontSize: '1.25rem',
+          fontWeight: 700,
+          color: '#1e293b',
+          borderBottom: '1px solid #e2e8f0',
+          pb: 2,
+        }}
+      >
+        Paste Sleeper Data from Excel
+      </DialogTitle>
+      <DialogContent sx={{ py: 3 }}>
+        <Box sx={{ mt: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              mb: 2,
+              color: '#64748b',
+              fontSize: '0.875rem'
+            }}
+          >
+            Format: Height(inches) Width(inches) Length(feet) Quantity
+          </Typography>
+          <Typography
+            variant="caption"
+            sx={{
+              mb: 2,
+              display: 'block',
+              color: '#94a3b8',
+              fontSize: '0.75rem'
+            }}
+          >
+            Example:<br />
+            2 8 6 1<br />
+            2 8 6 2<br />
+          </Typography>
+          <TextField
+            multiline
+            rows={6}
+            fullWidth
+            placeholder="Paste your Excel data here..."
+            value={pasteValue}
+            onChange={(e) => setPasteValue(e.target.value)}
+            sx={textFieldSx}
+          />
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2, pt: 0 }}>
+        <Button
+          onClick={onClose}
+          sx={{
+            textTransform: 'none',
+            color: '#64748b',
+            '&:hover': { bgcolor: alpha('#dc2626', 0.08) }
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={handlePaste}
+          variant="contained"
+          sx={{
+            textTransform: 'none',
+            bgcolor: '#dc2626',
+            '&:hover': { bgcolor: '#b91c1c' },
+            fontWeight: 600
+          }}
+        >
+          Import Sleepers
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
 };
 
-// Helper function to format dimensions
-const formatDimension = (value: number, unit: string) => {
-  // For meters, show 2 decimal places
-  if (unit === 'm') {
-    return `${Number(value).toFixed(2)}${unit}`;
-  }
-  // For centimeters, show 1 decimal place
-  if (unit === 'cm') {
-    return `${Number(value).toFixed(1)}${unit}`;
-  }
-  return `${value}${unit}`;
-};
-
+// Main Component
 const WoodSlicer = () => {
-  const theme = useTheme();
-  const styles = getStyles(theme);
-  
   // States
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
   const [selectedWoodType, setSelectedWoodType] = useState<WoodType | null>(null);
+  const [lotNumber, setLotNumber] = useState<string>('');
+  const [availableLotNumbers, setAvailableLotNumbers] = useState<string[]>([]);
+  const [availableReceipts, setAvailableReceipts] = useState<any[]>([]);
+  const [supplierName, setSupplierName] = useState<string>('');
+  const [lotDetails, setLotDetails] = useState<any>(null);
   const [sleeperSizes, setSleeperSizes] = useState<SleeperSize[]>([defaultSleeperSize]);
   const [plankSizes, setPlankSizes] = useState<PlankSize[]>([defaultPlankSize]);
   const [serialNumber, setSerialNumber] = useState('');
@@ -892,16 +987,20 @@ const WoodSlicer = () => {
   const [showPasteDialog, setShowPasteDialog] = useState(false);
   const [operationNotes, setOperationNotes] = useState<string>('');
 
-  // Add this function before useEffect
+  // Generate serial number
+  const generateSerialNumber = (): string => {
+    return `WS-${Date.now().toString(36).toUpperCase()}`;
+  };
+
+  // Check connection
   const checkConnection = async () => {
     try {
       setIsLoading(true);
-      const { error } = await supabase.from('wood_types').select('count');
-      if (error) throw error;
+      await api.get('/factory/wood-types');
       setConnectionError(null);
       return true;
     } catch (error) {
-      console.error('Supabase connection error:', error);
+      console.error('API connection error:', error);
       setConnectionError('Unable to connect to the database. Please check your connection.');
       return false;
     } finally {
@@ -909,31 +1008,7 @@ const WoodSlicer = () => {
     }
   };
 
-  // Update useEffect to use the function
-  useEffect(() => {
-    fetchWoodTypes();
-    checkConnection();
-    // Only generate serial number for new operations
-    if (!operationId) {
-      setSerialNumber(generateSerialNumber());
-    }
-  }, [operationId]);
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (error) {
-        console.error('Auth error:', error);
-        setError('Authentication error. Please sign in again.');
-      }
-      if (!session) {
-        setError('Please sign in to use this feature.');
-      }
-    };
-
-    checkAuth();
-  }, []);
-
+  // Fetch wood types
   const fetchWoodTypes = async () => {
     const MAX_RETRIES = 3;
     let attempt = 0;
@@ -941,17 +1016,10 @@ const WoodSlicer = () => {
     while (attempt < MAX_RETRIES) {
       try {
         setIsLoading(true);
-        const { data, error } = await supabase
-          .from('wood_types')
-          .select('*')
-          .order('name');
-
-        if (error) throw error;
-
-        setWoodTypes(data || []);
+        const response = await api.get('/factory/wood-types');
+        setWoodTypes(response.data || []);
         setIsLoading(false);
-        return; // Success - exit the retry loop
-
+        return;
       } catch (error: any) {
         attempt++;
         console.error(`Fetch attempt ${attempt} failed:`, error);
@@ -966,9 +1034,157 @@ const WoodSlicer = () => {
     }
   };
 
-  const generateSerialNumber = (): string => {
-    return `WS-${Date.now().toString(36).toUpperCase()}`;
+  // Fetch lot numbers
+  const fetchLotNumbers = async () => {
+    try {
+      const response = await api.get('/management/wood-receipts');
+      const receipts = response.data || [];
+
+      // Enrich receipts with draft and history data
+      const enrichedReceipts = await Promise.all(
+        receipts.map(async (receipt: any) => {
+          let draftData = null;
+          let historyData = [];
+          let actualVolumeM3 = receipt.actualVolumeM3 || 0;
+          let actualPieces = receipt.actualPieces || 0;
+          let startDate = null;
+          let completionDate = null;
+          let workingUser = null;
+
+          try {
+            // Fetch draft data
+            const draftResponse = await api.get(`/factory/drafts?receipt_id=${receipt.lotNumber}`);
+            if (draftResponse.data && draftResponse.data.length > 0) {
+              draftData = draftResponse.data[0];
+
+              // Calculate totals from draft measurements
+              if (draftData.measurements && Array.isArray(draftData.measurements)) {
+                actualPieces = draftData.measurements.length;
+                actualVolumeM3 = draftData.measurements.reduce((sum: number, m: any) => {
+                  const thickness = parseFloat(m.thickness) || 0;
+                  const width = parseFloat(m.width) || 0;
+                  const length = parseFloat(m.length) || 0;
+                  const qty = parseInt(m.qty) || 1;
+                  return sum + ((thickness / 100) * (width / 100) * (length / 100) * qty);
+                }, 0);
+              }
+            }
+          } catch (err) {
+            // Silently handle - no draft exists
+          }
+
+          try {
+            // Fetch history data
+            const historyResponse = await api.get(`/factory/receipt-history?receipt_id=${receipt.lotNumber}`);
+            historyData = historyResponse.data || [];
+
+            // Find start date (first CREATE or UPDATE action)
+            const startEntry = historyData.find((h: any) => h.action === 'CREATE' || h.action === 'UPDATE');
+            if (startEntry) {
+              startDate = new Date(startEntry.timestamp);
+              workingUser = startEntry.userName;
+            }
+
+            // Find completion date (SUBMIT action)
+            const completeEntry = historyData.find((h: any) => h.action === 'SUBMIT');
+            if (completeEntry) {
+              completionDate = new Date(completeEntry.timestamp);
+            }
+
+            // If not completed, find the most recent user
+            if (!completionDate && historyData.length > 0) {
+              const sortedHistory = [...historyData].sort((a: any, b: any) =>
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              );
+              workingUser = sortedHistory[0].userName;
+            }
+          } catch (err) {
+            // Silently handle - no history exists
+          }
+
+          return {
+            ...receipt,
+            draftData,
+            historyData,
+            actualVolumeM3,
+            actualPieces,
+            startDate,
+            completionDate,
+            workingUser,
+            isDraft: !!draftData && !completionDate,
+            isCompleted: !!completionDate
+          };
+        })
+      );
+
+      setAvailableReceipts(enrichedReceipts);
+
+      const lots = enrichedReceipts
+        .map((r: any) => r.lotNumber)
+        .filter((lot: string | null) => lot != null && lot !== '')
+        .filter((lot: string, index: number, self: string[]) => self.indexOf(lot) === index)
+        .sort();
+      setAvailableLotNumbers(lots);
+    } catch (error) {
+      console.error('Error fetching lot numbers:', error);
+    }
   };
+
+  // Fetch lot details
+  const fetchLotDetails = async (lot: string) => {
+    if (!lot) {
+      setSupplierName('');
+      setLotDetails(null);
+      setSelectedWoodType(null);
+      return;
+    }
+
+    try {
+      const response = await api.get('/management/wood-receipts');
+      const receipts = response.data || [];
+      const receipt = receipts.find((r: any) => r.lotNumber === lot);
+
+      if (receipt) {
+        setLotDetails(receipt);
+        setSupplierName(receipt.supplier || '');
+
+        if (receipt.woodType) {
+          setSelectedWoodType(receipt.woodType);
+        } else if (receipt.woodTypeId) {
+          const woodTypeResponse = await api.get(`/factory/wood-types`);
+          const woodType = woodTypeResponse.data.find((wt: WoodType) => wt.id === receipt.woodTypeId);
+          if (woodType) {
+            setSelectedWoodType(woodType);
+          }
+        }
+      } else {
+        setSupplierName('');
+        setLotDetails(null);
+        setSelectedWoodType(null);
+      }
+    } catch (error) {
+      console.error('Error fetching LOT details:', error);
+      setError('Failed to load LOT details');
+    }
+  };
+
+  // useEffect
+  useEffect(() => {
+    fetchWoodTypes();
+    fetchLotNumbers();
+    checkConnection();
+    if (!operationId) {
+      setSerialNumber(generateSerialNumber());
+    }
+  }, [operationId]);
+
+  useEffect(() => {
+    if (showLoadDialog || showCompletedDialog) {
+      if (savedOperations.length === 0) {
+        fetchSavedOperations();
+      }
+    }
+  }, [showLoadDialog, showCompletedDialog]);
 
   // Handlers for adding/removing sizes
   const addSleeperSize = () => {
@@ -1009,43 +1225,28 @@ const WoodSlicer = () => {
     setPlankSizes(plankSizes.filter(size => size.id !== id));
   };
 
-  // Update the calculation functions
+  // Calculation functions
   const calculateSleeperVolume = () => {
     return sleeperSizes.reduce((total, size) => {
-      // Convert all dimensions to meters before calculating volume
-      const width = (size.width || 0) / 100;   // cm to m
-      const height = (size.height || 0) / 100;  // cm to m
-      const length = (size.length || 0);        // already in meters
+      const width = (size.width || 0) / 100;
+      const height = (size.height || 0) / 100;
+      const length = (size.length || 0);
       const quantity = size.quantity || 1;
-
       const volume = width * height * length * quantity;
       return total + volume;
     }, 0);
   };
 
-  // Update the calculatePlankVolume function
   const calculatePlankVolume = () => {
     return plankSizes.reduce((total, plank) => {
-      // Find the parent sleeper to get the length
       const parentSleeper = sleeperSizes.find(s => s.sequence === plank.parentSequence);
       if (!parentSleeper) return total;
 
-      // Convert all dimensions to meters before calculating volume
-      const width = (plank.width || 0) / 100;   // cm to m
-      const height = (plank.height || 0) / 100;  // cm to m
-      const length = parentSleeper.length;        // use parent sleeper length
+      const width = (plank.width || 0) / 100;
+      const height = (plank.height || 0) / 100;
+      const length = parentSleeper.length;
       const quantity = plank.quantity || 1;
-
       const volume = width * height * length * quantity;
-      console.log('Plank calculation:', {
-        plankId: plank.sequence,
-        sleeperSequence: plank.parentSequence,
-        width,
-        height,
-        length,
-        quantity,
-        volume
-      });
       return total + volume;
     }, 0);
   };
@@ -1053,16 +1254,15 @@ const WoodSlicer = () => {
   const calculateWastePercentage = () => {
     const sleeperVolume = calculateSleeperVolume();
     const plankVolume = calculatePlankVolume();
-    
+
     if (sleeperVolume === 0) return '0.00';
-    
+
     const wasteVolume = sleeperVolume - plankVolume;
     const wastePercentage = (wasteVolume / sleeperVolume) * 100;
-    
+
     return Math.max(0, wastePercentage).toFixed(2);
   };
 
-  // Update the calculateWaste function
   const calculateWaste = () => {
     if (!selectedWoodType || !startTime) return;
     const wastePercentage = calculateWastePercentage();
@@ -1077,41 +1277,17 @@ const WoodSlicer = () => {
       wastePercentage
     });
 
-    // You can add more logic here if needed
     return wastePercentage;
   };
 
-  // First, add a validation function
-  const validateForm = () => {
-    if (!selectedWoodType) {
-      return 'Please select a wood type';
-    }
-    if (!serialNumber) {
-      return 'Serial number is required';
-    }
-    if (sleeperSizes.length === 0) {
-      return 'At least one sleeper size is required';
-    }
-    return null;
-  };
-
-  // First, let's define the allowed status types
-  type OperationStatus = 'draft' | 'in_progress' | 'completed';
-
-  // Update the handleSave function
+  // Save operation
   const handleSave = async () => {
     let attempt = 0;
-    
+
     while (attempt < MAX_RETRIES) {
       try {
-        const session = await supabase.auth.getSession();
-        if (!session.data.session) {
-          throw new Error('No active session');
-        }
-
         const wastePercentage = parseFloat(calculateWastePercentage());
 
-        // Determine status - only draft or in_progress for saves
         let status: OperationStatus;
         if (startTime) {
           status = 'in_progress';
@@ -1119,41 +1295,32 @@ const WoodSlicer = () => {
           status = 'draft';
         }
 
-        // If no serial number (new operation), generate one
         if (!serialNumber) {
           setSerialNumber(generateSerialNumber());
         }
 
-        // Save operation with appropriate status
         const operationData = {
-          id: operationId || undefined,
           serial_number: serialNumber,
           wood_type_id: selectedWoodType!.id,
-          user_id: session.data.session.user.id,
+          lot_number: lotNumber || null,
           start_time: startTime,
           sleeper_sizes: sleeperSizes,
           plank_sizes: plankSizes,
           status: status,
           waste_percentage: wastePercentage,
-          notes: operationNotes, // Add this line
+          notes: operationNotes,
           updated_at: new Date().toISOString()
         };
 
         console.log('Saving operation with data:', operationData);
 
-        const { data: savedOperation, error: saveError } = await supabase
-          .from('wood_slicing_operations')
-          .upsert(operationData)
-          .select()
-          .single();
-
-        if (saveError) {
-          console.error('Save error details:', saveError);
-          throw new Error(saveError.message);
-        }
-
-        // Update the operationId if this was a new save
-        if (!operationId) {
+        let savedOperation;
+        if (operationId) {
+          const response = await api.patch(`/factory/operations/${operationId}`, operationData);
+          savedOperation = response.data;
+        } else {
+          const response = await api.post('/factory/operations', operationData);
+          savedOperation = response.data;
           setOperationId(savedOperation.id);
         }
 
@@ -1163,7 +1330,7 @@ const WoodSlicer = () => {
         console.error('Save error:', error);
         attempt++;
         if (attempt === MAX_RETRIES) {
-          setError(error.message || 'Failed to save operation');
+          setError(error.response?.data?.message || error.message || 'Failed to save operation');
           throw error;
         }
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
@@ -1171,6 +1338,7 @@ const WoodSlicer = () => {
     }
   };
 
+  // Complete operation
   const handleComplete = async () => {
     if (!operationId) {
       setError('Please save the operation first');
@@ -1179,156 +1347,113 @@ const WoodSlicer = () => {
 
     try {
       const wastePercentage = parseFloat(calculateWastePercentage());
-      
-      // Check if operation needs approval
+
       if (wastePercentage > 10) {
-        // Check if there's a pending approval
-        const { data: approvalRequests, error: approvalError } = await supabase
-          .from('approval_requests')
-          .select('status')
-          .eq('operation_id', operationId)
-          .eq('type', 'high_waste')
-          .order('created_at', { ascending: false })
-          .limit(1);
-
-        if (approvalError) throw approvalError;
-
+        const response = await api.get(`/factory/approval-requests?operationId=${operationId}&type=high_waste&limit=1`);
+        const approvalRequests = response.data;
         const latestRequest = approvalRequests?.[0];
-        
+
         if (!latestRequest || latestRequest.status !== 'approved') {
-          // Create approval request if none exists
           if (!latestRequest) {
             const approvalData = {
               type: 'high_waste',
               operation_id: operationId,
-              requestor_id: user.id, // Assuming user is from useUser() hook or similar auth context
               status: 'pending',
               notes: `Operation requires approval due to high waste percentage (${wastePercentage.toFixed(2)}%)`
             };
-
-            await supabase.from('approval_requests').insert(approvalData);
+            await api.post('/factory/approval-requests', approvalData);
           }
-          
           setError('Cannot complete operation. Approval required for high waste percentage');
           return;
         }
       }
 
-      // Complete the operation
-      const { error: completeError } = await supabase
-        .from('wood_slicing_operations')
-        .update({ 
-          status: 'completed',
-          end_time: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', operationId);
-
-      if (completeError) throw completeError;
+      await api.patch(`/factory/operations/${operationId}/complete`, {
+        status: 'completed',
+        end_time: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
 
       setError(null);
-      // Optionally redirect or show success message
     } catch (error: any) {
       console.error('Complete error:', error);
-      setError(error.message || 'Failed to complete operation');
+      setError(error.response?.data?.message || error.message || 'Failed to complete operation');
     }
   };
 
-  // Update fetchSavedOperations function
+  // Fetch saved operations
   const fetchSavedOperations = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('wood_slicing_operations')
-        .select(`
-          *,
-          wood_type:wood_types(*)
-        `)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setSavedOperations(data || []);
-    } catch (error) {
-      console.error('Error fetching saved operations:', error);
-      setError('Failed to load saved operations');
+      const response = await api.get('/factory/operations');
+      setSavedOperations(response.data || []);
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        setSavedOperations([]);
+      } else {
+        console.error('Error fetching saved operations:', error);
+        setError(error.response?.data?.message || 'Failed to load saved operations');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Update the loadOperation function
+  // Load operation
   const loadOperation = async (id: string) => {
     try {
-      const { data, error } = await supabase
-        .from('wood_slicing_operations')
-        .select(`
-          *,
-          wood_type:wood_types(*)
-        `)
-        .eq('id', id)
-        .single();
+      const response = await api.get(`/factory/operations/${id}`);
+      const data = response.data;
 
-      if (error) throw error;
       if (data) {
         setOperationId(data.id);
         setSerialNumber(data.serial_number);
         setSelectedWoodType(data.wood_type);
+        setLotNumber(data.lot_number || '');
         setSleeperSizes(data.sleeper_sizes);
         setPlankSizes(data.plank_sizes);
         setStartTime(data.start_time);
-        setOperationNotes(data.notes || ''); // Add this line
+        setOperationNotes(data.notes || '');
         setShowLoadDialog(false);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading operation:', error);
-      setError('Failed to load operation');
+      setError(error.response?.data?.message || 'Failed to load operation');
     }
   };
 
-  // Add this function to handle operation deletion
+  // Delete operation
   const handleDeleteOperation = async (operationId: string) => {
     try {
-      const result = await supabase
-        .from('wood_slicing_operations')
-        .delete()
-        .eq('id', operationId)
-        .select();
-
-      if (result.error) throw result.error;
-
-      // Update the local state to remove the deleted operation
+      await api.delete(`/factory/operations/${operationId}`);
       setSavedOperations(savedOperations.filter(op => op.id !== operationId));
     } catch (error: any) {
       console.error('Error deleting operation:', error);
-      setError(error.message || 'Failed to delete operation');
+      setError(error.response?.data?.message || error.message || 'Failed to delete operation');
     }
   };
 
-  // Update the useEffect to fetch operations for both dialogs
-  useEffect(() => {
-    if (showLoadDialog || showCompletedDialog) {
-      // Only fetch if we don't have any operations loaded yet
-      if (savedOperations.length === 0) {
-        fetchSavedOperations();
-      }
-    }
-  }, [showLoadDialog, showCompletedDialog]);
-
-  // Add this function to handle both start and end operations
+  // Operation toggle (start/end)
   const handleOperationToggle = async () => {
-    if (!selectedWoodType) return;
+    if (!lotNumber || !selectedWoodType) {
+      setError('Please select a LOT number first');
+      return;
+    }
 
     if (!startTime) {
-      // Starting operation
       setStartTime(new Date().toISOString());
-      await handleSave(); // Save the operation as in_progress
+      await handleSave();
     } else {
-      // Show confirmation dialog before ending
       setShowEndDialog(true);
     }
   };
 
-  // Update the EndOperationDialog component
+  // Paste sleepers handler
+  const handlePasteSleepers = (newSleepers: SleeperSize[]) => {
+    setSleeperSizes(newSleepers);
+  };
+
+  // Dialogs
   const EndOperationDialog = () => (
     <Dialog
       open={showEndDialog}
@@ -1336,35 +1461,32 @@ const WoodSlicer = () => {
       maxWidth="xs"
       fullWidth
       PaperProps={{
-        sx: {
-          borderRadius: 2,
-        }
+        sx: { borderRadius: 3 }
       }}
     >
-      <DialogTitle sx={{ 
-        borderBottom: `1px solid ${theme.palette.divider}`,
-        px: 3,
-        py: 2
-      }}>
+      <DialogTitle
+        sx={{
+          borderBottom: '1px solid #e2e8f0',
+          fontSize: '1.25rem',
+          fontWeight: 700,
+          color: '#1e293b',
+          pb: 2
+        }}
+      >
         End Operation
       </DialogTitle>
-      <DialogContent sx={{ p: 3, mt: 2 }}>
-        <Typography>
+      <DialogContent sx={{ py: 3 }}>
+        <Typography sx={{ color: '#64748b', fontSize: '0.875rem' }}>
           Are you sure you want to end this operation? This action cannot be undone.
         </Typography>
       </DialogContent>
-      <DialogActions sx={{ 
-        borderTop: `1px solid ${theme.palette.divider}`,
-        px: 3,
-        py: 2
-      }}>
+      <DialogActions sx={{ px: 3, pb: 2, pt: 0 }}>
         <Button
           onClick={() => setShowEndDialog(false)}
-          variant="outlined"
-          size="small"
           sx={{
-            borderRadius: 6,
-            textTransform: 'none'
+            textTransform: 'none',
+            color: '#64748b',
+            '&:hover': { bgcolor: alpha('#dc2626', 0.08) }
           }}
         >
           Cancel
@@ -1372,23 +1494,14 @@ const WoodSlicer = () => {
         <Button
           onClick={async () => {
             setShowEndDialog(false);
-            // Call the end operation logic here
             try {
               const operationData = {
-                id: operationId,
                 status: 'completed',
                 updated_at: new Date().toISOString()
               };
 
-              const { error } = await supabase
-                .from('wood_slicing_operations')
-                .update(operationData)
-                .eq('id', operationId)
-                .select();
+              await api.patch(`/factory/operations/${operationId}`, operationData);
 
-              if (error) throw error;
-
-              // Reset the form
               setStartTime(null);
               setOperationId(null);
               setSerialNumber(generateSerialNumber());
@@ -1397,15 +1510,15 @@ const WoodSlicer = () => {
               setSelectedWoodType(null);
             } catch (error: any) {
               console.error('Error ending operation:', error);
-              setError(error.message || 'Failed to end operation');
+              setError(error.response?.data?.message || error.message || 'Failed to end operation');
             }
           }}
           variant="contained"
-          color="error"
-          size="small"
           sx={{
-            borderRadius: 6,
-            textTransform: 'none'
+            textTransform: 'none',
+            bgcolor: '#dc2626',
+            '&:hover': { bgcolor: '#b91c1c' },
+            fontWeight: 600
           }}
         >
           End Operation
@@ -1414,25 +1527,31 @@ const WoodSlicer = () => {
     </Dialog>
   );
 
-  // Update the CompletedOperationsDialog component
   const CompletedOperationsDialog = () => (
     <Dialog
       open={showCompletedDialog}
       onClose={() => setShowCompletedDialog(false)}
       maxWidth="md"
       fullWidth
+      PaperProps={{
+        sx: { borderRadius: 3 }
+      }}
     >
-      <DialogTitle sx={{ 
-        borderBottom: `1px solid ${theme.palette.divider}`,
-        px: 3,
-        py: 2
-      }}>
+      <DialogTitle
+        sx={{
+          borderBottom: '1px solid #e2e8f0',
+          fontSize: '1.25rem',
+          fontWeight: 700,
+          color: '#1e293b',
+          pb: 2
+        }}
+      >
         Completed Operations
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
         {savedOperations.filter(op => op.status === 'completed').length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>No completed operations found</Typography>
+          <Box sx={{ p: 8, textAlign: 'center', color: '#94a3b8' }}>
+            <Typography sx={{ fontSize: '0.875rem' }}>No completed operations found</Typography>
           </Box>
         ) : (
           <List sx={{ py: 0 }}>
@@ -1443,21 +1562,38 @@ const WoodSlicer = () => {
                 return (
                   <ListItem
                     key={operation.id}
-                    sx={{ 
-                      display: 'flex', 
+                    sx={{
+                      display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      borderBottom: `1px solid ${theme.palette.divider}`,
-                      py: 2 
+                      borderBottom: '1px solid #e2e8f0',
+                      py: 2.5,
+                      px: 3,
+                      '&:hover': { bgcolor: '#f8fafc' },
+                      transition: 'background-color 0.2s ease'
                     }}
                   >
                     <Box>
-                      <Typography variant="subtitle1" sx={{ mb: 0.5 }}>
+                      <Typography
+                        variant="subtitle1"
+                        sx={{
+                          mb: 0.5,
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          fontSize: '0.875rem'
+                        }}
+                      >
                         Operation #{operation.serial_number}
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Wood Type: {operation.wood_type?.name} • 
-                        Waste: {operation.waste_percentage?.toFixed(2)}% • 
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: '#64748b',
+                          fontSize: '0.75rem'
+                        }}
+                      >
+                        Wood Type: {operation.wood_type?.name} •
+                        Waste: {operation.waste_percentage?.toFixed(2)}% •
                         Volume: {sleeperVolume} m³
                       </Typography>
                     </Box>
@@ -1465,8 +1601,12 @@ const WoodSlicer = () => {
                       size="small"
                       onClick={() => setSelectedOperation(operation)}
                       sx={{
-                        borderRadius: 6,
-                        textTransform: 'none'
+                        textTransform: 'none',
+                        color: '#dc2626',
+                        fontWeight: 600,
+                        '&:hover': {
+                          bgcolor: alpha('#dc2626', 0.08)
+                        }
                       }}
                     >
                       View Details
@@ -1477,13 +1617,15 @@ const WoodSlicer = () => {
           </List>
         )}
       </DialogContent>
-      <DialogActions sx={{ 
-        borderTop: `1px solid ${theme.palette.divider}`,
-        px: 2,
-        py: 1.5,
-        display: 'flex',
-        justifyContent: 'space-between'
-      }}>
+      <DialogActions
+        sx={{
+          borderTop: '1px solid #e2e8f0',
+          px: 3,
+          py: 2,
+          display: 'flex',
+          justifyContent: 'space-between'
+        }}
+      >
         <Button
           onClick={() => {
             const completedOperations = savedOperations.filter(op => op.status === 'completed');
@@ -1491,17 +1633,22 @@ const WoodSlicer = () => {
           }}
           startIcon={<PrintIcon />}
           variant="contained"
-          color="primary"
-          size="small"
-          sx={{ borderRadius: 6, textTransform: 'none' }}
+          sx={{
+            textTransform: 'none',
+            bgcolor: '#dc2626',
+            '&:hover': { bgcolor: '#b91c1c' },
+            fontWeight: 600
+          }}
         >
           Generate Combined Report
         </Button>
-        <Button 
+        <Button
           onClick={() => setShowCompletedDialog(false)}
-          variant="outlined"
-          size="small"
-          sx={{ borderRadius: 6, textTransform: 'none' }}
+          sx={{
+            textTransform: 'none',
+            color: '#64748b',
+            '&:hover': { bgcolor: alpha('#dc2626', 0.08) }
+          }}
         >
           Close
         </Button>
@@ -1509,12 +1656,11 @@ const WoodSlicer = () => {
     </Dialog>
   );
 
-  // Update the OperationDetailsDialog component
   const OperationDetailsDialog = () => {
     if (!selectedOperation) return null;
-    
+
     const { sleeperVolume } = calculateOperationVolumes(selectedOperation);
-    
+
     const handlePrint = async () => {
       try {
         const blob = await pdf(<OperationReport operation={selectedOperation} />).toBlob();
@@ -1537,181 +1683,267 @@ const WoodSlicer = () => {
         maxWidth="lg"
         fullWidth
         PaperProps={{
-          sx: { 
-            borderRadius: 2,
-            border: 'none',
-            '& .MuiDialog-paper': {
-              border: 'none'
-            }
-          }
+          sx: { borderRadius: 3 }
         }}
       >
-        <DialogTitle sx={{ 
-          borderBottom: `1px solid ${theme.palette.divider}`,
-          px: 3,
-          py: 2,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          border: 'none'
-        }}>
+        <DialogTitle
+          sx={{
+            borderBottom: '1px solid #e2e8f0',
+            fontSize: '1.25rem',
+            fontWeight: 700,
+            color: '#1e293b',
+            pb: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}
+        >
           <Stack direction="row" spacing={2} alignItems="center">
-            <Typography variant="h6">
+            <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.25rem' }}>
               Operation Details
             </Typography>
             <Chip
               label={selectedOperation.serial_number}
-              size="medium"
-              color="primary"
+              sx={{
+                backgroundColor: alpha('#dc2626', 0.1),
+                color: '#dc2626',
+                fontWeight: 600,
+                fontSize: '0.75rem'
+              }}
             />
           </Stack>
         </DialogTitle>
-        
-        <DialogContent sx={{ 
-          p: 3,
-          border: 'none'
-        }}>
-          {/* Main Info Section - Single Line Boxes */}
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 2, 
-            mb: 4,
-            flexWrap: 'wrap'
-          }}>
-            {/* Wood Type Box */}
-            <Paper 
-              elevation={0} 
-              sx={{ 
-                p: 2, 
+
+        <DialogContent sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', gap: 2, mb: 4, flexWrap: 'wrap' }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2.5,
                 borderRadius: 2,
-                bgcolor: 'background.paper',
-                border: '1px solid',
-                borderColor: 'divider',
+                bgcolor: '#f8fafc',
+                border: '1px solid #e2e8f0',
                 minWidth: 200,
                 flex: 1
               }}
             >
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                sx={{
+                  color: '#64748b',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+              >
                 Wood Type
               </Typography>
-              <Typography variant="subtitle1" sx={{ fontWeight: 500, mt: 0.5 }}>
-                {selectedOperation.wood_type?.name || 'Unknown'} 
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontWeight: 700,
+                  mt: 0.5,
+                  color: '#1e293b',
+                  fontSize: '0.875rem'
+                }}
+              >
+                {selectedOperation.wood_type?.name || 'Unknown'}
                 {selectedOperation.wood_type?.grade ? ` (Grade ${selectedOperation.wood_type.grade})` : ''}
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  mt: 1,
+                  color: '#dc2626',
+                  fontWeight: 600,
+                  fontSize: '0.75rem'
+                }}
+              >
                 Waste: {selectedOperation.waste_percentage?.toFixed(2)}%
               </Typography>
             </Paper>
 
-            {/* Time Info Box */}
-            <Paper 
-              elevation={0} 
-              sx={{ 
-                p: 2, 
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2.5,
                 borderRadius: 2,
-                bgcolor: 'background.paper',
-                border: '1px solid',
-                borderColor: 'divider',
+                bgcolor: '#f8fafc',
+                border: '1px solid #e2e8f0',
                 minWidth: 200,
                 flex: 1
               }}
             >
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                sx={{
+                  color: '#64748b',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+              >
                 Operation Time
               </Typography>
               <Stack spacing={0.5} sx={{ mt: 0.5 }}>
-                <Typography variant="body2">
+                <Typography variant="body2" sx={{ fontSize: '0.75rem', color: '#334155' }}>
                   Start: {format(new Date(selectedOperation.start_time || ''), 'PPpp')}
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" sx={{ fontSize: '0.75rem', color: '#334155' }}>
                   End: {format(new Date(selectedOperation.updated_at), 'PPpp')}
                 </Typography>
-                <Typography variant="subtitle2" sx={{ color: 'primary.main', fontWeight: 500 }}>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    color: '#dc2626',
+                    fontWeight: 700,
+                    fontSize: '0.875rem',
+                    mt: 0.5
+                  }}
+                >
                   Duration: {calculateDuration(selectedOperation)}
                 </Typography>
               </Stack>
             </Paper>
 
-            {/* Volume Info Box */}
-            <Paper 
-              elevation={0} 
-              sx={{ 
-                p: 2, 
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2.5,
                 borderRadius: 2,
-                bgcolor: 'background.paper',
-                border: '1px solid',
-                borderColor: 'divider',
+                bgcolor: '#f8fafc',
+                border: '1px solid #e2e8f0',
                 minWidth: 200,
                 flex: 1
               }}
             >
-              <Typography variant="caption" color="text.secondary">
+              <Typography
+                variant="caption"
+                sx={{
+                  color: '#64748b',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+              >
                 Volume Information
               </Typography>
               <Stack spacing={0.5} sx={{ mt: 0.5 }}>
-                <Typography variant="body1">
+                <Typography variant="body1" sx={{ fontSize: '0.875rem', color: '#334155' }}>
                   Total Sleeper Volume: {Number(calculateSleeperVolume()).toFixed(3)} m³
                 </Typography>
-                <Typography variant="body1">
+                <Typography variant="body1" sx={{ fontSize: '0.875rem', color: '#334155' }}>
                   Total Plank Volume: {Number(calculatePlankVolume()).toFixed(3)} m³
                 </Typography>
-                <Typography variant="subtitle2" sx={{ color: 'error.main', fontWeight: 500 }}>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    color: '#dc2626',
+                    fontWeight: 700,
+                    fontSize: '0.875rem',
+                    mt: 0.5
+                  }}
+                >
                   Waste: {selectedOperation.waste_percentage?.toFixed(2)}%
                 </Typography>
               </Stack>
             </Paper>
           </Box>
 
-          {/* Sizes Tables Section */}
           <Stack spacing={3}>
-            {/* Sleeper Sizes Table */}
-            <Paper elevation={0} sx={{ p: 3, borderRadius: 2, bgcolor: 'background.paper' }}>
-              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 500 }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                bgcolor: 'white',
+                border: '1px solid #e2e8f0'
+              }}
+            >
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  mb: 2,
+                  fontWeight: 600,
+                  color: '#1e293b',
+                  fontSize: '0.95rem'
+                }}
+              >
                 Sleeper Sizes ({selectedOperation.sleeper_sizes.length})
               </Typography>
               <Table size="small">
                 <TableHead>
-                  <TableRow>
-                    <TableCell>No.</TableCell>
-                    <TableCell>Dimensions</TableCell>
-                    <TableCell>Quantity</TableCell>
+                  <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>No.</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Dimensions</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Quantity</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {selectedOperation.sleeper_sizes.map((size, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{size.sequence}</TableCell>
-                      <TableCell>{formatSize(size)}</TableCell>
-                      <TableCell>{size.quantity} pcs</TableCell>
+                    <TableRow
+                      key={index}
+                      sx={{
+                        '&:hover': { bgcolor: '#f8fafc' },
+                        transition: 'background-color 0.2s ease',
+                      }}
+                    >
+                      <TableCell sx={{ fontSize: '0.875rem' }}>{size.sequence}</TableCell>
+                      <TableCell sx={{ fontSize: '0.875rem' }}>{formatSize(size)}</TableCell>
+                      <TableCell sx={{ fontSize: '0.875rem' }}>{size.quantity} pcs</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </Paper>
 
-            {/* Plank Sizes Table */}
-            <Paper elevation={0} sx={{ p: 3, borderRadius: 2, bgcolor: 'background.paper' }}>
-              <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 500 }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                bgcolor: 'white',
+                border: '1px solid #e2e8f0'
+              }}
+            >
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  mb: 2,
+                  fontWeight: 600,
+                  color: '#1e293b',
+                  fontSize: '0.95rem'
+                }}
+              >
                 Plank Sizes ({selectedOperation.plank_sizes.length})
               </Typography>
               <Table size="small">
                 <TableHead>
-                  <TableRow>
-                    <TableCell>No.</TableCell>
-                    <TableCell>From Sleeper</TableCell>
-                    <TableCell>Dimensions</TableCell>
-                    <TableCell>Quantity</TableCell>
+                  <TableRow sx={{ bgcolor: '#f8fafc' }}>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>No.</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>From Sleeper</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Dimensions</TableCell>
+                    <TableCell sx={{ fontWeight: 600, color: '#64748b', fontSize: '0.75rem' }}>Quantity</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {selectedOperation.plank_sizes.map((size, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{size.sequence}</TableCell>
-                      <TableCell>
+                    <TableRow
+                      key={index}
+                      sx={{
+                        '&:hover': { bgcolor: '#f8fafc' },
+                        transition: 'background-color 0.2s ease',
+                      }}
+                    >
+                      <TableCell sx={{ fontSize: '0.875rem' }}>{size.sequence}</TableCell>
+                      <TableCell sx={{ fontSize: '0.875rem' }}>
                         {'parentSequence' in size ? `#${size.parentSequence}` : '-'}
                       </TableCell>
-                      <TableCell>{formatSize(size)}</TableCell>
-                      <TableCell>{size.quantity} pcs</TableCell>
+                      <TableCell sx={{ fontSize: '0.875rem' }}>{formatSize(size)}</TableCell>
+                      <TableCell sx={{ fontSize: '0.875rem' }}>{size.quantity} pcs</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -1719,33 +1951,35 @@ const WoodSlicer = () => {
             </Paper>
           </Stack>
         </DialogContent>
-        
-        <DialogActions sx={{ 
-          borderTop: `1px solid ${theme.palette.divider}`,
-          px: 3,
-          py: 2,
-          gap: 2
-        }}>
+
+        <DialogActions
+          sx={{
+            borderTop: '1px solid #e2e8f0',
+            px: 3,
+            py: 2,
+            gap: 2
+          }}
+        >
           <Button
             onClick={handlePrint}
             startIcon={<PrintIcon />}
             variant="contained"
-            size="small"
-            sx={{ 
-              borderRadius: 6,
-              textTransform: 'none'
+            sx={{
+              textTransform: 'none',
+              bgcolor: '#dc2626',
+              '&:hover': { bgcolor: '#b91c1c' },
+              fontWeight: 600
             }}
           >
             Generate Report
           </Button>
-          
-          <Button 
+
+          <Button
             onClick={() => setSelectedOperation(null)}
-            variant="outlined"
-            size="small"
-            sx={{ 
-              borderRadius: 6,
-              textTransform: 'none'
+            sx={{
+              textTransform: 'none',
+              color: '#64748b',
+              '&:hover': { bgcolor: alpha('#dc2626', 0.08) }
             }}
           >
             Close
@@ -1755,37 +1989,34 @@ const WoodSlicer = () => {
     );
   };
 
-  // Update the LoadOperationDialog component
   const LoadOperationDialog = () => (
-    <Dialog 
-      open={showLoadDialog} 
+    <Dialog
+      open={showLoadDialog}
       onClose={() => setShowLoadDialog(false)}
       maxWidth="md"
       fullWidth
       PaperProps={{
-        sx: {
-          borderRadius: 2,
-        }
+        sx: { borderRadius: 3 }
       }}
     >
-      <DialogTitle sx={{ 
-        borderBottom: `1px solid ${theme.palette.divider}`,
-        px: 3,
-        py: 2
-      }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <FolderOpenIcon sx={{ color: theme.palette.primary.main }} />
-          <Typography variant="h6">Load Saved Operation</Typography>
+      <DialogTitle
+        sx={{
+          borderBottom: '1px solid #e2e8f0',
+          fontSize: '1.25rem',
+          fontWeight: 700,
+          color: '#1e293b',
+          pb: 2
+        }}
+      >
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <FolderOpenIcon sx={{ color: '#dc2626', fontSize: 28 }} />
+          <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.25rem' }}>Load Saved Operation</Typography>
         </Stack>
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
         {savedOperations.filter(op => op.status !== 'completed').length === 0 ? (
-          <Box sx={{ 
-            p: 4, 
-            textAlign: 'center',
-            color: theme.palette.text.secondary 
-          }}>
-            <Typography>No saved operations found</Typography>
+          <Box sx={{ p: 8, textAlign: 'center', color: '#94a3b8' }}>
+            <Typography sx={{ fontSize: '0.875rem' }}>No saved operations found</Typography>
           </Box>
         ) : (
           <List sx={{ py: 0 }}>
@@ -1797,64 +2028,96 @@ const WoodSlicer = () => {
                   <ListItem
                     key={operation.id}
                     sx={{
-                      borderBottom: `1px solid ${theme.palette.divider}`,
-                      py: 2,
-                      px: 2,
-                      '&:hover': {
-                        bgcolor: 'action.hover'
-                      }
+                      borderBottom: '1px solid #e2e8f0',
+                      py: 2.5,
+                      px: 3,
+                      '&:hover': { bgcolor: '#f8fafc' },
+                      transition: 'background-color 0.2s ease'
                     }}
                   >
                     <Box sx={{ flex: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                        <Typography variant="subtitle1" component="span" sx={{ fontWeight: 500 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                        <Typography
+                          variant="subtitle1"
+                          sx={{
+                            fontWeight: 600,
+                            color: '#1e293b',
+                            fontSize: '0.875rem'
+                          }}
+                        >
                           {operation.serial_number}
                         </Typography>
                         <Chip
                           label={operation.status}
                           size="small"
                           color={getStatusColor(operation.status)}
-                          sx={{ textTransform: 'capitalize' }}
+                          sx={{
+                            textTransform: 'capitalize',
+                            fontSize: '0.75rem',
+                            height: '24px',
+                            fontWeight: 600
+                          }}
                         />
                       </Box>
-                      
+
                       <Grid container spacing={2} sx={{ mt: 0.5 }}>
                         <Grid item xs={12} sm={4}>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: '#64748b',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}
+                          >
                             Wood Type
                           </Typography>
-                          <Typography variant="body2">
-                            {operation.wood_type?.name || 'Unknown'} 
-                            {operation.wood_type?.grade ? `(Grade ${operation.wood_type.grade})` : ''}
+                          <Typography variant="body2" sx={{ fontSize: '0.875rem', color: '#334155', mt: 0.5 }}>
+                            {operation.wood_type?.name || 'Unknown'}
+                            {operation.wood_type?.grade ? ` (Grade ${operation.wood_type.grade})` : ''}
                           </Typography>
                         </Grid>
                         <Grid item xs={12} sm={4}>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: '#64748b',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}
+                          >
                             Total Sleeper Volume
                           </Typography>
-                          <Typography variant="body2">
+                          <Typography variant="body2" sx={{ fontSize: '0.875rem', color: '#334155', fontWeight: 600, mt: 0.5 }}>
                             {sleeperVolume} m³
                           </Typography>
                         </Grid>
                         <Grid item xs={12} sm={4}>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: '#64748b',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}
+                          >
                             Total Plank Volume
                           </Typography>
-                          <Typography variant="body2">
+                          <Typography variant="body2" sx={{ fontSize: '0.875rem', color: '#334155', fontWeight: 600, mt: 0.5 }}>
                             {plankVolume} m³
                           </Typography>
                         </Grid>
                       </Grid>
 
-                      <Box sx={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: 1, 
-                        mt: 1,
-                        color: theme.palette.text.secondary 
-                      }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1.5, color: '#64748b' }}>
                         <AccessTimeIcon sx={{ fontSize: '1rem' }} />
-                        <Typography variant="body2">
+                        <Typography variant="body2" sx={{ fontSize: '0.75rem' }}>
                           {format(new Date(operation.updated_at), 'MMM d, yyyy h:mm a')}
                         </Typography>
                       </Box>
@@ -1865,8 +2128,12 @@ const WoodSlicer = () => {
                         size="small"
                         onClick={() => loadOperation(operation.id)}
                         sx={{
-                          borderRadius: 6,
-                          textTransform: 'none'
+                          textTransform: 'none',
+                          color: '#dc2626',
+                          fontWeight: 600,
+                          '&:hover': {
+                            bgcolor: alpha('#dc2626', 0.08)
+                          }
                         }}
                       >
                         Load
@@ -1875,9 +2142,10 @@ const WoodSlicer = () => {
                         size="small"
                         onClick={() => handleDeleteOperation(operation.id)}
                         sx={{
-                          color: theme.palette.error.main,
+                          color: '#64748b',
                           '&:hover': {
-                            bgcolor: theme.palette.error.light
+                            backgroundColor: alpha('#dc2626', 0.08),
+                            color: '#dc2626'
                           }
                         }}
                       >
@@ -1890,18 +2158,13 @@ const WoodSlicer = () => {
           </List>
         )}
       </DialogContent>
-      <DialogActions sx={{ 
-        borderTop: `1px solid ${theme.palette.divider}`,
-        px: 2,
-        py: 1.5
-      }}>
-        <Button 
+      <DialogActions sx={{ borderTop: '1px solid #e2e8f0', px: 3, py: 2 }}>
+        <Button
           onClick={() => setShowLoadDialog(false)}
-          variant="outlined"
-          size="small"
           sx={{
-            borderRadius: 6,
-            textTransform: 'none'
+            textTransform: 'none',
+            color: '#64748b',
+            '&:hover': { bgcolor: alpha('#dc2626', 0.08) }
           }}
         >
           Close
@@ -1910,166 +2173,86 @@ const WoodSlicer = () => {
     </Dialog>
   );
 
-  // Add this helper function to parse Excel paste data
-  const parseExcelData = (text: string): SleeperSize[] => {
-    const rows = text.split('\n').filter(row => row.trim());
-    return rows.map((row, index) => {
-      const cells = row.split('\t');
-      // Expecting format: Height(inches) Width(inches) Length(feet) Quantity
-      return {
-        id: uuidv4(),
-        sequence: index + 1,
-        height: inchesToCm(parseFloat(cells[0]) || 0),
-        width: inchesToCm(parseFloat(cells[1]) || 0),
-        length: feetToMeters(parseFloat(cells[2]) || 0),
-        quantity: parseInt(cells[3]) || 1
-      };
-    });
-  };
-
-  // Add this component near your other components
-  const PasteSleeperDialog = ({ 
-    open, 
-    onClose, 
-    onPaste 
-  }: { 
-    open: boolean; 
-    onClose: () => void; 
-    onPaste: (sleepers: SleeperSize[]) => void; 
-  }) => {
-    const [pasteValue, setPasteValue] = useState('');
-
-    const handlePaste = () => {
-      try {
-        const sleepers = parseExcelData(pasteValue);
-        onPaste(sleepers);
-        onClose();
-      } catch (error) {
-        console.error('Error parsing paste data:', error);
-      }
-    };
-
-    return (
-      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Paste Sleeper Data from Excel</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" sx={{ mb: 2 }}>
-              Format: Height(inches) Width(inches) Length(feet) Quantity
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
-              Example:<br />
-              2 8 6 1<br />
-              2 8 6 2<br />
-            </Typography>
-            <TextField
-              multiline
-              rows={6}
-              fullWidth
-              placeholder="Paste your Excel data here..."
-              value={pasteValue}
-              onChange={(e) => setPasteValue(e.target.value)}
-            />
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={handlePaste} variant="contained">Import Sleepers</Button>
-        </DialogActions>
-      </Dialog>
-    );
-  };
-
-  // Add this handler
-  const handlePasteSleepers = (newSleepers: SleeperSize[]) => {
-    setSleeperSizes(newSleepers);
-  };
-
+  // Loading and error states
   if (isLoading) {
     return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh' 
-      }}>
-        <CircularProgress />
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress sx={{ color: '#dc2626' }} />
       </Box>
     );
   }
 
   if (connectionError) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert 
-          severity="error" 
-          sx={{ 
-            maxWidth: 600, 
-            mx: 'auto' 
+      <StyledContainer maxWidth="lg">
+        <Alert
+          severity="error"
+          sx={{
+            maxWidth: 600,
+            mx: 'auto',
+            borderRadius: 2
           }}
         >
           {connectionError}
         </Alert>
-      </Box>
+      </StyledContainer>
     );
   }
 
+  // Main render
   return (
-    <Box sx={{ 
-      p: { xs: 2, sm: 3 },
-      maxWidth: 1400,
-      margin: '0 auto'
-    }}>
-      {/* Header Section */}
+    <StyledContainer maxWidth="xl">
+      {/* Header */}
       <Paper
         elevation={0}
-        sx={styles.headerPaper}
+        sx={{
+          p: 3,
+          mb: 3,
+          background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+          borderRadius: 2,
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        }}
       >
-        <Box sx={{ 
-          display: 'flex', 
-          flexDirection: { xs: 'column', sm: 'row' },
-          justifyContent: 'space-between',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          gap: 2
-        }}>
-          <Box>
-            <Typography 
-              variant="h5" 
-              sx={{ 
-                fontWeight: 600,
-                color: 'white',
-                mb: 0.5
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              Wood Slicing Operation
-            </Typography>
-            <Box sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 2,
-              color: 'rgba(255, 255, 255, 0.9)'
-            }}>
-              <Typography variant="body2">
-                Serial Number: {serialNumber}
+              <ContentCutIcon sx={{ fontSize: 28, color: 'white' }} />
+            </Box>
+            <Box>
+              <Typography
+                variant="h4"
+                sx={{
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: '1.75rem',
+                  letterSpacing: '-0.025em',
+                }}
+              >
+                Wood Slicing Operation
               </Typography>
-              {startTime && (
-                <Chip 
-                  label="In Progress"
-                  size="small"
-                  sx={{
-                    bgcolor: 'rgba(255, 255, 255, 0.2)',
-                    color: 'white',
-                    fontWeight: 500
-                  }}
-                />
-              )}
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '0.875rem',
+                  mt: 0.5,
+                }}
+              >
+                Serial: {serialNumber} {startTime && '• In Progress'}
+              </Typography>
             </Box>
           </Box>
-          <Box sx={{ 
-            display: 'flex', 
-            gap: 1,
-            alignItems: 'center' 
-          }}>
+          <Stack direction="row" spacing={1.5} flexWrap="wrap">
             <Button
               variant="outlined"
               startIcon={<FolderOpenIcon />}
@@ -2077,17 +2260,18 @@ const WoodSlicer = () => {
                 fetchSavedOperations();
                 setShowLoadDialog(true);
               }}
-              size="small"
               sx={{
-                borderRadius: 6,
-                textTransform: 'none',
-                borderColor: 'rgba(255, 255, 255, 0.3)',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 color: 'white',
-                px: 2,
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                textTransform: 'none',
+                px: 2.5,
+                borderColor: 'rgba(255, 255, 255, 0.3)',
                 '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
                   borderColor: 'rgba(255, 255, 255, 0.5)',
-                  bgcolor: 'rgba(255, 255, 255, 0.1)'
-                }
+                },
               }}
             >
               Load Operation
@@ -2098,17 +2282,18 @@ const WoodSlicer = () => {
                 fetchSavedOperations();
                 setShowCompletedDialog(true);
               }}
-              size="small"
               sx={{
-                borderRadius: 6,
-                textTransform: 'none',
-                borderColor: 'rgba(255, 255, 255, 0.3)',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
                 color: 'white',
-                px: 2,
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                textTransform: 'none',
+                px: 2.5,
+                borderColor: 'rgba(255, 255, 255, 0.3)',
                 '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
                   borderColor: 'rgba(255, 255, 255, 0.5)',
-                  bgcolor: 'rgba(255, 255, 255, 0.1)'
-                }
+                },
               }}
             >
               Completed Operations
@@ -2118,29 +2303,39 @@ const WoodSlicer = () => {
               onClick={handleSave}
               disabled={isLoading}
               sx={{
-                borderRadius: 6,
+                backgroundColor: 'white',
+                color: '#dc2626',
+                fontWeight: 600,
+                fontSize: '0.875rem',
                 textTransform: 'none',
-                bgcolor: 'primary.main',
-                px: 2,
+                px: 3,
+                boxShadow: 'none',
                 '&:hover': {
-                  bgcolor: 'primary.dark'
-                }
+                  backgroundColor: '#f8fafc',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                },
               }}
             >
               {operationId ? 'Update Progress' : 'Save Progress'}
             </Button>
             <Button
               variant="contained"
-              color="success"
               onClick={handleComplete}
               disabled={isLoading || !operationId}
               sx={{
-                borderRadius: 6,
+                backgroundColor: '#16a34a',
+                color: 'white',
+                fontWeight: 600,
+                fontSize: '0.875rem',
                 textTransform: 'none',
-                bgcolor: 'success.main',
-                px: 2,
+                px: 3,
+                boxShadow: 'none',
                 '&:hover': {
-                  bgcolor: 'success.dark'
+                  backgroundColor: '#15803d',
+                },
+                '&:disabled': {
+                  backgroundColor: '#cbd5e1',
+                  color: '#94a3b8',
                 }
               }}
             >
@@ -2149,122 +2344,332 @@ const WoodSlicer = () => {
             <Button
               variant="contained"
               onClick={handleOperationToggle}
-              size="small"
               sx={{
-                borderRadius: 6,
+                backgroundColor: startTime ? '#dc2626' : 'white',
+                color: startTime ? 'white' : '#dc2626',
+                fontWeight: 600,
+                fontSize: '0.875rem',
                 textTransform: 'none',
-                bgcolor: startTime ? 'error.main' : 'primary.light',
-                px: 2,
+                px: 3,
+                boxShadow: 'none',
                 '&:hover': {
-                  bgcolor: startTime ? 'error.dark' : 'primary.main'
-                }
+                  backgroundColor: startTime ? '#b91c1c' : '#f8fafc',
+                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                },
               }}
             >
               {startTime ? 'End Operation' : 'Start Operation'}
             </Button>
-          </Box>
+          </Stack>
         </Box>
       </Paper>
 
       {error && (
-        <Alert 
-          severity={error.includes('Approval required') ? 'warning' : 'error'} 
-          sx={{ mb: 3 }}
+        <Alert
+          severity={error.includes('Approval required') ? 'warning' : 'error'}
+          onClose={() => setError(null)}
+          sx={{
+            mb: 3,
+            borderRadius: 2,
+            '& .MuiAlert-message': {
+              fontSize: '0.875rem'
+            }
+          }}
         >
           {error}
         </Alert>
       )}
 
       {/* Main Content */}
-      <Grid container spacing={2}>
-        {/* Left Column */}
+      <Grid container spacing={3}>
         <Grid item xs={12} lg={8}>
-          {/* Wood Type Selection */}
+          {/* LOT Selection */}
           <Paper
             elevation={0}
             sx={{
-              ...styles.contentPaper,
-              mb: 2
+              p: 3,
+              mb: 3,
+              borderRadius: 2,
+              border: '1px solid #e2e8f0',
+              backgroundColor: 'white',
             }}
           >
-            <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
-              Select Wood Type
+            <Typography
+              variant="h6"
+              sx={{
+                mb: 2.5,
+                fontWeight: 700,
+                color: '#1e293b',
+                fontSize: '1rem'
+              }}
+            >
+              LOT Number Selection *
             </Typography>
-            <Autocomplete
-              value={selectedWoodType}
-              onChange={(_, newValue) => setSelectedWoodType(newValue)}
-              options={woodTypes}
-              getOptionLabel={(option) => `${option.name} (Grade ${option.grade})`}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              renderInput={(params) => (
-                <TextField {...params} label="Wood Type" size="small" />
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Autocomplete
+                value={lotNumber || null}
+                onChange={(_, newValue) => {
+                  const selectedLot = newValue || '';
+                  setLotNumber(selectedLot);
+                  fetchLotDetails(selectedLot);
+                }}
+                options={availableLotNumbers}
+                isOptionEqualToValue={(option, value) => option === value}
+                renderOption={(props, option) => {
+                  const receipt = availableReceipts.find(r => r.lotNumber === option);
+                  if (!receipt) return <li {...props}>{option}</li>;
+
+                  const hasData = receipt.actualPieces > 0 || receipt.actualVolumeM3 > 0;
+                  const statusColor = receipt.isCompleted ? '#dc2626' : receipt.isDraft ? '#64748b' : '#94a3b8';
+
+                  return (
+                    <li {...props}>
+                      <Box sx={{ width: '100%', py: 1 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                          <Typography sx={{ fontWeight: 600, fontSize: '0.9375rem', color: '#1e293b' }}>
+                            {option}
+                          </Typography>
+                          <Chip
+                            label={receipt.isCompleted ? 'Completed' : receipt.isDraft ? 'Draft' : 'Not Started'}
+                            size="small"
+                            sx={{
+                              fontSize: '0.6875rem',
+                              height: '20px',
+                              bgcolor: alpha(statusColor, 0.1),
+                              color: statusColor,
+                              fontWeight: 600
+                            }}
+                          />
+                        </Box>
+
+                        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 0.5 }}>
+                          <Box>
+                            <Typography sx={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>
+                              Volume (m³)
+                            </Typography>
+                            <Typography sx={{ fontSize: '0.8125rem', color: statusColor, fontWeight: 600 }}>
+                              {hasData ? receipt.actualVolumeM3.toFixed(3) : 'N/A'}
+                            </Typography>
+                          </Box>
+                          <Box>
+                            <Typography sx={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>
+                              Pieces
+                            </Typography>
+                            <Typography sx={{ fontSize: '0.8125rem', color: statusColor, fontWeight: 600 }}>
+                              {hasData ? receipt.actualPieces : 'N/A'}
+                            </Typography>
+                          </Box>
+                          {receipt.startDate && (
+                            <Box>
+                              <Typography sx={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>
+                                Started
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.8125rem', color: '#64748b' }}>
+                                {receipt.startDate.toLocaleDateString()}
+                              </Typography>
+                            </Box>
+                          )}
+                          {receipt.completionDate && (
+                            <Box>
+                              <Typography sx={{ fontSize: '0.6875rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 600 }}>
+                                Completed
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.8125rem', color: '#64748b' }}>
+                                {receipt.completionDate.toLocaleDateString()}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+
+                        {receipt.workingUser && (
+                          <Typography sx={{ fontSize: '0.75rem', color: '#64748b', mt: 0.5 }}>
+                            User: {receipt.workingUser}
+                          </Typography>
+                        )}
+                      </Box>
+                    </li>
+                  );
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="LOT Number"
+                    size="small"
+                    placeholder="Select LOT from list"
+                    required
+                    error={!lotNumber}
+                    helperText={!lotNumber ? 'LOT number is required to start slicing' : ''}
+                    sx={textFieldSx}
+                  />
+                )}
+                sx={{ width: '100%' }}
+                ListboxProps={{
+                  sx: {
+                    maxHeight: '400px',
+                    '& .MuiAutocomplete-option': {
+                      borderBottom: '1px solid #e2e8f0',
+                      '&:last-child': {
+                        borderBottom: 'none'
+                      }
+                    }
+                  }
+                }}
+              />
+
+              {lotNumber && (
+                <Box sx={{
+                  display: 'flex',
+                  gap: 2,
+                  flexWrap: 'wrap',
+                  p: 2.5,
+                  backgroundColor: '#f8fafc',
+                  borderRadius: 2,
+                  border: '1px solid #e2e8f0'
+                }}>
+                  <Box sx={{ flex: 1, minWidth: 200 }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#64748b',
+                        textTransform: 'uppercase',
+                        fontWeight: 600,
+                        fontSize: '0.75rem',
+                        letterSpacing: '0.5px'
+                      }}
+                    >
+                      Wood Type
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: 700,
+                        color: '#1e293b',
+                        mt: 0.5,
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      {selectedWoodType ? `${selectedWoodType.name} (Grade ${selectedWoodType.grade})` : 'Loading...'}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 200 }}>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: '#64748b',
+                        textTransform: 'uppercase',
+                        fontWeight: 600,
+                        fontSize: '0.75rem',
+                        letterSpacing: '0.5px'
+                      }}
+                    >
+                      Supplier
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: 700,
+                        color: '#1e293b',
+                        mt: 0.5,
+                        fontSize: '0.875rem'
+                      }}
+                    >
+                      {supplierName || 'Loading...'}
+                    </Typography>
+                  </Box>
+                </Box>
               )}
-              loading={isLoading}
-              sx={{ maxWidth: 400 }}
-            />
+            </Box>
           </Paper>
 
-          {/* Sleeper and Plank Section */}
+          {/* Sleepers and Planks */}
           <Paper
             elevation={0}
             sx={{
-              ...styles.contentPaper,
-              mb: 2
+              p: 3,
+              mb: 3,
+              borderRadius: 2,
+              border: '1px solid #e2e8f0',
+              backgroundColor: 'white',
             }}
           >
-            <Box sx={{ 
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              mb: 1.5
-            }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  fontSize: '1rem'
+                }}
+              >
                 Sleepers and Planks
               </Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
                 <Button
                   startIcon={<AddIcon />}
                   onClick={addSleeperSize}
                   variant="outlined"
                   size="small"
+                  sx={{
+                    textTransform: 'none',
+                    borderColor: '#e2e8f0',
+                    color: '#64748b',
+                    fontWeight: 600,
+                    '&:hover': {
+                      borderColor: '#dc2626',
+                      color: '#dc2626',
+                      bgcolor: alpha('#dc2626', 0.04)
+                    }
+                  }}
                 >
-                  Add New Sleeper
+                  Add Sleeper
                 </Button>
                 <Button
                   onClick={() => setShowPasteDialog(true)}
                   variant="outlined"
                   size="small"
+                  sx={{
+                    textTransform: 'none',
+                    borderColor: '#e2e8f0',
+                    color: '#64748b',
+                    fontWeight: 600,
+                    '&:hover': {
+                      borderColor: '#dc2626',
+                      color: '#dc2626',
+                      bgcolor: alpha('#dc2626', 0.04)
+                    }
+                  }}
                 >
                   Paste from Excel
                 </Button>
               </Box>
             </Box>
-            
-            <Stack spacing={2}>
+
+            <Stack spacing={2.5}>
               {sleeperSizes.map((sleeper, sleeperIndex) => (
-                <Paper 
+                <Paper
                   key={sleeper.id}
                   elevation={0}
-                  sx={{ 
-                    p: 2,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    borderRadius: 2
+                  sx={{
+                    p: 2.5,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 2,
+                    bgcolor: '#fafafa',
+                    position: 'relative'
                   }}
                 >
-                  {/* Sleeper Section */}
-                  <Box sx={{ mb: 2 }}>
-                    <Typography 
-                      variant="subtitle2" 
-                      sx={{ 
-                        mb: 1,
-                        color: 'primary.main',
-                        fontWeight: 500
+                  <Box sx={{ mb: 2.5 }}>
+                    <Typography
+                      variant="subtitle2"
+                      sx={{
+                        mb: 2,
+                        color: '#dc2626',
+                        fontWeight: 700,
+                        fontSize: '0.875rem'
                       }}
                     >
                       Sleeper #{sleeper.sequence}
                     </Typography>
-                    <Grid container spacing={1.5}>
+                    <Grid container spacing={2}>
                       <Grid item xs={12} sm={6} md={3}>
                         <DimensionInput
                           label="Height"
@@ -2299,8 +2704,7 @@ const WoodSlicer = () => {
                             const newSizes = [...sleeperSizes];
                             newSizes[sleeperIndex].length = feetToMeters(value);
                             setSleeperSizes(newSizes);
-                            
-                            // Update all associated planks with the same length
+
                             const newPlankSizes = [...plankSizes];
                             newPlankSizes.forEach(plank => {
                               if (plank.parentSequence === sleeper.sequence) {
@@ -2327,42 +2731,63 @@ const WoodSlicer = () => {
                   </Box>
 
                   {/* Planks Section */}
-                  <Box sx={{ ml: 3, mt: 3 }}>
-                    <Box sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      mb: 2
-                    }}>
-                      <Typography variant="subtitle2" color="text.secondary">
+                  <Box sx={{ ml: 2, mt: 3, pt: 3, borderTop: '1px solid #e2e8f0' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography
+                        variant="subtitle2"
+                        sx={{
+                          color: '#64748b',
+                          fontWeight: 600,
+                          fontSize: '0.875rem'
+                        }}
+                      >
                         Associated Planks
                       </Typography>
                       <Button
                         size="small"
                         startIcon={<AddIcon />}
                         onClick={() => addPlankSize(sleeper.sequence)}
+                        sx={{
+                          textTransform: 'none',
+                          color: '#dc2626',
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          '&:hover': {
+                            bgcolor: alpha('#dc2626', 0.08)
+                          }
+                        }}
                       >
                         Add Plank
                       </Button>
                     </Box>
-                    
+
                     <Stack spacing={2}>
                       {plankSizes
                         .filter(plank => plank.parentSequence === sleeper.sequence)
-                        .map((plank, plankIndex) => (
-                          <Box 
+                        .map((plank) => (
+                          <Box
                             key={plank.id}
-                            sx={{ 
+                            sx={{
                               p: 2,
-                              borderRadius: 1,
-                              bgcolor: 'grey.50',
+                              borderRadius: 1.5,
+                              bgcolor: 'white',
+                              border: '1px solid #e2e8f0',
                               position: 'relative'
                             }}
                           >
-                            <Typography variant="caption" sx={{ mb: 1, display: 'block' }}>
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                mb: 1.5,
+                                display: 'block',
+                                color: '#64748b',
+                                fontWeight: 600,
+                                fontSize: '0.75rem'
+                              }}
+                            >
                               Plank #{plank.sequence}
                             </Typography>
-                            <Grid container spacing={1.5}>
+                            <Grid container spacing={2}>
                               <Grid item xs={12} sm={6} md={4}>
                                 <DimensionInput
                                   label="Height"
@@ -2403,34 +2828,38 @@ const WoodSlicer = () => {
                                 />
                               </Grid>
                               <Grid item xs={12}>
-                                <Typography variant="caption" color="text.secondary">
-                                  Length: {formatDimension(sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length || 0, 'm')} 
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    color: '#64748b',
+                                    fontSize: '0.75rem'
+                                  }}
+                                >
+                                  Length: {formatDimension(sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length || 0, 'm')}
                                   (inherited from Sleeper #{plank.parentSequence})
                                 </Typography>
                               </Grid>
                             </Grid>
-                            
+
                             {plankSizes.filter(p => p.parentSequence === sleeper.sequence).length > 1 && (
                               <IconButton
                                 onClick={() => removePlankSize(plank.id)}
                                 size="small"
                                 sx={{
                                   position: 'absolute',
-                                  top: -8,
-                                  right: -8,
-                                  width: 24,
-                                  height: 24,
-                                  bgcolor: 'error.main',
+                                  top: -10,
+                                  right: -10,
+                                  width: 28,
+                                  height: 28,
+                                  bgcolor: '#dc2626',
                                   color: 'white',
                                   '&:hover': {
-                                    bgcolor: 'error.dark',
+                                    bgcolor: '#b91c1c',
                                   },
-                                  '& .MuiSvgIcon-root': {
-                                    fontSize: '0.875rem'
-                                  }
+                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                                 }}
                               >
-                                <DeleteIcon />
+                                <DeleteIcon sx={{ fontSize: '1rem' }} />
                               </IconButton>
                             )}
                           </Box>
@@ -2444,37 +2873,123 @@ const WoodSlicer = () => {
                       size="small"
                       sx={{
                         position: 'absolute',
-                        top: -8,
-                        right: -8,
-                        width: 24,
-                        height: 24,
-                        bgcolor: 'error.main',
+                        top: -10,
+                        right: -10,
+                        width: 28,
+                        height: 28,
+                        bgcolor: '#dc2626',
                         color: 'white',
                         '&:hover': {
-                          bgcolor: 'error.dark',
+                          bgcolor: '#b91c1c',
                         },
-                        '& .MuiSvgIcon-root': {
-                          fontSize: '0.875rem'
-                        }
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                       }}
                     >
-                      <DeleteIcon />
+                      <DeleteIcon sx={{ fontSize: '1rem' }} />
                     </IconButton>
                   )}
                 </Paper>
               ))}
             </Stack>
           </Paper>
+
+          {/* Operation Notes */}
+          <Paper
+            elevation={0}
+            sx={{
+              p: 3,
+              mb: 3,
+              borderRadius: 2,
+              border: '1px solid #e2e8f0',
+              backgroundColor: 'white',
+            }}
+          >
+            <Typography
+              variant="h6"
+              sx={{
+                mb: 2.5,
+                fontWeight: 700,
+                color: '#1e293b',
+                fontSize: '1rem'
+              }}
+            >
+              Operation Notes
+            </Typography>
+            <TextField
+              fullWidth
+              multiline
+              rows={4}
+              value={operationNotes}
+              onChange={(e) => setOperationNotes(e.target.value)}
+              placeholder="Add any notes about this operation..."
+              sx={textFieldSx}
+            />
+          </Paper>
+
+          {/* Summary Section */}
+          {(sleeperSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0) ||
+            plankSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0)) && (
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                borderRadius: 2,
+                border: '1px solid #e2e8f0',
+                backgroundColor: 'white',
+              }}
+            >
+              <Typography
+                variant="h6"
+                sx={{
+                  mb: 3,
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  fontSize: '1rem'
+                }}
+              >
+                Summary
+              </Typography>
+
+              <Stack spacing={3}>
+                <SummarySectionTable
+                  title="Sleeper Sizes Summary"
+                  items={sleeperSizes}
+                  type="sleeper"
+                  sleeperSizes={sleeperSizes}
+                />
+                <SummarySectionTable
+                  title="Plank Sizes Summary"
+                  items={plankSizes}
+                  type="plank"
+                  sleeperSizes={sleeperSizes}
+                />
+              </Stack>
+            </Paper>
+          )}
         </Grid>
 
         {/* Right Column - Results */}
         <Grid item xs={12} lg={4}>
           <Paper
             elevation={0}
-            sx={styles.resultsPaper}
+            sx={{
+              p: 3,
+              borderRadius: 2,
+              border: '1px solid #e2e8f0',
+              backgroundColor: 'white',
+              position: 'sticky',
+              top: 24,
+            }}
           >
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, color: theme.palette.text.primary }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  fontSize: '1rem'
+                }}
+              >
                 Calculation Results
               </Typography>
               <Button
@@ -2482,67 +2997,113 @@ const WoodSlicer = () => {
                 onClick={calculateWaste}
                 disabled={!selectedWoodType}
                 sx={{
-                  bgcolor: theme.palette.primary.main,
-                  '&:hover': { bgcolor: theme.palette.primary.dark },
-                  '&:disabled': { bgcolor: theme.palette.secondary.light }
+                  textTransform: 'none',
+                  bgcolor: '#dc2626',
+                  fontWeight: 600,
+                  fontSize: '0.75rem',
+                  '&:hover': { bgcolor: '#b91c1c' },
+                  '&:disabled': { bgcolor: '#cbd5e1', color: '#94a3b8' }
                 }}
               >
-                Calculate Waste
+                Calculate
               </Button>
             </Box>
-            
-            <Stack spacing={2}>
-              <Paper 
-                sx={{ 
-                  p: 2, 
-                  bgcolor: 'white',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1
+
+            <Stack spacing={2.5}>
+              <Paper
+                sx={{
+                  p: 2.5,
+                  bgcolor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 2
                 }}
               >
-                <Typography variant="body2" color="text.secondary">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: '#64748b',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}
+                >
                   Total Sleeper Volume
                 </Typography>
-                <Typography variant="h6" sx={{ color: theme.palette.text.primary, mt: 1 }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: '#1e293b',
+                    mt: 1,
+                    fontWeight: 700,
+                    fontSize: '1.5rem'
+                  }}
+                >
                   {calculateSleeperVolume().toFixed(3)} m³
                 </Typography>
               </Paper>
 
-              <Paper 
-                sx={{ 
-                  p: 2, 
-                  bgcolor: 'white',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1
+              <Paper
+                sx={{
+                  p: 2.5,
+                  bgcolor: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 2
                 }}
               >
-                <Typography variant="body2" color="text.secondary">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: '#64748b',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}
+                >
                   Total Plank Volume
                 </Typography>
-                <Typography variant="h6" sx={{ color: theme.palette.text.primary, mt: 1 }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: '#1e293b',
+                    mt: 1,
+                    fontWeight: 700,
+                    fontSize: '1.5rem'
+                  }}
+                >
                   {calculatePlankVolume().toFixed(3)} m³
                 </Typography>
               </Paper>
 
-              <Paper 
-                sx={{ 
-                  p: 2, 
-                  bgcolor: 'white',
+              <Paper
+                sx={{
+                  p: 2.5,
+                  bgcolor: alpha('#dc2626', 0.08),
                   border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1
+                  borderColor: alpha('#dc2626', 0.2),
+                  borderRadius: 2
                 }}
               >
-                <Typography variant="body2" color="text.secondary">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: '#b91c1c',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}
+                >
                   Estimated Waste
                 </Typography>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    color: theme.palette.error.main,
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: '#dc2626',
                     mt: 1,
+                    fontWeight: 700,
+                    fontSize: '1.5rem',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 1
@@ -2555,166 +3116,19 @@ const WoodSlicer = () => {
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Dialogs */}
       <LoadOperationDialog />
       <EndOperationDialog />
       <CompletedOperationsDialog />
       <OperationDetailsDialog />
-      <Grid item xs={12}>
-        {(sleeperSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0) || 
-          plankSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0)) && (
-          <Paper
-            elevation={0}
-            sx={{
-              p: 3,
-              borderRadius: 2,
-              border: '1px solid',
-              borderColor: 'divider',
-              mt: 2
-            }}
-          >
-            <Typography variant="h6" sx={{ mb: 3, fontWeight: 500 }}>
-              Summary
-            </Typography>
-            
-            <Stack spacing={3}>
-              <SummarySectionTable 
-                title="Sleeper Sizes Summary" 
-                items={sleeperSizes} 
-                type="sleeper"
-                sleeperSizes={sleeperSizes}
-              />
-              <SummarySectionTable 
-                title="Plank Sizes Summary" 
-                items={plankSizes} 
-                type="plank"
-                sleeperSizes={sleeperSizes}
-              />
-            </Stack>
-          </Paper>
-        )}
-      </Grid>
       <PasteSleeperDialog
         open={showPasteDialog}
         onClose={() => setShowPasteDialog(false)}
         onPaste={handlePasteSleepers}
       />
-      {/* Add this inside the main form, before the Summary section */}
-      <Paper
-        elevation={0}
-        sx={{
-          ...styles.contentPaper,
-          mb: 2
-        }}
-      >
-        <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
-          Operation Notes
-        </Typography>
-        <TextField
-          fullWidth
-          multiline
-          rows={4}
-          value={operationNotes}
-          onChange={(e) => setOperationNotes(e.target.value)}
-          placeholder="Add any notes about this operation..."
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: 1,
-              backgroundColor: 'background.paper',
-            }
-          }}
-        />
-      </Paper>
-    </Box>
+    </StyledContainer>
   );
 };
 
-const LoadOperationMenu = () => {
-  const { savedOperations } = useWoodSlicerContext();
-
-  if (!savedOperations.length) {
-    return (
-      <MenuItem disabled>
-        <Typography variant="body2">No saved operations</Typography>
-      </MenuItem>
-    );
-  }
-
-  return savedOperations.map((operation: any) => (
-    <MenuItem 
-      key={operation.id} 
-      onClick={(e) => {
-        e.stopPropagation();
-        handleLoadOperation(operation);
-      }}
-      sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between',
-        gap: 2,
-        minWidth: '300px'
-      }}
-    >
-      <Box>
-        <Typography variant="body2">
-          {operation.serial_number || 'No Serial'}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2, color: 'text.secondary' }}>
-          <Typography variant="caption">
-            Sleeper: {Number(operation.total_sleeper_volume).toFixed(3)} m³
-          </Typography>
-          <Typography variant="caption">
-            Plank: {Number(operation.total_plank_volume).toFixed(3)} m³
-          </Typography>
-        </Box>
-        <Typography variant="caption" color="text.secondary">
-          {new Date(operation.created_at).toLocaleDateString()}
-        </Typography>
-      </Box>
-      <Box sx={{ display: 'flex', gap: 1, ml: 2 }}>
-        <Button
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            onLoadOperation(operation);
-          }}
-          sx={{
-            borderRadius: 6,
-            textTransform: 'none'
-          }}
-        >
-          Load
-        </Button>
-        <IconButton
-          size="small"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDeleteOperation(operation.id);
-          }}
-          sx={{
-            color: 'error.main',
-            '&:hover': {
-              bgcolor: 'error.light'
-            }
-          }}
-        >
-          <DeleteIcon fontSize="small" />
-        </IconButton>
-      </Box>
-    </MenuItem>
-  ));
-};
-
-// Add this helper function to determine status chip color
-const getStatusColor = (status: string): "default" | "primary" | "warning" | "success" => {
-  switch (status) {
-    case 'draft':
-      return 'default';
-    case 'in_progress':
-      return 'primary';
-    case 'completed':
-      return 'success';
-    default:
-      return 'default';
-  }
-};
-
-export default WoodSlicer; 
+export default WoodSlicer;

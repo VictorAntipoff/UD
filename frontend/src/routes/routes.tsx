@@ -14,6 +14,7 @@ import { ProtectedRoute } from '../components/ProtectedRoute';
 import Layout from '../components/Layout/Layout';
 import ApprovalsManagement from '../pages/management/ApprovalsManagement';
 import WoodReceipt from '../pages/management/WoodReceipt';
+import WoodDryingSettings from '../pages/management/WoodDryingSettings';
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -67,6 +68,10 @@ export const routes: RouteObject[] = [
           {
             path: 'wood-receipt',
             element: <WoodReceipt />
+          },
+          {
+            path: 'drying-settings',
+            element: <WoodDryingSettings />
           }
         ]
       },
@@ -93,6 +98,4 @@ export const routes: RouteObject[] = [
     path: 'unauthorized',
     element: <UnauthorizedPage />
   }
-];
-
-console.log('Available routes:', routes.map(route => route.path)); 
+]; 

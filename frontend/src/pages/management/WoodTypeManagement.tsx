@@ -23,18 +23,19 @@ import {
   CircularProgress,
   InputAdornment,
   Autocomplete,
-  Stack
+  Stack,
+  Container
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CancelIcon from '@mui/icons-material/Cancel';
+import ForestIcon from '@mui/icons-material/Forest';
 import ImageList from '@mui/material/ImageList';
 import ImageListItem from '@mui/material/ImageListItem';
-import { supabase } from '../../config/supabase';
-import { SupabaseErrorBoundary } from '../../components/SupabaseErrorBoundary';
 import { alpha } from '@mui/material/styles';
+import api from '../../lib/api';
 import { styled } from '@mui/material/styles';
 
 interface WoodType {
@@ -65,7 +66,7 @@ interface WoodType {
   technical_data: {
     moisture_content: number | null;
     shrinkage: number | null;
-    janka_hardness: number | null; // Hardness rating
+    janka_hardness: number | null;
   };
   images: string[];
 }
@@ -105,33 +106,12 @@ const durabilityOptions = ['Low', 'Medium', 'High'];
 const workabilityOptions = ['Easy', 'Moderate', 'Difficult'];
 const growthRateOptions = ['Slow', 'Medium', 'Fast'];
 
-const theme = {
-  colors: {
-    primary: {
-      main: '#dc2626', // red-600
-      light: '#ef4444', // red-500
-      dark: '#b91c1c', // red-700
-      contrastText: '#ffffff'
-    },
-    secondary: {
-      main: '#f1f5f9', // slate-100
-      hover: '#e2e8f0' // slate-200
-    },
-    text: {
-      primary: '#334155', // slate-700
-      secondary: '#64748b' // slate-500
-    },
-    border: '#e2e8f0', // slate-200
-    error: {
-      light: '#fecaca',
-      main: '#ef4444',
-      dark: '#dc2626'
-    }
-  },
-  transitions: {
-    standard: 'all 0.3s ease-in-out'
-  }
-};
+const StyledContainer = styled(Container)(({ theme }) => ({
+  minHeight: '100vh',
+  paddingTop: theme.spacing(4),
+  paddingBottom: theme.spacing(4),
+  backgroundColor: '#f8fafc',
+}));
 
 const VisuallyHiddenInput = styled('input')({
   clip: 'rect(0 0 0 0)',
@@ -145,12 +125,34 @@ const VisuallyHiddenInput = styled('input')({
   width: 1,
 });
 
-const AlternativeNamesInput = ({ 
-  value, 
-  onChange 
-}: { 
-  value: string[] | null, 
-  onChange: (newValue: string[]) => void 
+const textFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    '& fieldset': {
+      borderColor: 'rgba(0, 0, 0, 0.12)',
+    },
+    '&:hover fieldset': {
+      borderColor: '#dc2626',
+    },
+    '&.Mui-focused fieldset': {
+      borderColor: '#dc2626',
+    },
+    fontSize: '0.875rem',
+  },
+  '& .MuiInputLabel-root': {
+    color: 'rgba(0, 0, 0, 0.6)',
+    fontSize: '0.875rem',
+    '&.Mui-focused': {
+      color: '#dc2626',
+    },
+  },
+};
+
+const AlternativeNamesInput = ({
+  value,
+  onChange
+}: {
+  value: string[] | null,
+  onChange: (newValue: string[]) => void
 }) => {
   const [inputValue, setInputValue] = useState('');
 
@@ -175,12 +177,15 @@ const AlternativeNamesInput = ({
               onChange(newValue);
             }}
             sx={{
-              backgroundColor: alpha(theme.colors.primary.main, 0.1),
-              color: theme.colors.primary.main,
+              backgroundColor: alpha('#dc2626', 0.1),
+              color: '#dc2626',
+              fontSize: '0.75rem',
+              height: '24px',
               '& .MuiChip-deleteIcon': {
-                color: theme.colors.primary.main,
+                color: '#dc2626',
+                fontSize: '1rem',
                 '&:hover': {
-                  color: theme.colors.primary.dark
+                  color: '#b91c1c'
                 }
               }
             }}
@@ -193,18 +198,19 @@ const AlternativeNamesInput = ({
           size="small"
           label="Alternative Names"
           helperText="Press Enter to add a name"
+          sx={textFieldSx}
         />
       )}
     />
   );
 };
 
-const ImageGallery = ({ 
-  images, 
-  onDelete 
-}: { 
-  images: string[], 
-  onDelete: (index: number) => void 
+const ImageGallery = ({
+  images,
+  onDelete
+}: {
+  images: string[],
+  onDelete: (index: number) => void
 }) => (
   <ImageList sx={{ width: '100%', height: 200 }} cols={3} rowHeight={164}>
     {images.map((img, index) => (
@@ -213,10 +219,11 @@ const ImageGallery = ({
           src={img}
           alt={`Wood type ${index + 1}`}
           loading="lazy"
-          style={{ 
-            height: '100%', 
-            width: '100%', 
-            objectFit: 'cover' 
+          style={{
+            height: '100%',
+            width: '100%',
+            objectFit: 'cover',
+            borderRadius: '8px'
           }}
         />
         <IconButton
@@ -226,9 +233,9 @@ const ImageGallery = ({
             position: 'absolute',
             top: 4,
             right: 4,
-            backgroundColor: 'rgba(0,0,0,0.5)',
+            backgroundColor: 'rgba(0,0,0,0.6)',
             '&:hover': {
-              backgroundColor: 'rgba(0,0,0,0.7)'
+              backgroundColor: 'rgba(0,0,0,0.8)'
             }
           }}
         >
@@ -245,37 +252,11 @@ const WoodTypeManagement: FC = () => {
   const [editingWoodType, setEditingWoodType] = useState<WoodType>(defaultWoodType);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const currentFile = import.meta.url;
 
   const fetchWoodTypes = async () => {
     try {
-      const { data, error } = await supabase
-        .from('wood_types')
-        .select('*')
-        .order('name');
-
-      if (error) throw error;
-
-      // Transform the data to match our interface
-      const formattedData = (data || []).map(item => ({
-        ...defaultWoodType,
-        ...item,
-        price_range: item.price_range || null,
-        characteristics: {
-          ...defaultWoodType.characteristics,
-          ...(item.characteristics || {})
-        },
-        sustainability: {
-          ...defaultWoodType.sustainability,
-          ...(item.sustainability || {})
-        },
-        technical_data: {
-          ...defaultWoodType.technical_data,
-          ...(item.technical_data || {})
-        }
-      }));
-
-      setWoodTypes(formattedData);
+      const response = await api.get('/factory/wood-types');
+      setWoodTypes(response.data || []);
     } catch (error) {
       console.error('Error fetching wood types:', error);
       setError('Failed to load wood types');
@@ -306,7 +287,6 @@ const WoodTypeManagement: FC = () => {
         return;
       }
 
-      // Format the data to match the database structure
       const woodTypeData = {
         name: editingWoodType.name,
         description: editingWoodType.description || null,
@@ -314,54 +294,22 @@ const WoodTypeManagement: FC = () => {
         grade: editingWoodType.grade,
         origin: editingWoodType.origin || null,
         alternative_names: editingWoodType.alternative_names || [],
-        price_range: editingWoodType.price_range?.min && editingWoodType.price_range?.max 
+        price_range: editingWoodType.price_range?.min && editingWoodType.price_range?.max
           ? {
               min: editingWoodType.price_range.min,
               max: editingWoodType.price_range.max
             }
           : null,
         images: editingWoodType.images || [],
-        characteristics: {
-          color: editingWoodType.characteristics?.color || null,
-          grain: editingWoodType.characteristics?.grain || null,
-          durability: editingWoodType.characteristics?.durability || null,
-          workability: editingWoodType.characteristics?.workability || null,
-          applications: editingWoodType.characteristics?.applications || []
-        },
-        sustainability: {
-          certification: editingWoodType.sustainability?.certification || [],
-          growth_rate: editingWoodType.sustainability?.growth_rate || null,
-          environmental_impact: editingWoodType.sustainability?.environmental_impact || null
-        },
-        technical_data: {
-          moisture_content: editingWoodType.technical_data?.moisture_content || null,
-          shrinkage: editingWoodType.technical_data?.shrinkage || null,
-          janka_hardness: editingWoodType.technical_data?.janka_hardness || null
-        }
+        characteristics: editingWoodType.characteristics || {},
+        sustainability: editingWoodType.sustainability || {},
+        technical_data: editingWoodType.technical_data || {}
       };
 
-      // Log the data being sent (for debugging)
-      console.log('Saving wood type data:', woodTypeData);
-
       if (editingWoodType.id) {
-        const { error } = await supabase
-          .from('wood_types')
-          .update(woodTypeData)
-          .eq('id', editingWoodType.id);
-
-        if (error) {
-          console.error('Update error:', error);
-          throw error;
-        }
+        await api.put(`/factory/wood-types/${editingWoodType.id}`, woodTypeData);
       } else {
-        const { error } = await supabase
-          .from('wood_types')
-          .insert([woodTypeData]);
-
-        if (error) {
-          console.error('Insert error:', error);
-          throw error;
-        }
+        await api.post('/factory/wood-types', woodTypeData);
       }
 
       await fetchWoodTypes();
@@ -378,12 +326,7 @@ const WoodTypeManagement: FC = () => {
     }
 
     try {
-      const { error } = await supabase
-        .from('wood_types')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await api.delete(`/factory/wood-types/${id}`);
       await fetchWoodTypes();
     } catch (error) {
       console.error('Error deleting wood type:', error);
@@ -396,30 +339,8 @@ const WoodTypeManagement: FC = () => {
       const files = event.target.files;
       if (!files) return;
 
-      const uploadPromises = Array.from(files).map(async (file) => {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
-        const filePath = `wood-types/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('images')
-          .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('images')
-          .getPublicUrl(filePath);
-
-        return publicUrl;
-      });
-
-      const uploadedUrls = await Promise.all(uploadPromises);
-
-      setEditingWoodType(prev => ({
-        ...prev,
-        images: [...(prev.images || []), ...uploadedUrls]
-      }));
+      console.log('Image upload temporarily disabled - backend API needed');
+      setError('Image upload not yet implemented with backend API');
 
     } catch (error) {
       console.error('Error uploading images:', error);
@@ -434,143 +355,214 @@ const WoodTypeManagement: FC = () => {
     }));
   };
 
+  const getStatusColor = (grade: string) => {
+    switch (grade) {
+      case 'A': return { bg: '#dcfce7', color: '#166534' };
+      case 'B': return { bg: '#dbeafe', color: '#1e40af' };
+      case 'C': return { bg: '#fef3c7', color: '#92400e' };
+      case 'D': return { bg: '#fee2e2', color: '#991b1b' };
+      default: return { bg: '#f1f5f9', color: '#475569' };
+    }
+  };
+
   return (
-    <SupabaseErrorBoundary>
-      <Box sx={{ p: 3 }}>
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          mb: 3 
-        }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography 
-              variant="h5" 
-              sx={{ 
-                color: '#2c3e50',
-                fontWeight: 500
+    <StyledContainer maxWidth="xl">
+      {/* Header */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 3,
+          mb: 3,
+          background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+          borderRadius: 2,
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                width: 48,
+                height: 48,
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              Wood Types Management
-            </Typography>
-            {import.meta.env.DEV && (
-              <Tooltip 
-                title={`File: ${currentFile.split('/src/')[1]}`}
-                arrow
+              <ForestIcon sx={{ fontSize: 28, color: 'white' }} />
+            </Box>
+            <Box>
+              <Typography
+                variant="h4"
+                sx={{
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: '1.75rem',
+                  letterSpacing: '-0.025em',
+                }}
               >
-                <Chip
-                  label="Development"
-                  size="small"
-                  sx={{
-                    backgroundColor: '#fbbf24',
-                    color: '#78350f',
-                    '& .MuiChip-label': {
-                      fontWeight: 600
-                    },
-                    cursor: 'help'
-                  }}
-                />
-              </Tooltip>
-            )}
+                Wood Types Management
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '0.875rem',
+                  mt: 0.5,
+                }}
+              >
+                Manage wood types, properties, and technical specifications
+              </Typography>
+            </Box>
           </Box>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
             onClick={() => handleOpen()}
             sx={{
-              backgroundColor: '#2c3e50',
+              backgroundColor: 'white',
+              color: '#dc2626',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              textTransform: 'none',
+              px: 3,
+              py: 1,
+              borderRadius: 2,
+              boxShadow: 'none',
               '&:hover': {
-                backgroundColor: '#34495e'
+                backgroundColor: '#f8fafc',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                transform: 'translateY(-2px)',
               },
-              fontSize: '0.85rem',
-              textTransform: 'none'
+              transition: 'all 0.2s ease',
             }}
           >
             Add Wood Type
           </Button>
         </Box>
+      </Paper>
 
-        {error && (
-          <Alert 
-            severity="error" 
-            sx={{ 
-              mb: 3,
-              '& .MuiAlert-message': {
-                fontSize: '0.875rem'
-              }
+      {error && (
+        <Alert
+          severity="error"
+          onClose={() => setError(null)}
+          sx={{
+            mb: 3,
+            borderRadius: 2,
+            '& .MuiAlert-message': {
+              fontSize: '0.875rem'
+            }
+          }}
+        >
+          {error}
+        </Alert>
+      )}
+
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress sx={{ color: '#dc2626' }} />
+        </Box>
+      ) : woodTypes.length === 0 ? (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 8,
+            textAlign: 'center',
+            borderRadius: 2,
+            border: '2px dashed #e2e8f0',
+            backgroundColor: 'white',
+          }}
+        >
+          <ForestIcon sx={{ fontSize: 64, color: '#cbd5e1', mb: 2 }} />
+          <Typography variant="h6" sx={{ color: '#64748b', mb: 1, fontWeight: 500 }}>
+            No wood types yet
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#94a3b8', mb: 3 }}>
+            Get started by adding your first wood type
+          </Typography>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpen()}
+            sx={{
+              backgroundColor: '#dc2626',
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+              textTransform: 'none',
+              fontWeight: 600,
             }}
           >
-            {error}
-          </Alert>
-        )}
-
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={24} sx={{ color: '#2c3e50' }} />
-          </Box>
-        ) : (
-          <Paper 
-            elevation={0} 
-            sx={{ 
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 2,
-              overflow: 'hidden'
-            }}
-          >
-            <TableContainer>
-              <Table size="small" sx={{
-                '& .MuiTableCell-root': {
-                  fontSize: '0.875rem',
-                  py: 1.5,
-                  px: 2,
-                  transition: theme.transitions.standard
-                },
-                '& .MuiTableCell-head': {
-                  fontWeight: 600,
-                  backgroundColor: alpha(theme.colors.primary.main, 0.03),
-                  color: theme.colors.text.primary,
-                  py: 1.25
-                },
-                '& .MuiTableRow-root': {
-                  transition: theme.transitions.standard,
-                  '&:hover': {
-                    backgroundColor: alpha(theme.colors.primary.main, 0.02)
-                  },
-                  '&:hover .action-buttons': {
-                    opacity: 1,
-                    transform: 'translateX(0)'
-                  }
-                }
-              }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Wood Type</TableCell>
-                    <TableCell>Properties</TableCell>
-                    <TableCell>Technical Data</TableCell>
-                    <TableCell>Price Range</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {woodTypes.map((woodType) => (
-                    <TableRow key={woodType.id}>
+            Add Wood Type
+          </Button>
+        </Paper>
+      ) : (
+        <Paper
+          elevation={0}
+          sx={{
+            borderRadius: 2,
+            overflow: 'hidden',
+            border: '1px solid #e2e8f0',
+            backgroundColor: 'white',
+          }}
+        >
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                  <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                    Wood Type
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                    Grade
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                    Properties
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                    Technical Data
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                    Price Range
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                    Actions
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {woodTypes.map((woodType) => {
+                  const gradeColors = getStatusColor(woodType.grade);
+                  return (
+                    <TableRow
+                      key={woodType.id}
+                      sx={{
+                        '&:hover': {
+                          backgroundColor: '#f8fafc',
+                        },
+                        transition: 'background-color 0.2s ease',
+                      }}
+                    >
                       <TableCell>
                         <Box>
-                          <Typography sx={{ 
-                            fontWeight: 500, 
-                            color: theme.colors.text.primary,
-                            fontSize: '0.875rem'
-                          }}>
+                          <Typography
+                            sx={{
+                              fontWeight: 600,
+                              color: '#1e293b',
+                              fontSize: '0.875rem',
+                              mb: 0.5,
+                            }}
+                          >
                             {woodType.name}
                           </Typography>
                           {woodType.alternative_names && woodType.alternative_names.length > 0 && (
-                            <Typography 
-                              variant="caption" 
-                              sx={{ 
-                                color: theme.colors.text.secondary,
-                                display: 'block',
-                                mt: 0.5
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                color: '#64748b',
+                                fontSize: '0.75rem',
                               }}
                             >
                               Also: {woodType.alternative_names.join(', ')}
@@ -579,26 +571,43 @@ const WoodTypeManagement: FC = () => {
                         </Box>
                       </TableCell>
                       <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          {woodType.characteristics.durability && (
+                        <Chip
+                          label={`Grade ${woodType.grade}`}
+                          size="small"
+                          sx={{
+                            backgroundColor: gradeColors.bg,
+                            color: gradeColors.color,
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                            height: '24px',
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1} flexWrap="wrap">
+                          {woodType.characteristics?.durability && (
                             <Chip
-                              label={woodType.characteristics.durability}
+                              label={`${woodType.characteristics.durability} Durability`}
                               size="small"
                               sx={{
-                                backgroundColor: alpha(theme.colors.primary.main, 0.1),
-                                color: theme.colors.primary.main,
-                                fontSize: '0.75rem'
+                                backgroundColor: alpha('#dc2626', 0.08),
+                                color: '#dc2626',
+                                fontSize: '0.75rem',
+                                height: '24px',
+                                fontWeight: 500,
                               }}
                             />
                           )}
-                          {woodType.grade && (
+                          {woodType.characteristics?.workability && (
                             <Chip
-                              label={`Grade ${woodType.grade}`}
+                              label={woodType.characteristics.workability}
                               size="small"
                               sx={{
-                                backgroundColor: theme.colors.secondary.main,
-                                color: theme.colors.text.primary,
-                                fontSize: '0.75rem'
+                                backgroundColor: '#f1f5f9',
+                                color: '#64748b',
+                                fontSize: '0.75rem',
+                                height: '24px',
+                                fontWeight: 500,
                               }}
                             />
                           )}
@@ -607,212 +616,147 @@ const WoodTypeManagement: FC = () => {
                       <TableCell>
                         <Stack spacing={0.5}>
                           {woodType.density && (
-                            <Typography variant="caption">
-                              Density: {woodType.density} kg/m³
+                            <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                              <strong>Density:</strong> {woodType.density} kg/m³
                             </Typography>
                           )}
-                          {woodType.technical_data.moisture_content && (
-                            <Typography variant="caption">
-                              Moisture: {woodType.technical_data.moisture_content}%
+                          {woodType.technical_data?.moisture_content && (
+                            <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                              <strong>Moisture:</strong> {woodType.technical_data.moisture_content}%
                             </Typography>
                           )}
                         </Stack>
                       </TableCell>
                       <TableCell>
                         {woodType.price_range?.min != null && woodType.price_range?.max != null ? (
-                          <Typography variant="body2" sx={{ color: theme.colors.primary.main }}>
-                            TZS {woodType.price_range.min.toLocaleString()} - {woodType.price_range.max.toLocaleString()}/m³
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              color: '#dc2626',
+                              fontWeight: 600,
+                              fontSize: '0.875rem',
+                            }}
+                          >
+                            TZS {woodType.price_range.min.toLocaleString()} - {woodType.price_range.max.toLocaleString()}
                           </Typography>
                         ) : (
-                          <Typography variant="body2" sx={{ color: theme.colors.text.secondary }}>
+                          <Typography variant="body2" sx={{ color: '#94a3b8', fontSize: '0.875rem' }}>
                             Not specified
                           </Typography>
                         )}
                       </TableCell>
                       <TableCell align="right">
-                        <Box 
-                          className="action-buttons"
-                          sx={{ 
-                            display: 'flex', 
-                            justifyContent: 'flex-end', 
-                            gap: 1,
-                            opacity: 0.4,
-                            transform: 'translateX(10px)',
-                            transition: theme.transitions.standard
-                          }}
-                        >
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
                           <Tooltip title="Edit">
-                            <IconButton 
-                              size="small" 
+                            <IconButton
+                              size="small"
                               onClick={() => handleOpen(woodType)}
-                              sx={{ 
-                                padding: 0.5,
+                              sx={{
                                 color: '#64748b',
                                 '&:hover': {
-                                  backgroundColor: '#f1f5f9',
-                                  color: '#2c3e50'
-                                }
+                                  backgroundColor: alpha('#dc2626', 0.08),
+                                  color: '#dc2626',
+                                },
                               }}
                             >
-                              <EditIcon sx={{ fontSize: '1.1rem' }} />
+                              <EditIcon sx={{ fontSize: '1.25rem' }} />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="Delete">
-                            <IconButton 
+                            <IconButton
                               size="small"
                               onClick={() => handleDelete(woodType.id)}
-                              sx={{ 
-                                padding: 0.5,
+                              sx={{
                                 color: '#64748b',
                                 '&:hover': {
-                                  backgroundColor: '#fef2f2',
-                                  color: '#ef4444'
-                                }
+                                  backgroundColor: alpha('#dc2626', 0.08),
+                                  color: '#dc2626',
+                                },
                               }}
                             >
-                              <DeleteIcon sx={{ fontSize: '1.1rem' }} />
+                              <DeleteIcon sx={{ fontSize: '1.25rem' }} />
                             </IconButton>
                           </Tooltip>
                         </Box>
                       </TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
-        )}
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
 
-        <Dialog 
-          open={open} 
-          onClose={handleClose}
-          maxWidth="lg"
-          fullWidth
-          PaperProps={{
-            elevation: 0,
-            sx: {
-              borderRadius: 2,
-              border: `1px solid ${theme.colors.border}`,
-              overflow: 'hidden',
-              animation: 'fadeIn 0.3s ease-out',
-              '@keyframes fadeIn': {
-                from: {
-                  opacity: 0,
-                  transform: 'translateY(-20px)'
-                },
-                to: {
-                  opacity: 1,
-                  transform: 'translateY(0)'
-                }
-              }
-            }
+      {/* Edit/Add Dialog */}
+      <Dialog
+        open={open}
+        onClose={handleClose}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            maxHeight: '90vh',
+          }
+        }}
+      >
+        <DialogTitle
+          sx={{
+            fontSize: '1.25rem',
+            fontWeight: 700,
+            color: '#1e293b',
+            borderBottom: '1px solid #e2e8f0',
+            pb: 2,
           }}
         >
-          <DialogTitle sx={{ 
-            fontSize: '1.25rem', 
-            fontWeight: 600,
-            color: theme.colors.text.primary,
-            borderBottom: `1px solid ${theme.colors.border}`,
-            pb: 2,
-            backgroundColor: alpha(theme.colors.primary.main, 0.03)
-          }}>
-            {editingWoodType.id ? 'Edit Wood Type' : 'Add Wood Type'}
-          </DialogTitle>
-          <DialogContent sx={{ 
-            py: 4,
-            px: 4,
-            backgroundColor: '#ffffff'
-          }}>
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: '1fr 1fr', 
-              gap: 4,
-              '& .section-title': {
-                fontSize: '0.95rem',
-                fontWeight: 600,
-                color: theme.colors.primary.main,
-                mb: 2,
-                display: 'flex',
-                alignItems: 'center',
-                '&::before': {
-                  content: '""',
-                  width: 4,
-                  height: 4,
-                  borderRadius: '50%',
-                  backgroundColor: theme.colors.primary.main,
-                  mr: 1
-                }
-              },
-              '& .MuiTextField-root': {
-                transition: theme.transitions.standard,
-                '& .MuiOutlinedInput-root': {
-                  '&:hover fieldset': {
-                    borderColor: theme.colors.primary.light
-                  },
-                  '&.Mui-focused fieldset': {
-                    borderColor: theme.colors.primary.main
-                  }
-                }
-              }
-            }}>
-              {/* Basic Information Section */}
-              <Box>
-                <Typography className="section-title">
-                  Basic Information
-                </Typography>
+          {editingWoodType.id ? 'Edit Wood Type' : 'Add Wood Type'}
+        </DialogTitle>
+        <DialogContent sx={{ py: 3, px: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3, mt: 1 }}>
+            {/* Basic Information */}
+            <Box>
+              <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#334155', mb: 2 }}>
+                Basic Information
+              </Typography>
+              <Stack spacing={2}>
                 <TextField
                   fullWidth
                   label="Name"
+                  required
                   value={editingWoodType.name}
                   onChange={(e) => setEditingWoodType(prev => ({ ...prev, name: e.target.value }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 />
-                <Box sx={{ mb: 2 }}>
-                  <AlternativeNamesInput
-                    value={editingWoodType.alternative_names}
-                    onChange={(newValue) => setEditingWoodType(prev => ({
-                      ...prev,
-                      alternative_names: newValue
-                    }))}
-                  />
-                </Box>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
-                  <TextField
-                    fullWidth
-                    label="Min Price/m³"
-                    type="number"
-                    value={editingWoodType.price_range?.min ?? ''}
-                    onChange={(e) => setEditingWoodType(prev => ({
-                      ...prev,
-                      price_range: {
-                        ...prev.price_range,
-                        min: e.target.value === '' ? null : Number(e.target.value)
-                      }
-                    } as WoodType))}
-                    size="small"
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">TZS</InputAdornment>
-                    }}
-                  />
-                  <TextField
-                    fullWidth
-                    label="Max Price/m³"
-                    type="number"
-                    value={editingWoodType.price_range?.max ?? ''}
-                    onChange={(e) => setEditingWoodType(prev => ({
-                      ...prev,
-                      price_range: {
-                        ...prev.price_range,
-                        max: e.target.value === '' ? null : Number(e.target.value)
-                      }
-                    } as WoodType))}
-                    size="small"
-                    InputProps={{
-                      startAdornment: <InputAdornment position="start">TZS</InputAdornment>
-                    }}
-                  />
-                </Box>
+                <AlternativeNamesInput
+                  value={editingWoodType.alternative_names}
+                  onChange={(newValue) => setEditingWoodType(prev => ({
+                    ...prev,
+                    alternative_names: newValue
+                  }))}
+                />
+                <TextField
+                  fullWidth
+                  select
+                  label="Grade"
+                  value={editingWoodType.grade}
+                  onChange={(e) => setEditingWoodType(prev => ({ ...prev, grade: e.target.value as any }))}
+                  size="small"
+                  sx={textFieldSx}
+                >
+                  {grades.map(grade => (
+                    <MenuItem key={grade} value={grade}>Grade {grade}</MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  fullWidth
+                  label="Origin"
+                  value={editingWoodType.origin || ''}
+                  onChange={(e) => setEditingWoodType(prev => ({ ...prev, origin: e.target.value }))}
+                  size="small"
+                  sx={textFieldSx}
+                />
                 <TextField
                   fullWidth
                   multiline
@@ -821,48 +765,95 @@ const WoodTypeManagement: FC = () => {
                   value={editingWoodType.description || ''}
                   onChange={(e) => setEditingWoodType(prev => ({ ...prev, description: e.target.value }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 />
-              </Box>
+              </Stack>
+            </Box>
 
-              {/* Characteristics Section */}
-              <Box>
-                <Typography className="section-title">
-                  Characteristics
-                </Typography>
+            {/* Price Range */}
+            <Box>
+              <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#334155', mb: 2 }}>
+                Pricing
+              </Typography>
+              <Stack spacing={2}>
+                <TextField
+                  fullWidth
+                  label="Min Price per m³"
+                  type="number"
+                  value={editingWoodType.price_range?.min ?? ''}
+                  onChange={(e) => setEditingWoodType(prev => ({
+                    ...prev,
+                    price_range: {
+                      ...prev.price_range,
+                      min: e.target.value === '' ? null : Number(e.target.value)
+                    }
+                  } as WoodType))}
+                  size="small"
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">TZS</InputAdornment>
+                  }}
+                  sx={textFieldSx}
+                />
+                <TextField
+                  fullWidth
+                  label="Max Price per m³"
+                  type="number"
+                  value={editingWoodType.price_range?.max ?? ''}
+                  onChange={(e) => setEditingWoodType(prev => ({
+                    ...prev,
+                    price_range: {
+                      ...prev.price_range,
+                      max: e.target.value === '' ? null : Number(e.target.value)
+                    }
+                  } as WoodType))}
+                  size="small"
+                  InputProps={{
+                    startAdornment: <InputAdornment position="start">TZS</InputAdornment>
+                  }}
+                  sx={textFieldSx}
+                />
+              </Stack>
+            </Box>
+
+            {/* Characteristics */}
+            <Box>
+              <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#334155', mb: 2 }}>
+                Characteristics
+              </Typography>
+              <Stack spacing={2}>
                 <TextField
                   fullWidth
                   label="Color"
-                  value={editingWoodType.characteristics.color || ''}
+                  value={editingWoodType.characteristics?.color || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     characteristics: { ...prev.characteristics, color: e.target.value }
                   }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 />
                 <TextField
                   fullWidth
                   label="Grain Pattern"
-                  value={editingWoodType.characteristics.grain || ''}
+                  value={editingWoodType.characteristics?.grain || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     characteristics: { ...prev.characteristics, grain: e.target.value }
                   }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 />
                 <TextField
                   fullWidth
                   select
                   label="Durability"
-                  value={editingWoodType.characteristics.durability || ''}
+                  value={editingWoodType.characteristics?.durability || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     characteristics: { ...prev.characteristics, durability: e.target.value as any }
                   }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 >
                   {durabilityOptions.map(option => (
                     <MenuItem key={option} value={option}>{option}</MenuItem>
@@ -870,99 +861,70 @@ const WoodTypeManagement: FC = () => {
                 </TextField>
                 <TextField
                   fullWidth
-                  label="Applications"
-                  value={editingWoodType.characteristics.applications?.join(', ') || ''}
+                  select
+                  label="Workability"
+                  value={editingWoodType.characteristics?.workability || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     characteristics: {
                       ...prev.characteristics,
-                      applications: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                      workability: e.target.value as 'Easy' | 'Moderate' | 'Difficult'
                     }
                   }))}
                   size="small"
-                  helperText="Separate applications with commas"
-                  sx={{ mb: 2 }}
-                />
-                <TextField
-                  fullWidth
-                  select
-                  label="Workability"
-                  value={editingWoodType.characteristics.workability || ''}
-                  onChange={(e) => setEditingWoodType(prev => ({
-                    ...prev,
-                    characteristics: { 
-                      ...prev.characteristics, 
-                      workability: e.target.value as 'Easy' | 'Moderate' | 'Difficult' 
-                    }
-                  }))}
-                  size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 >
                   {workabilityOptions.map(option => (
                     <MenuItem key={option} value={option}>{option}</MenuItem>
                   ))}
                 </TextField>
-              </Box>
+              </Stack>
+            </Box>
 
-              {/* Technical Data Section */}
-              <Box>
-                <Typography className="section-title">
-                  Technical Data
-                </Typography>
+            {/* Technical Data */}
+            <Box>
+              <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#334155', mb: 2 }}>
+                Technical Data
+              </Typography>
+              <Stack spacing={2}>
                 <TextField
                   fullWidth
-                  label="Density (kg/m³)"
+                  label="Density"
                   type="number"
                   value={editingWoodType.density || ''}
                   onChange={(e) => setEditingWoodType(prev => ({ ...prev, density: parseFloat(e.target.value) || null }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">kg/m³</InputAdornment>
+                  }}
+                  sx={textFieldSx}
                 />
                 <TextField
                   fullWidth
-                  label="Moisture Content (%)"
+                  label="Moisture Content"
                   type="number"
-                  value={editingWoodType.technical_data.moisture_content || ''}
+                  value={editingWoodType.technical_data?.moisture_content || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     technical_data: { ...prev.technical_data, moisture_content: parseFloat(e.target.value) || null }
                   }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">%</InputAdornment>
+                  }}
+                  sx={textFieldSx}
                 />
                 <TextField
                   fullWidth
                   label="Janka Hardness"
                   type="number"
-                  value={editingWoodType.technical_data.janka_hardness || ''}
+                  value={editingWoodType.technical_data?.janka_hardness || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     technical_data: { ...prev.technical_data, janka_hardness: parseFloat(e.target.value) || null }
                   }))}
                   size="small"
-                  sx={{ mb: 2 }}
-                />
-              </Box>
-
-              {/* Sustainability Section */}
-              <Box>
-                <Typography className="section-title">
-                  Sustainability
-                </Typography>
-                <TextField
-                  fullWidth
-                  label="Certifications"
-                  value={editingWoodType.sustainability.certification?.join(', ') || ''}
-                  onChange={(e) => setEditingWoodType(prev => ({
-                    ...prev,
-                    sustainability: {
-                      ...prev.sustainability,
-                      certification: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                    }
-                  }))}
-                  size="small"
-                  helperText="Separate certifications with commas"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 />
                 <TextField
                   fullWidth
@@ -974,81 +936,49 @@ const WoodTypeManagement: FC = () => {
                     sustainability: { ...prev.sustainability, growth_rate: e.target.value as any }
                   }))}
                   size="small"
-                  sx={{ mb: 2 }}
+                  sx={textFieldSx}
                 >
                   {growthRateOptions.map(option => (
                     <MenuItem key={option} value={option}>{option}</MenuItem>
                   ))}
                 </TextField>
-              </Box>
-
-              {/* Image Section */}
-              <Box sx={{ mb: 2 }}>
-                <Typography className="section-title">
-                  Wood Images
-                </Typography>
-                <Stack spacing={2}>
-                  <Button
-                    component="label"
-                    variant="outlined"
-                    startIcon={<CloudUploadIcon />}
-                    sx={{
-                      borderColor: theme.colors.border,
-                      color: theme.colors.text.primary,
-                      '&:hover': {
-                        borderColor: theme.colors.primary.main,
-                        backgroundColor: alpha(theme.colors.primary.main, 0.04)
-                      }
-                    }}
-                  >
-                    Upload Images
-                    <VisuallyHiddenInput 
-                      type="file" 
-                      onChange={handleImageUpload} 
-                      accept="image/*"
-                      multiple 
-                    />
-                  </Button>
-                  {editingWoodType.images.length > 0 && (
-                    <ImageGallery 
-                      images={editingWoodType.images} 
-                      onDelete={handleImageDelete} 
-                    />
-                  )}
-                </Stack>
-              </Box>
+              </Stack>
             </Box>
-          </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
-            <Button 
-              onClick={handleClose}
-              sx={{ 
-                fontSize: '0.85rem',
-                color: '#64748b',
-                textTransform: 'none'
-              }}
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSave}
-              variant="contained"
-              sx={{
-                backgroundColor: '#2c3e50',
-                '&:hover': {
-                  backgroundColor: '#34495e'
-                },
-                fontSize: '0.85rem',
-                textTransform: 'none'
-              }}
-            >
-              Save
-            </Button>
-          </DialogActions>
-        </Dialog>
-      </Box>
-    </SupabaseErrorBoundary>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: '1px solid #e2e8f0' }}>
+          <Button
+            onClick={handleClose}
+            sx={{
+              color: '#64748b',
+              textTransform: 'none',
+              fontWeight: 600,
+              '&:hover': {
+                backgroundColor: '#f1f5f9',
+              },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            variant="contained"
+            sx={{
+              backgroundColor: '#dc2626',
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+            }}
+          >
+            {editingWoodType.id ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </StyledContainer>
   );
 };
 
-export default WoodTypeManagement; 
+export default WoodTypeManagement;

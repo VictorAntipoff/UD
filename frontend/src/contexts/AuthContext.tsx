@@ -1,8 +1,17 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../config/supabase';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
+
+interface User {
+  id: string;
+  email: string;
+  role: string;
+  firstName?: string;
+  lastName?: string;
+}
 
 interface AuthContextType {
-  user: any;
+  user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -13,40 +22,63 @@ interface AuthContextType {
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    // Check active sessions and sets the user
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setIsAuthenticated(!!session?.user);
-      setIsLoading(false);
-    });
+    const checkAuth = async () => {
+      const token = localStorage.getItem('auth_token');
 
-    // Listen for changes on auth state
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setIsAuthenticated(!!session?.user);
-      setIsLoading(false);
-    });
+      if (token) {
+        try {
+          const response = await fetch(`${API_URL}/api/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
 
-    return () => subscription.unsubscribe();
+          if (response.ok) {
+            const userData = await response.json();
+            setUser(userData.user || userData);
+            setIsAuthenticated(true);
+          } else {
+            localStorage.removeItem('auth_token');
+          }
+        } catch (error) {
+          console.error('Auth check error:', error);
+          localStorage.removeItem('auth_token');
+        }
+      }
+      setIsLoading(false);
+    };
+
+    checkAuth();
   }, []);
 
   const login = async (email: string, password: string) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
       });
 
-      if (error) throw error;
-      
-      if (data?.user) {
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Login failed');
+      }
+
+      const data = await response.json();
+
+      if (data.token && data.user) {
+        localStorage.setItem('auth_token', data.token);
         setUser(data.user);
         setIsAuthenticated(true);
+      } else {
+        throw new Error('Invalid response from server');
       }
     } catch (error: any) {
       console.error('Login error:', error);
@@ -56,9 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
+      localStorage.removeItem('auth_token');
       setUser(null);
       setIsAuthenticated(false);
     } catch (error: any) {
@@ -80,4 +110,4 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-} 
+}
