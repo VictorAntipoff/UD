@@ -7,7 +7,8 @@ import theme from './theme/theme';
 
 const router = createBrowserRouter(routes, {
   future: {
-    v7_relativeSplatPath: true
+    v7_relativeSplatPath: true,
+    v7_startTransition: true
   }
 });
 
@@ -16,7 +17,10 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
-        <RouterProvider router={router} />
+        <RouterProvider
+          router={router}
+          future={{ v7_startTransition: true }}
+        />
       </AuthProvider>
     </ThemeProvider>
   );

@@ -1,28 +1,27 @@
 import type { WoodType } from './calculations';
 
-export type ReceiptStatus = 'PENDING' | 'RECEIVED' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
+export type ReceiptStatus = 'CREATED' | 'PENDING' | 'RECEIVED' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
 
 export interface WoodReceipt {
   id: string;
-  created_at: string;
-  updated_at: string;
-  created_by: string;
   wood_type_id: string;
-  wood_type?: WoodType;
   supplier: string;
-  purchase_date: string;
-  purchase_order: string;
-  total_volume_m3: number;
-  total_pieces: number;
-  notes: string;
-  status: ReceiptStatus;
+  receipt_date: string;
+  purchase_date?: string; // For frontend compatibility
+  purchase_order?: string; // Made optional since it's a new column
   lot_number: string;
-  invoice_number: string;
-  documents: {
+  status: ReceiptStatus; // Changed to use the ReceiptStatus type
+  notes?: string;
+  created_by?: string;
+  total_volume_m3?: number;
+  total_pieces?: number;
+  total_amount: number;
+  created_at?: string;
+  updated_at?: string;
+  wood_type?: {
+    id: string;
     name: string;
-    url: string;
-    type: string;
-  }[];
+  };
 }
 
 export interface WoodReceiptItem {

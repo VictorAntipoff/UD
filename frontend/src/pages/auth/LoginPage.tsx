@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Button, TextField, Box, Typography, Container, Paper, Fade } from '@mui/material';
+import { Button, TextField, Box, Typography, Container, Paper, Fade, IconButton, InputAdornment, Checkbox, FormControlLabel } from '@mui/material';
+import { Visibility, VisibilityOff } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
+import { useSnackbar } from 'notistack';
 
 const PageContainer = styled(Box)(({ theme }) => ({
   minHeight: '100vh',
@@ -51,8 +53,17 @@ const StyledTextField = styled(TextField)(() => ({
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const { enqueueSnackbar } = useSnackbar();
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('rememberedEmail') || '';
+  });
+  const [password, setPassword] = useState(() => {
+    return localStorage.getItem('rememberedPassword') || '';
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(() => {
+    return localStorage.getItem('rememberedEmail') !== null;
+  });
   const [error, setError] = useState('');
   const { login, isLoading } = useAuth();
 
@@ -60,28 +71,42 @@ const LoginPage = () => {
     e.preventDefault();
     setError('');
 
-    console.log('Attempting login with:', { username });
-
     try {
-      const result = await login(username, password);
-      console.log('Login result:', result);
-      
-      console.log('Login successful, attempting navigation');
-      
-      // Try both ways to navigate
+      await login(username, password);
+
+      // Save email and password if remember me is checked
+      if (rememberMe) {
+        localStorage.setItem('rememberedEmail', username);
+        localStorage.setItem('rememberedPassword', password);
+      } else {
+        localStorage.removeItem('rememberedEmail');
+        localStorage.removeItem('rememberedPassword');
+      }
+
+      enqueueSnackbar('Login successful!', { variant: 'success' });
       navigate('/dashboard', { replace: true });
-      // If the above doesn't work, try this:
-      window.location.href = '/dashboard';
-      
-      console.log('Navigation completed');
     } catch (err: any) {
-      console.error('Login error details:', {
-        message: err.message,
-        status: err.response?.status,
-        data: err.response?.data
-      });
-      setError(err.message || 'Failed to login. Please try again.');
+      // Extract error message from response
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message;
+
+      // Show specific error messages
+      if (errorMessage?.toLowerCase().includes('invalid credentials') ||
+          errorMessage?.toLowerCase().includes('password')) {
+        setError('Invalid email or password. Please try again.');
+        enqueueSnackbar('Invalid email or password', { variant: 'error' });
+      } else if (errorMessage?.toLowerCase().includes('email') ||
+                 errorMessage?.toLowerCase().includes('user not found')) {
+        setError('No account found with this email address.');
+        enqueueSnackbar('Email not found', { variant: 'error' });
+      } else {
+        setError(errorMessage || 'Failed to login. Please try again.');
+        enqueueSnackbar(errorMessage || 'Login failed', { variant: 'error' });
+      }
     }
+  };
+
+  const handleClickShowPassword = () => {
+    setShowPassword(!showPassword);
   };
 
   return (
@@ -162,13 +187,48 @@ const LoginPage = () => {
                 fullWidth
                 name="password"
                 label="Password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 id="password"
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
                 size="small"
+                sx={{ mb: 2 }}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label="toggle password visibility"
+                        onClick={handleClickShowPassword}
+                        edge="end"
+                        size="small"
+                      >
+                        {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    size="small"
+                    sx={{
+                      color: '#CC0000',
+                      '&.Mui-checked': {
+                        color: '#CC0000',
+                      },
+                    }}
+                  />
+                }
+                label={
+                  <Typography variant="body2" color="text.secondary">
+                    Remember me
+                  </Typography>
+                }
                 sx={{ mb: 3 }}
               />
               <Button

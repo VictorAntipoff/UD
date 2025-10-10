@@ -2,7 +2,6 @@
 // File: src/main.tsx
 // Description: Main entry point for the React application
 
-import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
@@ -18,9 +17,14 @@ if (!container) throw new Error('Failed to find the root element');
 const root = createRoot(container);
 
 root.render(
-  <StrictMode>
-    <SnackbarProvider maxSnack={3}>
-      <App />
-    </SnackbarProvider>
-  </StrictMode>
+  <SnackbarProvider
+    maxSnack={3}
+    anchorOrigin={{
+      vertical: 'top',
+      horizontal: 'right',
+    }}
+    autoHideDuration={4000}
+  >
+    <App />
+  </SnackbarProvider>
 );

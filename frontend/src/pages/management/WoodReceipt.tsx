@@ -19,18 +19,22 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  DialogContentText
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import ContentCutIcon from '@mui/icons-material/ContentCut';
 import { useSnackbar } from 'notistack';
-import { supabase } from '../../config/supabase';
 import type { WoodType } from '../../types/calculations';
+import api from '../../lib/api';
 import type { WoodReceipt as WoodReceiptType } from '../../types/wood-receipt';
 import { colors } from '../../theme/colors';
 import { styled } from '@mui/material/styles';
+import { CircularProgress } from '@mui/material';
 
 interface PostgrestError {
   code: string;
@@ -39,7 +43,7 @@ interface PostgrestError {
   hint: string | null;
 }
 
-type ReceiptStatus = 'PENDING' | 'RECEIVED' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
+type ReceiptStatus = 'CREATED' | 'PENDING' | 'RECEIVED' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED';
 
 interface EditingReceipt extends Omit<WoodReceiptType, 'total_volume_m3' | 'total_pieces'> {
   total_volume_m3: string | number;
@@ -50,57 +54,34 @@ interface LotNumberMap {
   [key: string]: string;
 }
 
+interface WoodTypeResponse {
+  id: string;
+  name: string;
+}
+
+interface RawWoodReceipt {
+  id: string;
+  wood_type_id: string;
+  supplier: string;
+  receipt_date: string;
+  lot_number: string | null;
+  status: string;
+  created_by: string | null;
+  total_volume_m3: number | null;
+  total_pieces: number | null;
+  total_amount: number;
+  created_at: string | null;
+  updated_at: string | null;
+  wood_type: WoodTypeResponse | WoodTypeResponse[];
+  notes?: string;
+  purchase_order?: string;
+}
+
 const StyledContainer = styled(Container)(({ theme }) => ({
-  backgroundColor: '#f5f5f5',
   minHeight: '100vh',
   paddingTop: theme.spacing(4),
   paddingBottom: theme.spacing(4),
-}));
-
-const StyledPaper = styled(Paper)(({ theme }) => ({
-  backgroundColor: '#fff',
-  borderRadius: theme.spacing(1),
-  boxShadow: '0px 4px 20px rgba(0, 0, 0, 0.05)',
-}));
-
-const StyledTableContainer = styled(TableContainer)(({ theme }) => ({
-  '& .MuiTable-root': {
-    '& .MuiTableHead-root': {
-      '& .MuiTableCell-root': {
-        backgroundColor: '#f5f5f5',
-        color: 'rgba(0, 0, 0, 0.87)',
-        fontWeight: 600,
-        fontSize: '0.875rem',
-        fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-      },
-    },
-    '& .MuiTableBody-root': {
-      '& .MuiTableRow-root': {
-        '&:hover': {
-          backgroundColor: '#f5f5f5',
-        },
-      },
-      '& .MuiTableCell-root': {
-        color: 'rgba(0, 0, 0, 0.6)',
-        fontSize: '0.875rem',
-        fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-      },
-    },
-  },
-}));
-
-const StyledButton = styled(Button)(({ theme }) => ({
-  backgroundColor: '#1976d2',
-  color: '#fff',
-  '&:hover': {
-    backgroundColor: '#1565c0',
-  },
-  borderRadius: theme.spacing(1),
-  textTransform: 'none',
-  padding: theme.spacing(1, 3),
-  fontSize: '0.875rem',
-  fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-  fontWeight: 500,
+  backgroundColor: '#f8fafc',
 }));
 
 // Common TextField styles
@@ -137,70 +118,33 @@ const WoodReceipt = () => {
     supplier: '',
     purchase_date: new Date().toISOString().split('T')[0],
     purchase_order: '',
+    wood_format: 'SLEEPERS',
     total_volume_m3: '',
     total_pieces: '',
     notes: '',
     status: 'PENDING',
-    lot_number: 'Auto-generated',
+    lot_number: '',
   });
   const [editingReceipt, setEditingReceipt] = useState<EditingReceipt | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [receiptToDelete, setReceiptToDelete] = useState<WoodReceiptType | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [traceabilityDialogOpen, setTraceabilityDialogOpen] = useState(false);
+  const [traceabilityData, setTraceabilityData] = useState<any>(null);
+  const [loadingTraceability, setLoadingTraceability] = useState(false);
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      // Get both user and session
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-      if (userError || sessionError) {
-        console.error('Auth errors:', { userError, sessionError });
-        enqueueSnackbar('Authentication error', { variant: 'error' });
-        return;
-      }
-
-      if (!user || !session) {
-        console.error('No user or session');
-        enqueueSnackbar('Please sign in to access this page', { variant: 'error' });
-        return;
-      }
-
-      console.log('Auth state:', {
-        user: user,
-        session: session,
-        role: session.user.role, // Log the user's role
-        accessToken: session.access_token.substring(0, 20) + '...' // Log part of the token
-      });
-
-      // Test a simple query first
-      const { data: testData, error: testError } = await supabase
-        .from('wood_types')
-        .select('count')
-        .single();
-
-      if (testError) {
-        console.error('Test query failed:', testError);
-      } else {
-        console.log('Test query succeeded');
-        // Only proceed if test query works
-        await fetchWoodTypes();
-        await fetchReceipts();
-      }
-    };
-
-    checkAuth();
+    fetchWoodTypes();
+    fetchReceipts();
   }, []);
 
   const fetchWoodTypes = async () => {
     try {
-      const { data, error } = await supabase
-        .from('wood_types')
-        .select('*')
-        .order('name');
-
-      if (error) throw error;
-      setWoodTypes(data || []);
+      const response = await api.get('/factory/wood-types');
+      setWoodTypes(response.data || []);
     } catch (error) {
       console.error('Error fetching wood types:', error);
       enqueueSnackbar('Failed to fetch wood types', { variant: 'error' });
@@ -209,96 +153,58 @@ const WoodReceipt = () => {
 
   const fetchReceipts = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('No active session');
+      const response = await api.get('/management/wood-receipts');
+      // Map camelCase backend response to snake_case frontend format
+      const mappedReceipts = (response.data || []).map((receipt: any) => ({
+        id: receipt.id,
+        wood_type_id: receipt.woodTypeId,
+        supplier: receipt.supplier,
+        receipt_date: receipt.receiptDate ? receipt.receiptDate.split('T')[0] : '',
+        purchase_date: receipt.receiptDate ? receipt.receiptDate.split('T')[0] : '',
+        lot_number: receipt.lotNumber,
+        purchase_order: receipt.purchaseOrder,
+        wood_format: receipt.woodFormat || 'SLEEPERS',
+        status: receipt.status,
+        notes: receipt.notes || '',
+        total_volume_m3: receipt.estimatedVolumeM3,
+        total_pieces: receipt.estimatedPieces,
+        total_amount: receipt.estimatedAmount,
+        created_at: receipt.createdAt,
+        updated_at: receipt.updatedAt,
+        wood_type: receipt.woodType
+      }));
+      setReceipts(mappedReceipts);
+    } catch (error: any) {
+      // Silently handle 404 - wood-receipts endpoint not yet implemented
+      if (error.response?.status !== 404) {
+        console.error('Error fetching receipts:', error);
+        enqueueSnackbar(
+          `Failed to fetch receipts: ${error.message}`,
+          { variant: 'error' }
+        );
       }
-
-      // Try to get just the basic receipts data
-      const { data: receiptsData, error: receiptsError } = await supabase
-        .from('wood_receipts')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (receiptsError) {
-        console.error('Receipts query error:', receiptsError);
-        throw receiptsError;
-      }
-
-      // Debug log raw receipts data
-      console.log('Raw receipts data:', receiptsData);
-
-      // Process the data
-      const processedReceipts = receiptsData?.map(receipt => ({
-        ...receipt,
-        lot_number: receipt.lot_number || 'N/A'
-      })) || [];
-
-      console.log('Processed receipts:', processedReceipts);
-
-      setReceipts(processedReceipts);
-    } catch (error: PostgrestError | any) {
-      console.error('Error fetching receipts:', {
-        message: error.message,
-        code: error.code,
-        details: error?.details,
-        hint: error?.hint,
-        isPostgrestError: 'code' in error
-      });
-      enqueueSnackbar(
-        `Failed to fetch receipts: ${error.message}`, 
-        { variant: 'error' }
-      );
+      setReceipts([]);
     }
   };
 
   const handleCreateReceipt = async () => {
     try {
       setLoading(true);
-      
-      // Generate LOT number (format: LOT-XXX)
-      const { data: maxLotData, error: lotError } = await supabase
-        .from('wood_receipts')
-        .select('lot_number')
-        .order('lot_number', { ascending: false })
-        .limit(1);
 
-      let sequence = 1;
-      if (!lotError && maxLotData && maxLotData.length > 0) {
-        const lastLot = maxLotData[0].lot_number;
-        const lastNumber = parseInt(lastLot.split('-')[1]);
-        sequence = lastNumber + 1;
-      }
-
-      const lotNumber = `LOT-${String(sequence).padStart(3, '0')}`;
-
-      // Prepare the data for insertion
       const receiptData = {
         wood_type_id: newReceipt.wood_type_id,
         supplier: newReceipt.supplier,
-        purchase_date: newReceipt.purchase_date,
+        receipt_date: newReceipt.purchase_date,
+        lot_number: newReceipt.lot_number || null,
         purchase_order: newReceipt.purchase_order,
-        lot_number: lotNumber,
-        status: 'PENDING' as ReceiptStatus,
+        status: 'PENDING',
         notes: newReceipt.notes || null,
-        created_by: (await supabase.auth.getUser()).data.user?.id,
-        // Only include these if they have values
-        ...(newReceipt.total_volume_m3 ? { total_volume_m3: parseFloat(newReceipt.total_volume_m3) } : {}),
-        ...(newReceipt.total_pieces ? { total_pieces: parseInt(newReceipt.total_pieces) } : {})
+        total_amount: 0,
+        total_volume_m3: newReceipt.total_volume_m3 ? parseFloat(newReceipt.total_volume_m3) : null,
+        total_pieces: newReceipt.total_pieces ? parseInt(newReceipt.total_pieces) : null
       };
 
-      console.log('Inserting receipt data:', receiptData);
-
-      const { data, error } = await supabase
-        .from('wood_receipts')
-        .insert([receiptData])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Insert error:', error);
-        throw error;
-      }
+      await api.post('/management/wood-receipts', receiptData);
 
       enqueueSnackbar('Receipt created successfully', { variant: 'success' });
       setOpenDialog(false);
@@ -308,16 +214,17 @@ const WoodReceipt = () => {
         supplier: '',
         purchase_date: new Date().toISOString().split('T')[0],
         purchase_order: '',
+        wood_format: 'SLEEPERS',
         total_volume_m3: '',
         total_pieces: '',
         notes: '',
         status: 'PENDING',
-        lot_number: 'Auto-generated',
+        lot_number: '',
       });
     } catch (error: any) {
       console.error('Error creating receipt:', error);
       enqueueSnackbar(
-        `Failed to create receipt: ${error.message}`, 
+        `Failed to create receipt: ${error.message}`,
         { variant: 'error' }
       );
     } finally {
@@ -332,17 +239,19 @@ const WoodReceipt = () => {
       supplier: '',
       purchase_date: new Date().toISOString().split('T')[0],
       purchase_order: '',
+      wood_format: 'SLEEPERS',
       total_volume_m3: '',
       total_pieces: '',
       notes: '',
       status: 'PENDING',
-      lot_number: 'Auto-generated',
+      lot_number: '',
     });
   };
 
   const handleEditClick = (receipt: WoodReceiptType) => {
     setEditingReceipt({
       ...receipt,
+      notes: receipt.notes || '',
       total_volume_m3: receipt.total_volume_m3?.toString() || '',
       total_pieces: receipt.total_pieces?.toString() || '',
     });
@@ -358,7 +267,7 @@ const WoodReceipt = () => {
       const updateData = {
         wood_type_id: editingReceipt.wood_type_id,
         supplier: editingReceipt.supplier,
-        purchase_date: editingReceipt.purchase_date,
+        receipt_date: editingReceipt.purchase_date,
         purchase_order: editingReceipt.purchase_order,
         lot_number: editingReceipt.lot_number,
         status: editingReceipt.status as ReceiptStatus,
@@ -369,14 +278,9 @@ const WoodReceipt = () => {
 
       console.log('Updating receipt with data:', updateData);
 
-      const { error } = await supabase
-        .from('wood_receipts')
-        .update(updateData)
-        .eq('id', editingReceipt.id);
+      await api.put(`/management/wood-receipts/${editingReceipt.id}`, updateData);
 
-      if (error) throw error;
-
-      await fetchReceipts(); // Refresh the list first
+      await fetchReceipts();
       enqueueSnackbar('Receipt updated successfully', { variant: 'success' });
       setEditDialogOpen(false);
       setEditingReceipt(null);
@@ -401,99 +305,284 @@ const WoodReceipt = () => {
     }
   };
 
+  const handleDeleteReceipt = async () => {
+    if (!receiptToDelete) return;
+
+    try {
+      setIsDeleting(true);
+
+      await api.delete(`/management/wood-receipts/${receiptToDelete.id}`);
+
+      enqueueSnackbar('Receipt deleted successfully', { variant: 'success' });
+      await fetchReceipts();
+    } catch (error: any) {
+      console.error('Error deleting receipt:', error);
+      enqueueSnackbar(
+        `Failed to delete receipt: ${error.message}`,
+        { variant: 'error' }
+      );
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setReceiptToDelete(null);
+    }
+  };
+
+  const handleLotClick = async (lotNumber: string) => {
+    if (!lotNumber) {
+      enqueueSnackbar('No LOT number available', { variant: 'warning' });
+      return;
+    }
+
+    try {
+      setLoadingTraceability(true);
+      setTraceabilityDialogOpen(true);
+
+      const response = await api.get(`/management/lot-traceability/${lotNumber}`);
+      setTraceabilityData(response.data);
+    } catch (error: any) {
+      console.error('Error fetching LOT traceability:', error);
+      enqueueSnackbar(
+        `Failed to fetch LOT traceability: ${error.message}`,
+        { variant: 'error' }
+      );
+      setTraceabilityDialogOpen(false);
+    } finally {
+      setLoadingTraceability(false);
+    }
+  };
+
   return (
     <StyledContainer maxWidth="lg">
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        mb: 4 
-      }}>
-        <Typography 
-          variant="h4" 
-          sx={{ 
-            color: 'rgba(0, 0, 0, 0.87)',
-            fontWeight: 600,
-            fontSize: '1.5rem', // 24px
-            fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-          }}
-        >
-          Wood Receipt Management
-        </Typography>
-        <StyledButton
-          startIcon={<AddIcon />}
-          onClick={() => setOpenDialog(true)}
-          aria-label="create new receipt"
-        >
-          Create New Receipt
-        </StyledButton>
-      </Box>
+      {/* Header Card */}
+      <Paper
+        elevation={0}
+        sx={{
+          backgroundColor: '#fff',
+          borderRadius: 2,
+          p: 4,
+          mb: 3,
+          border: '2px solid #fee2e2',
+          background: 'linear-gradient(135deg, #fff 0%, #fef2f2 100%)',
+        }}
+      >
+        <Box sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}>
+          <Box>
+            <Typography
+              variant="h4"
+              sx={{
+                color: '#dc2626',
+                fontWeight: 800,
+                fontSize: '2rem',
+                mb: 0.5,
+                letterSpacing: '-0.5px',
+              }}
+            >
+              LOT Management
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.9375rem', fontWeight: 500 }}>
+              Create and manage LOT numbers with wood receipt information
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => setOpenDialog(true)}
+            sx={{
+              backgroundColor: '#dc2626',
+              color: '#fff',
+              textTransform: 'none',
+              px: 4,
+              py: 1.5,
+              fontSize: '0.9375rem',
+              fontWeight: 700,
+              borderRadius: 2,
+              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+                boxShadow: '0 6px 16px rgba(220, 38, 38, 0.4)',
+                transform: 'translateY(-2px)',
+              }
+            }}
+          >
+            Create New LOT
+          </Button>
+        </Box>
+      </Paper>
 
-      <StyledPaper>
-        <StyledTableContainer>
-          <Table>
+      {/* Table Card */}
+      <Paper
+        elevation={0}
+        sx={{
+          backgroundColor: '#fff',
+          borderRadius: 2,
+          overflow: 'hidden',
+          border: '2px solid #fee2e2',
+        }}
+      >
+        <TableContainer>
+          <Table sx={{
+            '& .MuiTableCell-root': {
+              fontSize: '0.875rem',
+              py: 2,
+              px: 3,
+              borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
+            },
+            '& .MuiTableCell-head': {
+              fontWeight: 700,
+              backgroundColor: '#fef2f2',
+              color: '#dc2626',
+              py: 2.5,
+              fontSize: '0.8125rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              borderBottom: '2px solid #dc2626',
+            },
+            '& .MuiTableBody-root .MuiTableRow-root': {
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                backgroundColor: '#fef2f2',
+              }
+            }
+          }}>
             <TableHead>
               <TableRow>
                 <TableCell>LOT Number</TableCell>
                 <TableCell>Wood Type</TableCell>
                 <TableCell>Supplier</TableCell>
                 <TableCell>PO Number</TableCell>
-                <TableCell>Volume (CBM)</TableCell>
-                <TableCell>Pieces</TableCell>
+                <TableCell>Est. Volume (CBM)</TableCell>
+                <TableCell>Est. Pieces</TableCell>
                 <TableCell>Status</TableCell>
-                <TableCell>Actions</TableCell>
+                <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {receipts.map((receipt) => (
                 <TableRow key={receipt.id}>
                   <TableCell>
-                    {receipt.lot_number ? receipt.lot_number : 'N/A'}
+                    <Box
+                      onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: '#dc2626',
+                        color: '#fff',
+                        px: 2,
+                        py: 0.75,
+                        borderRadius: 1,
+                        fontWeight: 600,
+                        fontSize: '0.8125rem',
+                        letterSpacing: '0.5px',
+                        cursor: receipt.lot_number ? 'pointer' : 'default',
+                        transition: 'all 0.2s ease',
+                        '&:hover': receipt.lot_number ? {
+                          backgroundColor: '#b91c1c',
+                          transform: 'scale(1.05)',
+                          boxShadow: '0 4px 8px rgba(220, 38, 38, 0.3)',
+                        } : {},
+                      }}
+                    >
+                      {receipt.lot_number || 'N/A'}
+                    </Box>
                   </TableCell>
-                  <TableCell>{receipt.wood_type?.name}</TableCell>
-                  <TableCell>{receipt.supplier}</TableCell>
-                  <TableCell>{receipt.purchase_order}</TableCell>
-                  <TableCell>{receipt.total_volume_m3}</TableCell>
-                  <TableCell>{receipt.total_pieces}</TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.875rem' }}>
+                      {receipt.wood_type?.name}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ color: '#475569', fontSize: '0.875rem' }}>
+                      {receipt.supplier}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 500 }}>
+                      {receipt.purchase_order || 'N/A'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.875rem' }}>
+                      {receipt.total_volume_m3 || '0'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.875rem' }}>
+                      {receipt.total_pieces || '0'}
+                    </Typography>
+                  </TableCell>
                   <TableCell>
                     <Chip
                       label={receipt.status}
-                      color={
-                        receipt.status === 'PENDING' ? 'default' :
-                        receipt.status === 'RECEIVED' ? 'primary' :
-                        receipt.status === 'PROCESSING' ? 'warning' :
-                        receipt.status === 'COMPLETED' ? 'success' :
-                        'error'
-                      }
                       size="small"
                       sx={{
-                        fontSize: '0.75rem', // 12px
-                        fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-                        fontWeight: 500,
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        height: '28px',
+                        px: 1.5,
+                        borderRadius: 1,
+                        backgroundColor: receipt.status === 'CREATED' ? '#64748b' :
+                          receipt.status === 'PENDING' ? '#fbbf24' :
+                          receipt.status === 'RECEIVED' ? '#3b82f6' :
+                          receipt.status === 'PROCESSING' ? '#8b5cf6' :
+                          receipt.status === 'COMPLETED' ? '#10b981' :
+                          '#ef4444',
+                        color: '#fff',
+                        border: 'none',
                       }}
                     />
                   </TableCell>
-                  <TableCell>
-                    <IconButton 
-                      size="small" 
+                  <TableCell align="right">
+                    <IconButton
+                      size="small"
                       onClick={() => handleEditClick(receipt)}
-                      aria-label="edit receipt"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          handleEditClick(receipt);
-                        }
+                      sx={{
+                        backgroundColor: '#dc2626',
+                        color: '#fff',
+                        width: 32,
+                        height: 32,
+                        '&:hover': {
+                          backgroundColor: '#b91c1c',
+                        },
+                        transition: 'all 0.2s ease',
                       }}
                     >
                       <EditIcon fontSize="small" />
                     </IconButton>
+                    {(receipt.status === 'CREATED' || receipt.status === 'PENDING') && (
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setReceiptToDelete(receipt);
+                          setDeleteDialogOpen(true);
+                        }}
+                        sx={{
+                          backgroundColor: '#64748b',
+                          color: '#fff',
+                          ml: 1,
+                          width: 32,
+                          height: 32,
+                          '&:hover': {
+                            backgroundColor: '#475569',
+                          },
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </StyledTableContainer>
-      </StyledPaper>
+        </TableContainer>
+      </Paper>
 
       <Dialog
         open={openDialog}
@@ -502,6 +591,10 @@ const WoodReceipt = () => {
         fullWidth
         keepMounted={false}
         disablePortal={false}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        container={() => document.getElementById('modal-root')}
         slotProps={{
           backdrop: {
             sx: { backgroundColor: 'rgba(0, 0, 0, 0.5)' }
@@ -526,7 +619,7 @@ const WoodReceipt = () => {
             fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
           }}
         >
-          Create New Wood Receipt
+          Create New LOT (Stage 1)
         </DialogTitle>
         <DialogContent 
           sx={{ mt: 2 }}
@@ -593,8 +686,21 @@ const WoodReceipt = () => {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
+                label="LOT Number"
+                value={newReceipt.lot_number}
+                onChange={(e) => setNewReceipt(prev => ({ ...prev, lot_number: e.target.value }))}
+                placeholder="Enter LOT Number (e.g., LOT-2025-001)"
+                required
+                error={!newReceipt.lot_number}
+                helperText={!newReceipt.lot_number ? "LOT Number is required for traceability" : ""}
+                sx={textFieldSx}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
                 type="number"
-                label="Total Volume (CBM)"
+                label="Estimated Volume (CBM)"
                 value={newReceipt.total_volume_m3}
                 onChange={(e) => setNewReceipt(prev => ({ ...prev, total_volume_m3: e.target.value }))}
                 InputProps={{
@@ -607,7 +713,7 @@ const WoodReceipt = () => {
               <TextField
                 fullWidth
                 type="number"
-                label="Number of Sleepers"
+                label={newReceipt.wood_format === 'SLEEPERS' ? 'Estimated Number of Sleepers' : 'Estimated Number of Planks'}
                 value={newReceipt.total_pieces}
                 onChange={(e) => setNewReceipt(prev => ({ ...prev, total_pieces: e.target.value }))}
                 InputProps={{
@@ -615,6 +721,21 @@ const WoodReceipt = () => {
                 }}
                 sx={textFieldSx}
               />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                select
+                fullWidth
+                label="Wood Type"
+                value={newReceipt.wood_format}
+                onChange={(e) => setNewReceipt(prev => ({ ...prev, wood_format: e.target.value }))}
+                required
+                helperText="Sleepers require slicing, Planks skip slicing stage"
+                sx={textFieldSx}
+              >
+                <MenuItem value="SLEEPERS">Sleepers (Requires Slicing)</MenuItem>
+                <MenuItem value="PLANKS">Planks (Ready to Use)</MenuItem>
+              </TextField>
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -646,17 +767,35 @@ const WoodReceipt = () => {
           >
             Cancel
           </Button>
-          <StyledButton
+          <Button
             onClick={handleCreateReceipt}
-            disabled={loading || 
-              !newReceipt.wood_type_id || 
-              !newReceipt.supplier || 
+            disabled={loading ||
+              !newReceipt.wood_type_id ||
+              !newReceipt.supplier ||
               !newReceipt.purchase_date ||
-              !newReceipt.purchase_order
+              !newReceipt.purchase_order ||
+              !newReceipt.lot_number
             }
+            variant="contained"
+            sx={{
+              backgroundColor: '#dc2626',
+              color: '#fff',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              px: 2,
+              py: 0.75,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+              '&:disabled': {
+                backgroundColor: 'rgba(0, 0, 0, 0.12)',
+                color: 'rgba(0, 0, 0, 0.26)',
+              }
+            }}
           >
             {loading ? 'Creating...' : 'Create'}
-          </StyledButton>
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -667,6 +806,10 @@ const WoodReceipt = () => {
         fullWidth
         keepMounted={false}
         disablePortal={false}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        container={() => document.getElementById('modal-root')}
         slotProps={{
           backdrop: {
             sx: { backgroundColor: 'rgba(0, 0, 0, 0.5)' }
@@ -754,7 +897,7 @@ const WoodReceipt = () => {
                 <TextField
                   fullWidth
                   type="number"
-                  label="Total Volume (CBM)"
+                  label="Estimated Volume (CBM)"
                   value={editingReceipt.total_volume_m3}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, total_volume_m3: e.target.value } : null)}
                   InputProps={{
@@ -767,7 +910,7 @@ const WoodReceipt = () => {
                 <TextField
                   fullWidth
                   type="number"
-                  label="Number of Sleepers"
+                  label={editingReceipt.wood_format === 'PLANKS' ? 'Estimated Number of Planks' : 'Estimated Number of Sleepers'}
                   value={editingReceipt.total_pieces}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, total_pieces: e.target.value } : null)}
                   InputProps={{
@@ -775,6 +918,21 @@ const WoodReceipt = () => {
                   }}
                   sx={textFieldSx}
                 />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  select
+                  fullWidth
+                  label="Wood Type"
+                  value={editingReceipt.wood_format || 'SLEEPERS'}
+                  onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, wood_format: e.target.value } : null)}
+                  required
+                  helperText="Sleepers require slicing, Planks skip slicing stage"
+                  sx={textFieldSx}
+                >
+                  <MenuItem value="SLEEPERS">Sleepers (Requires Slicing)</MenuItem>
+                  <MenuItem value="PLANKS">Planks (Ready to Use)</MenuItem>
+                </TextField>
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -789,36 +947,472 @@ const WoodReceipt = () => {
               </Grid>
               <Grid item xs={12}>
                 <TextField
-                  select
                   fullWidth
                   label="Status"
                   value={editingReceipt.status}
-                  onChange={(e) => setEditingReceipt(prev => 
-                    prev ? { ...prev, status: e.target.value as ReceiptStatus } : null
-                  )}
-                  required
-                  sx={textFieldSx}
-                >
-                  <MenuItem value="PENDING">Pending</MenuItem>
-                  <MenuItem value="RECEIVED">Received</MenuItem>
-                  <MenuItem value="PROCESSING">Processing</MenuItem>
-                  <MenuItem value="COMPLETED">Completed</MenuItem>
-                  <MenuItem value="CANCELLED">Cancelled</MenuItem>
-                </TextField>
+                  InputProps={{
+                    readOnly: true,
+                  }}
+                  helperText="Status is automatically updated based on workflow stage"
+                  sx={{
+                    ...textFieldSx,
+                    '& .MuiInputBase-input.Mui-readOnly': {
+                      color: 'rgba(0, 0, 0, 0.87)',
+                      fontWeight: 500,
+                      backgroundColor: '#f8fafc',
+                    },
+                  }}
+                />
               </Grid>
             </Grid>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseEditDialog}>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button
+            onClick={handleCloseEditDialog}
+            sx={{
+              color: 'rgba(0, 0, 0, 0.6)',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+            }}
+          >
             Cancel
           </Button>
           <Button
             variant="contained"
             onClick={handleUpdateReceipt}
             disabled={loading || !editingReceipt?.wood_type_id || !editingReceipt?.supplier || !editingReceipt?.purchase_date || !editingReceipt?.purchase_order}
+            sx={{
+              backgroundColor: '#dc2626',
+              color: '#fff',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              px: 2,
+              py: 0.75,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+              '&:disabled': {
+                backgroundColor: 'rgba(0, 0, 0, 0.12)',
+                color: 'rgba(0, 0, 0, 0.26)',
+              }
+            }}
           >
             {loading ? 'Updating...' : 'Update'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => {
+          if (!isDeleting) {
+            setDeleteDialogOpen(false);
+            setReceiptToDelete(null);
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+        disablePortal={false}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        container={() => document.getElementById('modal-root')}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            backgroundColor: '#fff',
+          }
+        }}
+      >
+        <DialogTitle>Delete Receipt</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete LOT {receiptToDelete?.lot_number}? This action cannot be undone.
+            Only LOTs in CREATED or PENDING status can be deleted.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button
+            onClick={() => {
+              setDeleteDialogOpen(false);
+              setReceiptToDelete(null);
+            }}
+            disabled={isDeleting}
+            sx={{
+              color: 'rgba(0, 0, 0, 0.6)',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleDeleteReceipt}
+            variant="contained"
+            disabled={isDeleting}
+            startIcon={isDeleting ? <CircularProgress size={20} /> : <DeleteIcon />}
+            sx={{
+              backgroundColor: '#dc2626',
+              color: '#fff',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              px: 2,
+              py: 0.75,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+              '&:disabled': {
+                backgroundColor: 'rgba(0, 0, 0, 0.12)',
+                color: 'rgba(0, 0, 0, 0.26)',
+              }
+            }}
+          >
+            {isDeleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* LOT Traceability Dialog */}
+      <Dialog
+        open={traceabilityDialogOpen}
+        onClose={() => setTraceabilityDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        disablePortal={false}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        container={() => document.getElementById('modal-root')}
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            backgroundColor: '#fff',
+          }
+        }}
+      >
+        <DialogTitle sx={{ borderBottom: '1px solid #e2e8f0', pb: 2 }}>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626' }}>
+              LOT Traceability: {traceabilityData?.lotNumber}
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
+              Full tracking history for this LOT number
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {loadingTraceability ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#dc2626' }} />
+            </Box>
+          ) : traceabilityData ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {/* Wood Receipts Stage */}
+              <Box>
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 2,
+                  pb: 1.5,
+                  borderBottom: '2px solid #dc2626'
+                }}>
+                  <ReceiptLongIcon sx={{ color: '#dc2626', fontSize: '1.75rem' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '1.125rem' }}>
+                    Wood Receipt
+                  </Typography>
+                  <Chip
+                    label={traceabilityData.stages.woodReceipts.length}
+                    size="small"
+                    sx={{
+                      backgroundColor: '#dc2626',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: '0.75rem'
+                    }}
+                  />
+                </Box>
+                {traceabilityData.stages.woodReceipts.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {traceabilityData.stages.woodReceipts.map((receipt: any, index: number) => (
+                      <Paper
+                        key={receipt.id}
+                        elevation={0}
+                        sx={{
+                          border: '2px solid #fee2e2',
+                          borderRadius: 2,
+                          p: 3,
+                          backgroundColor: '#fef2f2',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            borderColor: '#dc2626',
+                            boxShadow: '0 4px 12px rgba(220, 38, 38, 0.15)',
+                          }
+                        }}
+                      >
+                        <Grid container spacing={2.5}>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Wood Type
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#1e293b', mt: 0.5 }}>
+                              {receipt.woodType}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={6}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Supplier
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#1e293b', mt: 0.5 }}>
+                              {receipt.supplier}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Est. Volume
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#dc2626', mt: 0.5 }}>
+                              {receipt.estimatedVolumeM3 ? receipt.estimatedVolumeM3.toFixed(3) : 'N/A'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Est. Pieces
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#dc2626', mt: 0.5 }}>
+                              {receipt.estimatedPieces || 'N/A'}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <Typography variant="caption" sx={{ color: '#059669', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Actual Volume
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#059669', mt: 0.5 }}>
+                              {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(3) : 'N/A'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <Typography variant="caption" sx={{ color: '#059669', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Actual Pieces
+                            </Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#059669', mt: 0.5 }}>
+                              {receipt.actualPieces || 'N/A'}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Status
+                            </Typography>
+                            <Box sx={{ mt: 0.5 }}>
+                              <Chip
+                                label={receipt.status}
+                                size="small"
+                                sx={{
+                                  backgroundColor: '#dc2626',
+                                  color: '#fff',
+                                  fontWeight: 700,
+                                  fontSize: '0.75rem'
+                                }}
+                              />
+                            </Box>
+                          </Grid>
+                          <Grid item xs={3}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                              Receipt Date
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#475569', mt: 0.5 }}>
+                              {new Date(receipt.receiptDate).toLocaleDateString()}
+                            </Typography>
+                          </Grid>
+                          {receipt.lastWorkedBy && (
+                            <Grid item xs={6}>
+                              <Typography variant="caption" sx={{ color: '#0891b2', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                                Last Worked By
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: '#0e7490', mt: 0.5 }}>
+                                {receipt.lastWorkedBy}
+                              </Typography>
+                            </Grid>
+                          )}
+                          {receipt.lastWorkedAt && (
+                            <Grid item xs={6}>
+                              <Typography variant="caption" sx={{ color: '#0891b2', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
+                                Last Updated
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: '#0e7490', mt: 0.5 }}>
+                                {new Date(receipt.lastWorkedAt).toLocaleString()}
+                              </Typography>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </Paper>
+                    ))}
+                  </Box>
+                ) : (
+                  <Paper elevation={0} sx={{ p: 3, backgroundColor: '#fef2f2', border: '1px dashed #fca5a5', borderRadius: 2 }}>
+                    <Typography variant="body2" sx={{ color: '#dc2626', fontStyle: 'italic', textAlign: 'center' }}>
+                      No wood receipts found for this LOT
+                    </Typography>
+                  </Paper>
+                )}
+              </Box>
+
+              {/* Wood Slicing Stage */}
+              <Box>
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 2,
+                  pb: 1.5,
+                  borderBottom: '2px solid #dc2626'
+                }}>
+                  <ContentCutIcon sx={{ color: '#dc2626', fontSize: '1.75rem' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '1.125rem' }}>
+                    Wood Slicing
+                  </Typography>
+                  <Chip
+                    label={traceabilityData.stages.slicing.length}
+                    size="small"
+                    sx={{ backgroundColor: '#dc2626', color: '#fff', fontWeight: 700 }}
+                  />
+                </Box>
+                {traceabilityData.stages.slicing.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {traceabilityData.stages.slicing.map((operation: any) => (
+                      <Paper
+                        key={operation.id}
+                        elevation={0}
+                        sx={{
+                          border: '2px solid #fee2e2',
+                          borderRadius: 2,
+                          p: 3,
+                          backgroundColor: '#fef2f2',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            borderColor: '#dc2626',
+                            boxShadow: '0 4px 12px rgba(220, 38, 38, 0.15)',
+                          }
+                        }}
+                      >
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} sm={6} md={4}>
+                            <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                              Serial Number
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
+                              {operation.serialNumber}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6} md={4}>
+                            <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                              Wood Type
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
+                              {operation.woodType}
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6} md={4}>
+                            <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                              Status
+                            </Typography>
+                            <Chip
+                              label={operation.status.toUpperCase()}
+                              size="small"
+                              sx={{
+                                mt: 0.5,
+                                backgroundColor: operation.status === 'completed' ? '#10b981' : operation.status === 'in_progress' ? '#f59e0b' : '#6b7280',
+                                color: '#fff',
+                                fontWeight: 700,
+                                fontSize: '0.7rem'
+                              }}
+                            />
+                          </Grid>
+                          {operation.wastePercentage != null && (
+                            <Grid item xs={12} sm={6} md={4}>
+                              <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                                Waste %
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '0.95rem' }}>
+                                {operation.wastePercentage.toFixed(2)}%
+                              </Typography>
+                            </Grid>
+                          )}
+                          {operation.startTime && (
+                            <Grid item xs={12} sm={6} md={4}>
+                              <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                                Started
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
+                                {new Date(operation.startTime).toLocaleString()}
+                              </Typography>
+                            </Grid>
+                          )}
+                          {operation.notes && (
+                            <Grid item xs={12}>
+                              <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                                Notes
+                              </Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 500, color: '#475569', fontSize: '0.9rem', fontStyle: 'italic' }}>
+                                {operation.notes}
+                              </Typography>
+                            </Grid>
+                          )}
+                        </Grid>
+                      </Paper>
+                    ))}
+                  </Box>
+                ) : (
+                  <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
+                    <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                      No slicing operations recorded for this LOT yet
+                    </Typography>
+                  </Paper>
+                )}
+              </Box>
+
+              <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#64748b', mb: 1, fontSize: '1rem' }}>
+                  ☀️ Drying Process (Coming Soon)
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                  This stage will track the drying process and moisture levels
+                </Typography>
+              </Paper>
+
+              <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#64748b', mb: 1, fontSize: '1rem' }}>
+                  ✓ Quality Control (Coming Soon)
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                  This stage will track quality inspections and grading
+                </Typography>
+              </Paper>
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button
+            onClick={() => setTraceabilityDialogOpen(false)}
+            sx={{
+              backgroundColor: '#dc2626',
+              color: '#fff',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              px: 3,
+              py: 1,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              }
+            }}
+          >
+            Close
           </Button>
         </DialogActions>
       </Dialog>
