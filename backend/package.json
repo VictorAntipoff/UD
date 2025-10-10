@@ -1,3 +1,17 @@
 {
-  "type": "module"
+  "name": "backend-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "dev": "cd local && npm run dev",
+    "build": "cd local && npm run build",
+    "start": "cd local && npm run start",
+    "install": "cd local && npm install",
+    "prisma:generate": "cd local && npm run prisma:generate",
+    "prisma:push": "cd local && npm run prisma:push",
+    "prisma:seed": "cd local && npm run prisma:seed"
+  }
 } 

@@ -12,9 +12,11 @@ async function main() {
   try {
     console.log('Starting seed...');
     
-    // Delete existing users (optional, for clean slate)
+    // Delete existing data (optional, for clean slate)
+    await prisma.woodCalculation.deleteMany({});
+    await prisma.woodType.deleteMany({});
     await prisma.user.deleteMany({});
-    console.log('Cleared existing users');
+    console.log('Cleared existing data');
 
     // Create admin user
     const adminPassword = await bcrypt.hash('admin123', 10);
@@ -22,14 +24,13 @@ async function main() {
     const admin = await prisma.user.create({
       data: {
         email: 'admin@example.com',
-        username: 'admin',
         password: adminPassword,
         firstName: 'Admin',
         lastName: 'User',
         role: 'ADMIN',
       },
     });
-    console.log('Admin created:', { id: admin.id, username: admin.username });
+    console.log('Admin created:', { id: admin.id, email: admin.email });
 
     // Create regular user
     const userPassword = await bcrypt.hash('user123', 10);
@@ -37,14 +38,64 @@ async function main() {
     const user = await prisma.user.create({
       data: {
         email: 'user@example.com',
-        username: 'user',
         password: userPassword,
         firstName: 'Regular',
         lastName: 'User',
         role: 'USER',
       },
     });
-    console.log('User created:', { id: user.id, username: user.username });
+    console.log('User created:', { id: user.id, email: user.email });
+
+    // Create wood types
+    console.log('Creating wood types...');
+    const woodTypes = await Promise.all([
+      prisma.woodType.create({
+        data: {
+          name: 'Oak',
+          description: 'Strong and durable hardwood',
+          density: 0.75,
+          grade: 'A',
+          origin: 'North America'
+        }
+      }),
+      prisma.woodType.create({
+        data: {
+          name: 'Pine',
+          description: 'Lightweight softwood',
+          density: 0.50,
+          grade: 'B',
+          origin: 'Northern Europe'
+        }
+      }),
+      prisma.woodType.create({
+        data: {
+          name: 'Mahogany',
+          description: 'Premium tropical hardwood',
+          density: 0.85,
+          grade: 'A+',
+          origin: 'Central America'
+        }
+      }),
+      prisma.woodType.create({
+        data: {
+          name: 'Cedar',
+          description: 'Aromatic weather-resistant wood',
+          density: 0.45,
+          grade: 'B+',
+          origin: 'Canada'
+        }
+      }),
+      prisma.woodType.create({
+        data: {
+          name: 'Teak',
+          description: 'Marine-grade hardwood',
+          density: 0.95,
+          grade: 'A+',
+          origin: 'Myanmar'
+        }
+      })
+    ]);
+    console.log(`Created ${woodTypes.length} wood types`);
 
     console.log('Seed completed successfully');
   } catch (error) {
