@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": ">=18.17.0 <19.0.0",
+    "node": "22.x",
     "npm": ">=9.0.0"
   },
   "scripts": {
