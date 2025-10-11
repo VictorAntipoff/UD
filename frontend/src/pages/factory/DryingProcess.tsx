@@ -282,10 +282,13 @@ export default function DryingProcess() {
     if (!selectedProcess) return;
 
     try {
+      // Convert datetime-local to ISO string with proper timezone
+      const readingTimeISO = new Date(newReading.readingTime).toISOString();
+
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
-        readingTime: newReading.readingTime,
+        readingTime: readingTimeISO,
         notes: newReading.notes
       });
 
@@ -310,10 +313,13 @@ export default function DryingProcess() {
     if (!editingReading) return;
 
     try {
+      // Convert datetime-local to ISO string with proper timezone
+      const readingTimeISO = new Date(editReadingData.readingTime).toISOString();
+
       await api.put(`/factory/drying-readings/${editingReading.id}`, {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
-        readingTime: editReadingData.readingTime,
+        readingTime: readingTimeISO,
         notes: editReadingData.notes
       });
 
