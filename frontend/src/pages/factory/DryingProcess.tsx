@@ -1739,9 +1739,9 @@ export default function DryingProcess() {
       >
         <DialogTitle sx={{ pb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <EditIcon sx={{ color: '#3b82f6', fontSize: 28 }} />
+            <ThermostatIcon sx={{ color: '#dc2626', fontSize: 28 }} />
             <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
-              Edit Reading
+              Edit Reading - {selectedProcess?.batchNumber}
             </Typography>
           </Box>
         </DialogTitle>
@@ -1791,6 +1791,77 @@ export default function DryingProcess() {
               size="small"
               sx={textFieldSx}
             />
+
+            <Divider sx={{ my: 1 }} />
+
+            {/* Luku (Electricity Recharge) Section - Same as Add Reading */}
+            <Accordion elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 1 }}>
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon />}
+                sx={{
+                  '&:hover': {
+                    backgroundColor: alpha('#dc2626', 0.02)
+                  }
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ElectricBoltIcon sx={{ fontSize: 20, color: '#dc2626' }} />
+                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                    Add Luku (Optional)
+                  </Typography>
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={2}>
+                  <Typography variant="caption" sx={{ color: '#64748b' }}>
+                    Paste the SMS from your electricity provider to record the recharge
+                  </Typography>
+
+                  {lukuSuccess && (
+                    <Alert severity="success" sx={{ fontSize: '0.75rem' }}>
+                      Luku added successfully!
+                    </Alert>
+                  )}
+
+                  {lukuError && (
+                    <Alert severity="error" sx={{ fontSize: '0.75rem' }}>
+                      {lukuError}
+                    </Alert>
+                  )}
+
+                  <TextField
+                    fullWidth
+                    label="Paste SMS Here"
+                    multiline
+                    rows={4}
+                    value={lukuSms}
+                    onChange={(e) => setLukuSms(e.target.value)}
+                    placeholder="Malipo yamekamilika... TOKEN 5375 8923... 1399.3KWH Cost 408606.56..."
+                    size="small"
+                    sx={textFieldSx}
+                  />
+
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={handleAddLuku}
+                    disabled={!lukuSms.trim()}
+                    sx={{
+                      color: '#dc2626',
+                      borderColor: '#dc2626',
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      '&:hover': {
+                        borderColor: '#b91c1c',
+                        backgroundColor: alpha('#dc2626', 0.04),
+                      }
+                    }}
+                  >
+                    Parse & Save Luku
+                  </Button>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
           </Stack>
         </DialogContent>
         <Divider />
@@ -1810,12 +1881,12 @@ export default function DryingProcess() {
             variant="contained"
             disabled={!editReadingData.electricityMeter || !editReadingData.humidity}
             sx={{
-              backgroundColor: '#3b82f6',
+              backgroundColor: '#dc2626',
               textTransform: 'none',
               fontWeight: 600,
               px: 3,
               '&:hover': {
-                backgroundColor: '#2563eb',
+                backgroundColor: '#b91c1c',
               }
             }}
           >
