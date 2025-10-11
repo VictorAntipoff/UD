@@ -282,13 +282,10 @@ export default function DryingProcess() {
     if (!selectedProcess) return;
 
     try {
-      // Convert datetime-local to ISO string with proper timezone
-      const readingTimeISO = new Date(newReading.readingTime).toISOString();
-
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
-        readingTime: readingTimeISO,
+        readingTime: newReading.readingTime + ':00', // Just append seconds
         notes: newReading.notes
       });
 
@@ -313,13 +310,10 @@ export default function DryingProcess() {
     if (!editingReading) return;
 
     try {
-      // Convert datetime-local to ISO string with proper timezone
-      const readingTimeISO = new Date(editReadingData.readingTime).toISOString();
-
       await api.put(`/factory/drying-readings/${editingReading.id}`, {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
-        readingTime: readingTimeISO,
+        readingTime: editReadingData.readingTime + ':00', // Just append seconds
         notes: editReadingData.notes
       });
 
@@ -435,7 +429,7 @@ export default function DryingProcess() {
       ...readings.map(r => ({
         time: new Date(r.readingTime).getTime(),
         humidity: r.humidity,
-        label: new Date(r.readingTime).toLocaleDateString()
+        label: r.readingTime.split('T')[0]
       }))
     ];
 
@@ -920,19 +914,14 @@ export default function DryingProcess() {
                                   >
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
                                       <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
-                                        {new Date(reading.readingTime).toLocaleDateString('en-US', {
-                                          year: 'numeric',
-                                          month: '2-digit',
-                                          day: '2-digit'
-                                        })}
+                                        {(() => {
+                                          const dateStr = reading.readingTime.split('T')[0];
+                                          const [year, month, day] = dateStr.split('-');
+                                          return `${month}/${day}/${year}`;
+                                        })()}
                                       </Typography>
                                       <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.25 }}>
-                                        {new Date(reading.readingTime).toLocaleTimeString('en-US', {
-                                          hour: '2-digit',
-                                          minute: '2-digit',
-                                          second: '2-digit',
-                                          hour12: false
-                                        })}
+                                        {reading.readingTime.split('T')[1]?.substring(0, 8) || ''}
                                       </Typography>
                                     </TableCell>
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
@@ -2106,7 +2095,7 @@ export default function DryingProcess() {
                       {selectedProcess.readings.map((reading) => (
                         <TableRow key={reading.id} sx={{ '&:hover': { backgroundColor: '#fef2f2' } }}>
                           <TableCell sx={{ fontSize: '0.75rem' }}>
-                            {new Date(reading.readingTime).toLocaleString()}
+                            {reading.readingTime.replace('T', ' ').substring(0, 19)}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
                             {reading.electricityMeter.toFixed(2)}
