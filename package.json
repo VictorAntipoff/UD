@@ -2,16 +2,19 @@
   "name": "udapp",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
-    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
-    "start": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
-    "build": "cd frontend && npm run build && cd ../backend && npm run build",
-    "prisma:generate": "cd backend && npm run prisma:generate",
-    "prisma:push": "cd backend && npm run prisma:push",
-    "prisma:seed": "cd backend && npm run prisma:seed",
-    "test:db": "cd backend && npm run test:db",
-    "setup:db": "cd backend && npm run setup:db"
+    "dev": "concurrently \"cd backend/local && npm run dev\" \"cd frontend && npm run dev\"",
+    "start": "concurrently \"cd backend/local && npm run dev\" \"cd frontend && npm run dev\"",
+    "install:all": "npm install && cd frontend && npm install && cd backend/local && npm install",
+    "build": "cd frontend && npm run build && cd backend/local && npm run build",
+    "prisma:generate": "cd backend/local && npm run prisma:generate",
+    "prisma:push": "cd backend/local && npm run prisma:push",
+    "prisma:seed": "cd backend/local && npm run prisma:seed",
+    "test:db": "cd backend/local && npm run test:db",
+    "setup:db": "cd backend/local && npm run setup:db"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",

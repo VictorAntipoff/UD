@@ -3,18 +3,7 @@ const prisma = new PrismaClient();
 async function projectRoutes(fastify) {
     fastify.get('/', async (request, reply) => {
         try {
-            const projects = await prisma.project.findMany({
-                include: {
-                    owner: {
-                        select: {
-                            id: true,
-                            email: true,
-                            firstName: true,
-                            lastName: true
-                        }
-                    }
-                }
-            });
+            const projects = await prisma.project.findMany();
             return { projects };
         }
         catch (error) {
@@ -35,16 +24,6 @@ async function projectRoutes(fastify) {
                     description,
                     isPublic,
                     ownerId: userId
-                },
-                include: {
-                    owner: {
-                        select: {
-                            id: true,
-                            email: true,
-                            firstName: true,
-                            lastName: true
-                        }
-                    }
                 }
             });
             return { project };
