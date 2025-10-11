@@ -45,7 +45,7 @@ async function authRoutes(fastify) {
             const token = jwt.sign({
                 userId: user.id,
                 role: user.role
-            }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '24h' });
+            }, process.env.JWT_SECRET || 'your-super-secret-jwt-key', { expiresIn: '24h' });
             // Return success
             return {
                 token,
