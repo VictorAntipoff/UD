@@ -63,13 +63,24 @@ async function authRoutes(fastify) {
             });
         }
     });
-    // Me route
+    // Me route - with JWT verification
     fastify.get('/me', async (request, reply) => {
         try {
-            const userId = request.user?.id;
-            if (!userId) {
+            // Get token from Authorization header
+            const authHeader = request.headers.authorization;
+            const token = authHeader?.split(' ')[1];
+            if (!token) {
                 return reply.status(401).send({ error: 'Not authenticated' });
             }
+            // Verify and decode token
+            let decoded;
+            try {
+                decoded = jwt.verify(token, process.env.JWT_SECRET);
+            }
+            catch (err) {
+                return reply.status(401).send({ error: 'Invalid token' });
+            }
+            const userId = decoded.userId;
             const user = await prisma.user.findUnique({
                 where: { id: userId },
                 select: {

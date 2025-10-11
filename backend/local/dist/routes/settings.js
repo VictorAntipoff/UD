@@ -1,13 +1,49 @@
-import { Router } from 'express';
-import { prisma } from '../lib/prisma';
-const router = Router();
-router.get('/', async (_req, res) => {
-    try {
-        const settings = await prisma.setting.findMany();
-        res.json(settings);
-    }
-    catch (error) {
-        res.status(500).json({ error: 'Failed to fetch settings' });
-    }
-});
-export default router;
+import { prisma } from '../lib/prisma.js';
+async function settingsRoutes(fastify) {
+    // Get all settings
+    fastify.get('/', async (request, reply) => {
+        try {
+            const settings = await prisma.setting.findMany();
+            return settings;
+        }
+        catch (error) {
+            console.error('Error fetching settings:', error);
+            return reply.status(500).send({ error: 'Failed to fetch settings' });
+        }
+    });
+    // Get a specific setting by key
+    fastify.get('/:key', async (request, reply) => {
+        try {
+            const { key } = request.params;
+            const setting = await prisma.setting.findUnique({
+                where: { key }
+            });
+            if (!setting) {
+                return reply.status(404).send({ error: 'Setting not found' });
+            }
+            return setting;
+        }
+        catch (error) {
+            console.error('Error fetching setting:', error);
+            return reply.status(500).send({ error: 'Failed to fetch setting' });
+        }
+    });
+    // Update or create a setting
+    fastify.put('/:key', async (request, reply) => {
+        try {
+            const { key } = request.params;
+            const { value } = request.body;
+            const setting = await prisma.setting.upsert({
+                where: { key },
+                update: { value },
+                create: { key, value }
+            });
+            return setting;
+        }
+        catch (error) {
+            console.error('Error updating setting:', error);
+            return reply.status(500).send({ error: 'Failed to update setting' });
+        }
+    });
+}
+export default settingsRoutes;
