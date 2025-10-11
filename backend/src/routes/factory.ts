@@ -771,6 +771,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const data = request.body as {
         electricityMeter?: number;
         humidity?: number;
+        readingTime?: string;
         notes?: string;
       };
 
@@ -779,6 +780,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         data: {
           ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
           ...(data.humidity !== undefined && { humidity: data.humidity }),
+          ...(data.readingTime !== undefined && { readingTime: new Date(data.readingTime) }),
           ...(data.notes !== undefined && { notes: data.notes })
         }
       });
