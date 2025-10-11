@@ -174,6 +174,16 @@ export default function DryingProcess() {
   const [lukuSuccess, setLukuSuccess] = useState(false);
   const [annualDepreciation, setAnnualDepreciation] = useState<number>(0);
 
+  // Edit reading state
+  const [editReadingDialogOpen, setEditReadingDialogOpen] = useState(false);
+  const [editingReading, setEditingReading] = useState<any>(null);
+  const [editReadingData, setEditReadingData] = useState({
+    electricityMeter: '',
+    humidity: '',
+    readingTime: '',
+    notes: ''
+  });
+
   useEffect(() => {
     fetchData();
     fetchOvenSettings();
@@ -294,6 +304,43 @@ export default function DryingProcess() {
     } catch (error) {
       console.error('Error adding reading:', error);
     }
+  };
+
+  const handleEditReading = async () => {
+    if (!editingReading) return;
+
+    try {
+      await api.put(`/factory/drying-readings/${editingReading.id}`, {
+        electricityMeter: parseFloat(editReadingData.electricityMeter),
+        humidity: parseFloat(editReadingData.humidity),
+        readingTime: editReadingData.readingTime,
+        notes: editReadingData.notes
+      });
+
+      // Refresh the process data
+      await fetchData();
+      setEditReadingDialogOpen(false);
+      setEditingReading(null);
+      setEditReadingData({
+        electricityMeter: '',
+        humidity: '',
+        readingTime: '',
+        notes: ''
+      });
+    } catch (error) {
+      console.error('Error updating reading:', error);
+    }
+  };
+
+  const openEditReadingDialog = (reading: any) => {
+    setEditingReading(reading);
+    setEditReadingData({
+      electricityMeter: reading.electricityMeter.toString(),
+      humidity: reading.humidity.toString(),
+      readingTime: new Date(reading.readingTime).toISOString().slice(0, 16),
+      notes: reading.notes || ''
+    });
+    setEditReadingDialogOpen(true);
   };
 
   const handleCompleteProcess = async (process: DryingProcess) => {
@@ -850,6 +897,7 @@ export default function DryingProcess() {
                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>Electricity (Unit)</TableCell>
                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>Humidity (%)</TableCell>
                                 <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>Notes</TableCell>
+                                {isAdmin && <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#64748b', width: 80 }}>Actions</TableCell>}
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -928,6 +976,20 @@ export default function DryingProcess() {
                                         {reading.notes || 'No notes'}
                                       </Typography>
                                     </TableCell>
+                                    {isAdmin && (
+                                      <TableCell>
+                                        <IconButton
+                                          size="small"
+                                          onClick={() => openEditReadingDialog(reading)}
+                                          sx={{
+                                            color: '#3b82f6',
+                                            '&:hover': { backgroundColor: alpha('#3b82f6', 0.1) }
+                                          }}
+                                        >
+                                          <EditIcon sx={{ fontSize: 16 }} />
+                                        </IconButton>
+                                      </TableCell>
+                                    )}
                                   </TableRow>
                                   );
                                 })}
@@ -989,6 +1051,7 @@ export default function DryingProcess() {
                                     Initial data
                                   </Typography>
                                 </TableCell>
+                                {isAdmin && <TableCell />}
                               </TableRow>
                               </TableBody>
                             </Table>
@@ -1657,6 +1720,106 @@ export default function DryingProcess() {
             }}
           >
             Add Reading
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Reading Dialog */}
+      <Dialog
+        open={editReadingDialogOpen}
+        onClose={() => setEditReadingDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        disableRestoreFocus
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+          }
+        }}
+      >
+        <DialogTitle sx={{ pb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <EditIcon sx={{ color: '#3b82f6', fontSize: 28 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
+              Edit Reading
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 3 }}>
+          <Stack spacing={2.5}>
+            <TextField
+              fullWidth
+              label="Electricity Meter Reading (Unit)"
+              type="number"
+              value={editReadingData.electricityMeter}
+              onChange={(e) => setEditReadingData({ ...editReadingData, electricityMeter: e.target.value })}
+              size="small"
+              sx={textFieldSx}
+              inputProps={{ step: 0.01 }}
+            />
+
+            <TextField
+              fullWidth
+              label="Humidity (%)"
+              type="number"
+              value={editReadingData.humidity}
+              onChange={(e) => setEditReadingData({ ...editReadingData, humidity: e.target.value })}
+              size="small"
+              sx={textFieldSx}
+              inputProps={{ step: 0.1, min: 0, max: 100 }}
+            />
+
+            <TextField
+              fullWidth
+              label="Reading Time"
+              type="datetime-local"
+              value={editReadingData.readingTime}
+              onChange={(e) => setEditReadingData({ ...editReadingData, readingTime: e.target.value })}
+              size="small"
+              sx={textFieldSx}
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <TextField
+              fullWidth
+              label="Notes"
+              multiline
+              rows={2}
+              value={editReadingData.notes}
+              onChange={(e) => setEditReadingData({ ...editReadingData, notes: e.target.value })}
+              size="small"
+              sx={textFieldSx}
+            />
+          </Stack>
+        </DialogContent>
+        <Divider />
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button
+            onClick={() => setEditReadingDialogOpen(false)}
+            sx={{
+              color: '#64748b',
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleEditReading}
+            variant="contained"
+            disabled={!editReadingData.electricityMeter || !editReadingData.humidity}
+            sx={{
+              backgroundColor: '#3b82f6',
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                backgroundColor: '#2563eb',
+              }
+            }}
+          >
+            Save Changes
           </Button>
         </DialogActions>
       </Dialog>
