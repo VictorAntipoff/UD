@@ -50,11 +50,17 @@ const setupServer = async () => {
       const allowedOrigins = [
         'http://localhost:3020',
         'http://localhost:5173',
+        'http://localhost:5174',
         process.env.FRONTEND_URL
       ].filter(Boolean);
 
       // Allow requests with no origin (like mobile apps or curl requests)
       if (!origin) return cb(null, true);
+
+      // In production, allow all Vercel and Railway origins
+      if (origin && (origin.includes('.vercel.app') || origin.includes('.railway.app'))) {
+        return cb(null, true);
+      }
 
       if (allowedOrigins.includes(origin)) {
         cb(null, true);
