@@ -1513,11 +1513,25 @@ const WoodSlicer = () => {
 
         let savedOperation;
         if (operationId) {
+          // Updating existing operation
           const response = await api.patch(`/factory/operations/${operationId}`, operationData);
           savedOperation = response.data;
           console.log('Saved operation response:', JSON.stringify(savedOperation, null, 2));
           console.log('Planks in saved response:', savedOperation.plank_sizes?.length, savedOperation.plank_sizes);
         } else {
+          // Creating new operation - check for duplicates first
+          if (selectedSleeperNumber && lotNumber) {
+            const checkResponse = await api.get('/factory/operations');
+            const existingOps = checkResponse.data || [];
+            const duplicate = existingOps.find(
+              (op: any) => op.lot_number === lotNumber && op.sleeper_number === selectedSleeperNumber
+            );
+
+            if (duplicate) {
+              throw new Error(`Sleeper #${selectedSleeperNumber} has already been sliced! Please select a different sleeper.`);
+            }
+          }
+
           const response = await api.post('/factory/operations', operationData);
           savedOperation = response.data;
           setOperationId(savedOperation.id);

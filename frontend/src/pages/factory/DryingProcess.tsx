@@ -802,23 +802,25 @@ export default function DryingProcess() {
                             Complete
                           </Button>
                         )}
-                        <Button
-                          size="small"
-                          onClick={() => openDetailsDialog(process)}
-                          sx={{
-                            color: '#3b82f6',
-                            borderColor: '#3b82f6',
-                            fontSize: '0.75rem',
-                            textTransform: 'none',
-                            '&:hover': {
-                              borderColor: '#2563eb',
-                              backgroundColor: alpha('#3b82f6', 0.04),
-                            }
-                          }}
-                          variant="outlined"
-                        >
-                          View Details
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            size="small"
+                            onClick={() => openDetailsDialog(process)}
+                            sx={{
+                              color: '#3b82f6',
+                              borderColor: '#3b82f6',
+                              fontSize: '0.75rem',
+                              textTransform: 'none',
+                              '&:hover': {
+                                borderColor: '#2563eb',
+                                backgroundColor: alpha('#3b82f6', 0.04),
+                              }
+                            }}
+                            variant="outlined"
+                          >
+                            View Details
+                          </Button>
+                        )}
                         {isAdmin && (
                           <IconButton
                             size="small"
@@ -1018,6 +1020,20 @@ export default function DryingProcess() {
 
                                               return (
                                                 <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                                  {usageDuringRecharge > 0 && (
+                                                    <Chip
+                                                      label={`-${usageDuringRecharge.toFixed(2)}`}
+                                                      size="small"
+                                                      sx={{
+                                                        height: 18,
+                                                        fontSize: '0.65rem',
+                                                        backgroundColor: '#dcfce7',
+                                                        color: '#16a34a',
+                                                        fontWeight: 600,
+                                                        ml: 0.5
+                                                      }}
+                                                    />
+                                                  )}
                                                   <Chip
                                                     icon={<ElectricBoltIcon sx={{ fontSize: 12, color: '#f59e0b !important' }} />}
                                                     label="Recharged"
@@ -1028,22 +1044,9 @@ export default function DryingProcess() {
                                                       backgroundColor: '#fef3c7',
                                                       color: '#f59e0b',
                                                       fontWeight: 600,
-                                                      ml: 0.5
+                                                      ml: usageDuringRecharge > 0 ? 0 : 0.5
                                                     }}
                                                   />
-                                                  {usageDuringRecharge > 0 && (
-                                                    <Chip
-                                                      label={`-${usageDuringRecharge.toFixed(2)}`}
-                                                      size="small"
-                                                      sx={{
-                                                        height: 18,
-                                                        fontSize: '0.65rem',
-                                                        backgroundColor: '#dcfce7',
-                                                        color: '#16a34a',
-                                                        fontWeight: 600
-                                                      }}
-                                                    />
-                                                  )}
                                                 </Box>
                                               );
                                             }
@@ -2022,10 +2025,10 @@ export default function DryingProcess() {
             <Stack spacing={3}>
               {/* Process Info */}
               <Box>
-                <Typography variant="subtitle2" sx={{ color: '#64748b', mb: 1.5, fontWeight: 600 }}>
+                <Typography variant="h6" sx={{ color: '#1e293b', mb: 2, fontWeight: 700, fontSize: '1rem' }}>
                   Process Information
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
                       Wood Type:
@@ -2040,9 +2043,7 @@ export default function DryingProcess() {
                       Thickness:
                     </Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {selectedProcess.thicknessUnit === 'inch'
-                        ? `${(selectedProcess.thickness / 25.4).toFixed(2)}inch`
-                        : `${selectedProcess.thickness}mm`}
+                      {(selectedProcess.thickness / 10).toFixed(1)}cm ({(selectedProcess.thickness / 25.4).toFixed(2)}in)
                     </Typography>
                   </Box>
                   <Typography variant="body2" sx={{ color: '#e2e8f0' }}>•</Typography>
@@ -2171,6 +2172,21 @@ export default function DryingProcess() {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
                                 {currentHumidity.toFixed(1)}%
+                              </Typography>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Card elevation={0} sx={{ backgroundColor: '#fee2e2', border: '1px solid #fecaca' }}>
+                            <CardContent sx={{ p: 1.5 }}>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                                Total Cost
+                              </Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem', color: '#dc2626' }}>
+                                TZS {(electricityCost + depreciationCost).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
+                                Electricity + Depreciation
                               </Typography>
                             </CardContent>
                           </Card>
