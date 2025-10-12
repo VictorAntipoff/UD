@@ -66,6 +66,17 @@ const StyledContainer = styled(Container)(({ theme }) => ({
   backgroundColor: '#f8fafc',
 }));
 
+// Helper function to get current local datetime in YYYY-MM-DDTHH:MM format
+const getCurrentLocalDatetime = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
 const textFieldSx = {
   '& .MuiOutlinedInput-root': {
     '& fieldset': {
@@ -165,7 +176,7 @@ export default function DryingProcess() {
   const [newReading, setNewReading] = useState({
     electricityMeter: '',
     humidity: '',
-    readingTime: new Date().toISOString().slice(0, 16),
+    readingTime: getCurrentLocalDatetime(),
     notes: ''
   });
 
@@ -295,7 +306,7 @@ export default function DryingProcess() {
       setNewReading({
         electricityMeter: '',
         humidity: '',
-        readingTime: new Date().toISOString().slice(0, 16),
+        readingTime: getCurrentLocalDatetime(),
         notes: ''
       });
       setLukuSms('');
