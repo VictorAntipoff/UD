@@ -1900,7 +1900,7 @@ export default function DryingProcess() {
 
             <Divider sx={{ my: 1 }} />
 
-            {/* Luku (Electricity Recharge) Section - Same as Add Reading */}
+            {/* Luku (Electricity Recharge) Section - Show stored SMS */}
             <Accordion elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 1 }}>
               <AccordionSummary
                 expandIcon={<ExpandMoreIcon />}
@@ -1911,60 +1911,54 @@ export default function DryingProcess() {
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ElectricBoltIcon sx={{ fontSize: 20, color: '#dc2626' }} />
+                  <ElectricBoltIcon sx={{ fontSize: 20, color: editReadingData.lukuSms ? '#f59e0b' : '#94a3b8' }} />
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                    Add Luku (Optional)
+                    Luku Recharge SMS {editReadingData.lukuSms ? '✓' : '(Not recorded)'}
                   </Typography>
                 </Box>
               </AccordionSummary>
               <AccordionDetails>
                 <Stack spacing={2}>
-                  <Typography variant="caption" sx={{ color: '#64748b' }}>
-                    Paste the SMS from your electricity provider to record the recharge
-                  </Typography>
-
-                  {lukuSuccess && (
-                    <Alert severity="success" sx={{ fontSize: '0.75rem' }}>
-                      Luku added successfully!
-                    </Alert>
+                  {editReadingData.lukuSms ? (
+                    <>
+                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                        Electricity recharge SMS recorded with this reading
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        label="Luku SMS"
+                        multiline
+                        rows={4}
+                        value={editReadingData.lukuSms}
+                        onChange={(e) => setEditReadingData({ ...editReadingData, lukuSms: e.target.value })}
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                      <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.7rem' }}>
+                        You can edit this SMS text if needed
+                      </Typography>
+                    </>
+                  ) : (
+                    <>
+                      <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
+                        No electricity recharge was recorded with this reading
+                      </Alert>
+                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                        You can add Luku SMS now if needed
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        label="Paste SMS Here (Optional)"
+                        multiline
+                        rows={4}
+                        value={editReadingData.lukuSms}
+                        onChange={(e) => setEditReadingData({ ...editReadingData, lukuSms: e.target.value })}
+                        placeholder="Malipo yamekamilika... TOKEN 5375 8923... 1399.3KWH Cost 408606.56..."
+                        size="small"
+                        sx={textFieldSx}
+                      />
+                    </>
                   )}
-
-                  {lukuError && (
-                    <Alert severity="error" sx={{ fontSize: '0.75rem' }}>
-                      {lukuError}
-                    </Alert>
-                  )}
-
-                  <TextField
-                    fullWidth
-                    label="Paste SMS Here"
-                    multiline
-                    rows={4}
-                    value={lukuSms}
-                    onChange={(e) => setLukuSms(e.target.value)}
-                    placeholder="Malipo yamekamilika... TOKEN 5375 8923... 1399.3KWH Cost 408606.56..."
-                    size="small"
-                    sx={textFieldSx}
-                  />
-
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={handleAddLuku}
-                    disabled={!lukuSms.trim()}
-                    sx={{
-                      color: '#dc2626',
-                      borderColor: '#dc2626',
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      '&:hover': {
-                        borderColor: '#b91c1c',
-                        backgroundColor: alpha('#dc2626', 0.04),
-                      }
-                    }}
-                  >
-                    Parse & Save Luku
-                  </Button>
                 </Stack>
               </AccordionDetails>
             </Accordion>
