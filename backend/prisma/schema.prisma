@@ -248,6 +248,7 @@ model DryingReading {
   electricityMeter  Float          // Luku meter reading
   humidity          Float          // Humidity percentage
   notes             String?
+  lukuSms           String?        // Original Luku SMS text for reference
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 

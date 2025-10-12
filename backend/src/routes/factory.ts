@@ -731,6 +731,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         humidity: number;
         readingTime?: string;
         notes?: string;
+        lukuSms?: string;
       };
 
       // Validate required fields
@@ -753,7 +754,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           electricityMeter: data.electricityMeter,
           humidity: data.humidity,
           readingTime: data.readingTime ? new Date(data.readingTime) : new Date(),
-          notes: data.notes || ''
+          notes: data.notes || '',
+          lukuSms: data.lukuSms || null
         }
       });
 
@@ -773,6 +775,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         humidity?: number;
         readingTime?: string;
         notes?: string;
+        lukuSms?: string;
       };
 
       const reading = await prisma.dryingReading.update({
@@ -781,7 +784,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
           ...(data.humidity !== undefined && { humidity: data.humidity }),
           ...(data.readingTime !== undefined && { readingTime: new Date(data.readingTime) }),
-          ...(data.notes !== undefined && { notes: data.notes })
+          ...(data.notes !== undefined && { notes: data.notes }),
+          ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms })
         }
       });
 

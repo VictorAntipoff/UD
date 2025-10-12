@@ -184,6 +184,7 @@ export default function DryingProcess() {
   const [lukuError, setLukuError] = useState<string | null>(null);
   const [lukuSuccess, setLukuSuccess] = useState(false);
   const [annualDepreciation, setAnnualDepreciation] = useState<number>(0);
+  const [electricityRatePerKwh, setElectricityRatePerKwh] = useState<number>(292); // Default fallback rate
 
   // Edit reading state
   const [editReadingDialogOpen, setEditReadingDialogOpen] = useState(false);
@@ -192,12 +193,14 @@ export default function DryingProcess() {
     electricityMeter: '',
     humidity: '',
     readingTime: '',
-    notes: ''
+    notes: '',
+    lukuSms: ''
   });
 
   useEffect(() => {
     fetchData();
     fetchOvenSettings();
+    fetchElectricityRate();
   }, []);
 
   const fetchOvenSettings = async () => {
@@ -216,6 +219,29 @@ export default function DryingProcess() {
     } catch (error) {
       console.error('Error fetching oven settings:', error);
       setAnnualDepreciation(0);
+    }
+  };
+
+  const fetchElectricityRate = async () => {
+    try {
+      // Fetch the latest electricity recharge to calculate the actual rate per kWh
+      const response = await api.get('/electricity/recharges');
+      const recharges = response.data || [];
+
+      if (recharges.length > 0) {
+        // Get the most recent recharge
+        const latestRecharge = recharges[0];
+
+        // Calculate rate: totalPaid / kwhAmount
+        if (latestRecharge.kwhAmount && latestRecharge.kwhAmount > 0) {
+          const rate = latestRecharge.totalPaid / latestRecharge.kwhAmount;
+          setElectricityRatePerKwh(rate);
+          console.log(`Using actual electricity rate: ${rate.toFixed(2)} TZS/kWh (from latest recharge)`);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching electricity rate:', error);
+      // Keep using the default fallback rate (292)
     }
   };
 
@@ -297,7 +323,8 @@ export default function DryingProcess() {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
         readingTime: newReading.readingTime + ':00', // Just append seconds
-        notes: newReading.notes
+        notes: newReading.notes,
+        lukuSms: lukuSms.trim() || null // Include Luku SMS if provided
       });
 
       // Refresh the process data
@@ -325,7 +352,8 @@ export default function DryingProcess() {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
         readingTime: editReadingData.readingTime + ':00', // Just append seconds
-        notes: editReadingData.notes
+        notes: editReadingData.notes,
+        lukuSms: editReadingData.lukuSms.trim() || null
       });
 
       // Refresh the process data
@@ -336,7 +364,8 @@ export default function DryingProcess() {
         electricityMeter: '',
         humidity: '',
         readingTime: '',
-        notes: ''
+        notes: '',
+        lukuSms: ''
       });
     } catch (error) {
       console.error('Error updating reading:', error);
@@ -349,7 +378,8 @@ export default function DryingProcess() {
       electricityMeter: reading.electricityMeter.toString(),
       humidity: reading.humidity.toString(),
       readingTime: new Date(reading.readingTime).toISOString().slice(0, 16),
-      notes: reading.notes || ''
+      notes: reading.notes || '',
+      lukuSms: reading.lukuSms || ''
     });
     setEditReadingDialogOpen(true);
   };
@@ -408,17 +438,37 @@ export default function DryingProcess() {
   const calculateElectricityUsed = (process: DryingProcess) => {
     if (!process.readings || process.readings.length === 0) return 0;
 
-    // If we have starting electricity units, use that as baseline
-    if (process.startingElectricityUnits) {
-      const lastReading = process.readings[process.readings.length - 1].electricityMeter;
-      return lastReading - process.startingElectricityUnits;
+    const readings = process.readings;
+    let totalUsed = 0;
+
+    // Calculate usage from consecutive readings
+    for (let i = 1; i < readings.length; i++) {
+      const prevReading = readings[i - 1].electricityMeter;
+      const currReading = readings[i].electricityMeter;
+      const diff = currReading - prevReading;
+
+      // If meter went down, it's normal usage (prepaid meter counting down)
+      // If meter went up significantly (>100), it's a recharge - ignore it
+      if (diff < 0) {
+        totalUsed += Math.abs(diff);
+      } else if (diff <= 100) {
+        // Small positive change might be usage on regular meter
+        totalUsed += diff;
+      }
     }
 
-    // Otherwise, use the difference between first and last reading
-    if (process.readings.length < 2) return 0;
-    const first = process.readings[0].electricityMeter;
-    const last = process.readings[process.readings.length - 1].electricityMeter;
-    return last - first;
+    // Also account for usage from starting point to first reading
+    if (process.startingElectricityUnits && readings.length > 0) {
+      const firstReading = readings[0].electricityMeter;
+      const diff = firstReading - process.startingElectricityUnits;
+      if (diff < 0) {
+        totalUsed += Math.abs(diff);
+      } else if (diff <= 100) {
+        totalUsed += diff;
+      }
+    }
+
+    return totalUsed;
   };
 
   // AI estimation algorithm - predicts completion time based on humidity trend
@@ -950,9 +1000,59 @@ export default function DryingProcess() {
                                           }
 
                                           if (prevReading > 0) {
+                                            const diff = reading.electricityMeter - prevReading;
+
+                                            // If large positive jump (>100), it's a recharge
+                                            if (diff > 100) {
+                                              // Check if there's lukuSms to calculate usage during recharge
+                                              let usageDuringRecharge = 0;
+                                              if (reading.lukuSms) {
+                                                // Extract kWh from Luku SMS
+                                                const kwhMatch = reading.lukuSms.match(/([\d.]+)KWH/i);
+                                                if (kwhMatch) {
+                                                  const kwhPurchased = parseFloat(kwhMatch[1]);
+                                                  const unitsAdded = diff; // 1569.02 - 175.11 = 1393.91
+                                                  usageDuringRecharge = kwhPurchased - unitsAdded; // 1399.3 - 1393.91 = 5.39
+                                                }
+                                              }
+
+                                              return (
+                                                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                                  <Chip
+                                                    icon={<ElectricBoltIcon sx={{ fontSize: 12, color: '#f59e0b !important' }} />}
+                                                    label="Recharged"
+                                                    size="small"
+                                                    sx={{
+                                                      height: 18,
+                                                      fontSize: '0.65rem',
+                                                      backgroundColor: '#fef3c7',
+                                                      color: '#f59e0b',
+                                                      fontWeight: 600,
+                                                      ml: 0.5
+                                                    }}
+                                                  />
+                                                  {usageDuringRecharge > 0 && (
+                                                    <Chip
+                                                      label={`-${usageDuringRecharge.toFixed(2)}`}
+                                                      size="small"
+                                                      sx={{
+                                                        height: 18,
+                                                        fontSize: '0.65rem',
+                                                        backgroundColor: '#dcfce7',
+                                                        color: '#16a34a',
+                                                        fontWeight: 600
+                                                      }}
+                                                    />
+                                                  )}
+                                                </Box>
+                                              );
+                                            }
+
+                                            // Normal usage: show negative number (units used)
+                                            const usage = diff < 0 ? Math.abs(diff) : diff;
                                             return (
                                               <Chip
-                                                label={`${(reading.electricityMeter - prevReading).toFixed(2)}`}
+                                                label={`-${usage.toFixed(2)}`}
                                                 size="small"
                                                 sx={{
                                                   height: 18,
@@ -2009,7 +2109,7 @@ export default function DryingProcess() {
                 <Grid container spacing={2}>
                   {(() => {
                     const electricityUsed = calculateElectricityUsed(selectedProcess);
-                    const electricityCost = Math.abs(electricityUsed) * 292; // TZS per unit (approximate rate)
+                    const electricityCost = Math.abs(electricityUsed) * electricityRatePerKwh; // Use actual rate from latest recharge
                     const currentHumidity = selectedProcess.readings.length > 0
                       ? selectedProcess.readings[selectedProcess.readings.length - 1].humidity
                       : 0;
@@ -2047,6 +2147,9 @@ export default function DryingProcess() {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
                                 TZS {electricityCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
+                                @ {electricityRatePerKwh.toFixed(2)} TZS/kWh
                               </Typography>
                             </CardContent>
                           </Card>
