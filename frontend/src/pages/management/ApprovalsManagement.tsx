@@ -38,6 +38,7 @@ import { useAuth } from '../../hooks/useAuth';
 import api from '../../lib/api';
 import { alpha } from '@mui/material/styles';
 import { styled } from '@mui/material/styles';
+import toast from 'react-hot-toast';
 
 interface ApprovalRequest {
   id: string;
@@ -140,7 +141,7 @@ export default function ApprovalsManagement() {
   });
   const [approvers, setApprovers] = useState<{ id: string; email: string; role: string; full_name?: string }[]>([]);
   const { user } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const isAdmin = user?.role === 'ADMIN';
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -152,8 +153,7 @@ export default function ApprovalsManagement() {
     await Promise.all([
       fetchApprovals(),
       fetchRules(),
-      fetchApprovers(),
-      checkAdminStatus()
+      fetchApprovers()
     ]);
     setLoading(false);
   };
@@ -208,11 +208,19 @@ export default function ApprovalsManagement() {
     }
   };
 
-  const handleApproval = async (requestId: string, status: 'approved' | 'rejected') => {
+  const handleApproval = async (requestId: string, status: 'approved' | 'rejected', skipDialog = false) => {
+    // Show confirmation for quick actions
+    if (skipDialog) {
+      const action = status === 'approved' ? 'approve' : 'reject';
+      if (!window.confirm(`Are you sure you want to ${action} this request?`)) {
+        return;
+      }
+    }
+
     try {
       await api.patch(`/management/approvals/${requestId}`, {
         status,
-        notes: approvalNote
+        notes: skipDialog ? '' : approvalNote
       });
 
       if (status === 'approved' && selectedRequest?.operation_id) {
@@ -221,18 +229,21 @@ export default function ApprovalsManagement() {
         });
       }
 
+      toast.success(`Request ${status === 'approved' ? 'approved' : 'rejected'} successfully`);
       setIsDialogOpen(false);
       setApprovalNote('');
       fetchApprovals();
     } catch (error) {
       console.error('Error updating approval:', error);
+      toast.error('Failed to update approval request');
     }
   };
 
   const handleRuleSubmit = async () => {
     try {
       if (!ruleForm.approver_id || !ruleForm.module || !ruleForm.condition_type) {
-        throw new Error('Please fill in all required fields');
+        toast.error('Please fill in all required fields');
+        return;
       }
 
       await api.post('/management/approval-rules', {
@@ -240,6 +251,7 @@ export default function ApprovalsManagement() {
         is_active: true
       });
 
+      toast.success('Approval rule created successfully');
       setIsRuleDialogOpen(false);
       setRuleForm({
         module: 'WoodSlicer',
@@ -251,21 +263,7 @@ export default function ApprovalsManagement() {
     } catch (error: any) {
       console.error('Error creating rule:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Failed to create rule';
-      alert(errorMessage);
-    }
-  };
-
-  const checkAdminStatus = async () => {
-    if (!user?.id) return;
-
-    try {
-      const response = await api.get(`/users/profile/${user.id}`);
-      setIsAdmin(response.data?.role === 'ADMIN');
-    } catch (error: any) {
-      if (error.response?.status !== 404) {
-        console.error('Error checking admin status:', error);
-      }
-      setIsAdmin(false);
+      toast.error(errorMessage);
     }
   };
 
@@ -396,6 +394,9 @@ export default function ApprovalsManagement() {
                         Requestor
                       </TableCell>
                       <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+                        Created
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
                         Status
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
@@ -438,6 +439,11 @@ export default function ApprovalsManagement() {
                           </Typography>
                         </TableCell>
                         <TableCell>
+                          <Typography sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                            {approval.created_at ? approval.created_at.replace('T', ' ').substring(0, 16) : 'N/A'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
                           <Chip
                             label={approval.status.toUpperCase()}
                             size="small"
@@ -476,10 +482,13 @@ export default function ApprovalsManagement() {
                             </Tooltip>
                             {approval.status === 'pending' && (
                               <>
-                                <Tooltip title="Approve">
+                                <Tooltip title="Approve (Quick Action)">
                                   <IconButton
                                     size="small"
-                                    onClick={() => handleApproval(approval.id, 'approved')}
+                                    onClick={() => {
+                                      setSelectedRequest(approval);
+                                      handleApproval(approval.id, 'approved', true);
+                                    }}
                                     sx={{
                                       color: '#64748b',
                                       '&:hover': {
@@ -491,10 +500,13 @@ export default function ApprovalsManagement() {
                                     <CheckCircleIcon sx={{ fontSize: '1.25rem' }} />
                                   </IconButton>
                                 </Tooltip>
-                                <Tooltip title="Reject">
+                                <Tooltip title="Reject (Quick Action)">
                                   <IconButton
                                     size="small"
-                                    onClick={() => handleApproval(approval.id, 'rejected')}
+                                    onClick={() => {
+                                      setSelectedRequest(approval);
+                                      handleApproval(approval.id, 'rejected', true);
+                                    }}
                                     sx={{
                                       color: '#64748b',
                                       '&:hover': {
@@ -684,9 +696,11 @@ export default function ApprovalsManagement() {
                                     await api.patch(`/management/approval-rules/${rule.id}`, {
                                       is_active: newStatus
                                     });
+                                    toast.success(`Rule ${newStatus ? 'activated' : 'deactivated'} successfully`);
                                     fetchRules();
                                   } catch (error) {
                                     console.error('Error updating rule status:', error);
+                                    toast.error('Failed to update rule status');
                                   }
                                 }}
                                 sx={{
@@ -707,9 +721,11 @@ export default function ApprovalsManagement() {
                                   if (window.confirm('Are you sure you want to delete this rule?')) {
                                     try {
                                       await api.delete(`/management/approval-rules/${rule.id}`);
+                                      toast.success('Rule deleted successfully');
                                       fetchRules();
                                     } catch (error) {
                                       console.error('Error deleting rule:', error);
+                                      toast.error('Failed to delete rule');
                                     }
                                   }
                                 }}
