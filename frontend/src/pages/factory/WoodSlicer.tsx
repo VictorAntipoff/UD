@@ -993,7 +993,6 @@ const WoodSlicer = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [savedOperations, setSavedOperations] = useState<SavedOperation[]>([]);
-  const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [showEndDialog, setShowEndDialog] = useState(false);
   const [showCompletedDialog, setShowCompletedDialog] = useState(false);
   const [selectedOperation, setSelectedOperation] = useState<SavedOperation | null>(null);
@@ -1018,8 +1017,6 @@ const WoodSlicer = () => {
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // LOT check states
-  const [lotExistsMessage, setLotExistsMessage] = useState<string | null>(null);
-  const [existingOperations, setExistingOperations] = useState<any[]>([]);
 
   // Generate serial number
   const generateSerialNumber = (): string => {
@@ -1354,12 +1351,12 @@ const WoodSlicer = () => {
   }, [operationId]);
 
   useEffect(() => {
-    if (showLoadDialog || showCompletedDialog) {
+    if (showCompletedDialog) {
       if (savedOperations.length === 0) {
         fetchSavedOperations();
       }
     }
-  }, [showLoadDialog, showCompletedDialog]);
+  }, [showCompletedDialog]);
 
   // Handlers for adding/removing sizes
   const addSleeperSize = () => {
@@ -1803,17 +1800,18 @@ const WoodSlicer = () => {
           pb: 2
         }}
       >
-        Completed Operations
+        Slicing History for {lotNumber}
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
-        {savedOperations.filter(op => op.status === 'completed').length === 0 ? (
+        {savedOperations.filter(op => op.lot_number === lotNumber).length === 0 ? (
           <Box sx={{ p: 8, textAlign: 'center', color: '#94a3b8' }}>
-            <Typography sx={{ fontSize: '0.875rem' }}>No completed operations found</Typography>
+            <Typography sx={{ fontSize: '0.875rem' }}>No slicing operations found for this LOT</Typography>
           </Box>
         ) : (
           <List sx={{ py: 0 }}>
             {savedOperations
-              .filter(op => op.status === 'completed')
+              .filter(op => op.lot_number === lotNumber)
+              .sort((a, b) => (a.sleeper_number || 0) - (b.sleeper_number || 0))
               .map((operation) => {
                 const { sleeperVolume } = calculateOperationVolumes(operation);
                 return (
@@ -1840,7 +1838,7 @@ const WoodSlicer = () => {
                           fontSize: '0.875rem'
                         }}
                       >
-                        Operation #{operation.serial_number}
+                        Sleeper #{operation.sleeper_number} - {operation.serial_number}
                       </Typography>
                       <Typography
                         variant="body2"
@@ -1849,9 +1847,11 @@ const WoodSlicer = () => {
                           fontSize: '0.75rem'
                         }}
                       >
+                        Status: {operation.status} •
                         Wood Type: {operation.wood_type?.name} •
                         Waste: {operation.waste_percentage?.toFixed(2)}% •
-                        Volume: {sleeperVolume} m³
+                        Volume: {sleeperVolume} m³ •
+                        Planks: {operation.plank_sizes?.length || 0}
                       </Typography>
                     </Box>
                     <Button
@@ -2510,53 +2510,29 @@ const WoodSlicer = () => {
             </Box>
           </Box>
           {lotNumber && (
-            <Stack direction="row" spacing={1.5} flexWrap="wrap">
-              <Button
-                variant="outlined"
-                startIcon={<FolderOpenIcon />}
-                onClick={() => {
-                  fetchSavedOperations();
-                  setShowLoadDialog(true);
-                }}
-                sx={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                  fontWeight: 600,
-                  fontSize: '0.875rem',
-                  textTransform: 'none',
-                  px: 2.5,
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                  },
-                }}
-              >
-                Load Operation
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={() => {
-                  fetchSavedOperations();
-                  setShowCompletedDialog(true);
-                }}
-                sx={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                  color: 'white',
-                  fontWeight: 600,
-                  fontSize: '0.875rem',
-                  textTransform: 'none',
-                  px: 2.5,
-                  borderColor: 'rgba(255, 255, 255, 0.3)',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    borderColor: 'rgba(255, 255, 255, 0.5)',
-                  },
-                }}
-              >
-                Completed Operations
-              </Button>
-            </Stack>
+            <Button
+              variant="outlined"
+              startIcon={<FolderOpenIcon />}
+              onClick={() => {
+                fetchSavedOperations();
+                setShowCompletedDialog(true);
+              }}
+              sx={{
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                color: 'white',
+                fontWeight: 600,
+                fontSize: '0.875rem',
+                textTransform: 'none',
+                px: 2.5,
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  borderColor: 'rgba(255, 255, 255, 0.5)',
+                },
+              }}
+            >
+              Slicing History
+            </Button>
           )}
         </Box>
       </Paper>
@@ -2780,30 +2756,6 @@ const WoodSlicer = () => {
           </Paper>
 
           {/* LOT Exists Warning */}
-          {lotExistsMessage && (
-            <Alert
-              severity="info"
-              sx={{ mb: 3 }}
-              action={
-                existingOperations.length > 0 && (
-                  <Button
-                    color="inherit"
-                    size="small"
-                    onClick={() => {
-                      if (existingOperations[0]?.id) {
-                        loadOperation(existingOperations[0].id);
-                      }
-                    }}
-                  >
-                    Load
-                  </Button>
-                )
-              }
-            >
-              {lotExistsMessage}
-            </Alert>
-          )}
-
           {/* Auto-save Indicator */}
           {(autoSaving || lastSaved) && (
             <Paper
@@ -3511,7 +3463,6 @@ const WoodSlicer = () => {
       </Grid>
 
       {/* Dialogs */}
-      <LoadOperationDialog />
       <EndOperationDialog />
       <CompletedOperationsDialog />
       <OperationDetailsDialog />
