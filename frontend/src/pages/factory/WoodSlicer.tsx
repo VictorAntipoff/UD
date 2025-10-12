@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -45,6 +45,8 @@ import {
   Image
 } from '@react-pdf/renderer';
 import { v4 as uuidv4 } from 'uuid';
+import { useAuth } from '../../contexts/AuthContext';
+import SleeperSelector from '../../components/SleeperSelector';
 
 // Constants
 const TIMEOUT_DURATION = 20000;
@@ -128,6 +130,7 @@ interface SavedOperation {
   serial_number: string;
   wood_type_id: string;
   lot_number?: string | null;
+  sleeper_number?: number | null;
   wood_type?: WoodType;
   start_time: string | null;
   sleeper_sizes: SleeperSize[];
@@ -316,12 +319,14 @@ const DimensionInput = ({
   onChange,
   unit,
   convertedValue,
+  disabled = false
 }: {
   label: string;
   value: number;
   onChange: (value: number) => void;
   unit: string;
   convertedValue: string;
+  disabled?: boolean;
 }) => (
   <TextField
     fullWidth
@@ -330,6 +335,7 @@ const DimensionInput = ({
     label={label}
     value={value || ''}
     onChange={(e) => onChange(Number(e.target.value))}
+    disabled={disabled}
     InputProps={{
       endAdornment: (
         <Box
@@ -363,10 +369,12 @@ const DimensionInput = ({
 
 const QuantityInput = ({
   value,
-  onChange
+  onChange,
+  disabled = false
 }: {
   value: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }) => (
   <TextField
     fullWidth
@@ -375,6 +383,7 @@ const QuantityInput = ({
     label="Quantity"
     value={value}
     onChange={(e) => onChange(Math.max(1, Number(e.target.value)))}
+    disabled={disabled}
     InputProps={{
       inputProps: { min: 1 },
       endAdornment: (
@@ -485,12 +494,14 @@ const SummarySectionTable = ({
   title,
   items,
   type,
-  sleeperSizes
+  sleeperSizes,
+  selectedSleeperNumber
 }: {
   title: string;
   items: (SleeperSize | PlankSize)[];
   type: 'sleeper' | 'plank';
   sleeperSizes: SleeperSize[];
+  selectedSleeperNumber?: number | null;
 }) => {
   const groupedItems = type === 'plank'
     ? items.reduce((groups, item) => {
@@ -552,7 +563,7 @@ const SummarySectionTable = ({
                   fontSize: '0.875rem'
                 }}
               >
-                From Sleeper #{sleeperSeq}
+                From Sleeper #{selectedSleeperNumber || sleeperSeq}
               </Typography>
               <TableContainer>
                 <Table size="small">
@@ -565,13 +576,15 @@ const SummarySectionTable = ({
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {planks.map((plank) => {
+                    {planks.map((plank, index) => {
                       const volumeM3 = parentSleeper ? (
                         (plank.width / 100) *
                         (plank.height / 100) *
                         parentSleeper.length *
                         plank.quantity
                       ) : 0;
+
+                      const plankLabel = `SL${String(selectedSleeperNumber || sleeperSeq).padStart(3, '0')}-${String(index + 1).padStart(2, '0')}`;
 
                       return (
                         <TableRow
@@ -581,7 +594,7 @@ const SummarySectionTable = ({
                             transition: 'background-color 0.2s ease',
                           }}
                         >
-                          <TableCell sx={{ fontSize: '0.875rem' }}>{plank.sequence}</TableCell>
+                          <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600 }}>{plankLabel}</TableCell>
                           <TableCell sx={{ fontSize: '0.875rem' }}>{formatSize(plank, parentSleeper?.length)}</TableCell>
                           <TableCell sx={{ fontSize: '0.875rem' }}>{plank.quantity}</TableCell>
                           <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#dc2626' }}>{volumeM3.toFixed(3)} m³</TableCell>
@@ -971,8 +984,8 @@ const WoodSlicer = () => {
   const [availableReceipts, setAvailableReceipts] = useState<any[]>([]);
   const [supplierName, setSupplierName] = useState<string>('');
   const [lotDetails, setLotDetails] = useState<any>(null);
-  const [sleeperSizes, setSleeperSizes] = useState<SleeperSize[]>([defaultSleeperSize]);
-  const [plankSizes, setPlankSizes] = useState<PlankSize[]>([defaultPlankSize]);
+  const [sleeperSizes, setSleeperSizes] = useState<SleeperSize[]>([]);
+  const [plankSizes, setPlankSizes] = useState<PlankSize[]>([]);
   const [serialNumber, setSerialNumber] = useState('');
   const [startTime, setStartTime] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -986,6 +999,27 @@ const WoodSlicer = () => {
   const [selectedOperation, setSelectedOperation] = useState<SavedOperation | null>(null);
   const [showPasteDialog, setShowPasteDialog] = useState(false);
   const [operationNotes, setOperationNotes] = useState<string>('');
+
+  // New sleeper selection states
+  const [availableSleepers, setAvailableSleepers] = useState<any[]>([]);
+  const [selectedSleeperNumber, setSelectedSleeperNumber] = useState<number | null>(null);
+  const [usedSleeperNumbers, setUsedSleeperNumbers] = useState<Set<number>>(new Set());
+  const [showSleeperSelector, setShowSleeperSelector] = useState(false);
+
+  // Get user role from AuthContext
+  const { user } = useAuth();
+  const userRole = user?.role || 'FACTORY';
+  const canEdit = userRole === 'SUPERVISOR' || userRole === 'ADMIN';
+  const isAdmin = userRole === 'ADMIN';
+
+  // Auto-save states
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // LOT check states
+  const [lotExistsMessage, setLotExistsMessage] = useState<string | null>(null);
+  const [existingOperations, setExistingOperations] = useState<any[]>([]);
 
   // Generate serial number
   const generateSerialNumber = (): string => {
@@ -1157,15 +1191,156 @@ const WoodSlicer = () => {
             setSelectedWoodType(woodType);
           }
         }
+
+        // Check if LOT already has operations
+        await checkLotForExistingOperations(lot);
+
+        // Fetch sleeper measurements from draft
+        await fetchSleeperMeasurements(lot);
+
+        // Fetch used sleeper numbers from existing operations
+        await fetchUsedSleeperNumbers(lot);
       } else {
         setSupplierName('');
         setLotDetails(null);
         setSelectedWoodType(null);
+        setAvailableSleepers([]);
+        setUsedSleeperNumbers(new Set());
       }
     } catch (error) {
       console.error('Error fetching LOT details:', error);
       setError('Failed to load LOT details');
     }
+  };
+
+  // Fetch sleeper measurements from draft
+  const fetchSleeperMeasurements = async (lotNumber: string) => {
+    try {
+      const response = await api.get(`/factory/drafts?receipt_id=${lotNumber}`);
+      if (response.data && response.data.length > 0) {
+        const draft = response.data[0];
+        if (draft.measurements && Array.isArray(draft.measurements)) {
+          setAvailableSleepers(draft.measurements);
+          setShowSleeperSelector(true);
+        } else {
+          setAvailableSleepers([]);
+          setShowSleeperSelector(false);
+        }
+      } else {
+        setAvailableSleepers([]);
+        setShowSleeperSelector(false);
+      }
+    } catch (error) {
+      console.error('Error fetching sleeper measurements:', error);
+      setAvailableSleepers([]);
+      setShowSleeperSelector(false);
+    }
+  };
+
+  // Fetch used sleeper numbers from existing operations
+  const fetchUsedSleeperNumbers = async (lotNumber: string) => {
+    try {
+      const response = await api.get(`/factory/operations?_t=${Date.now()}`);
+      const operations = response.data || [];
+      const usedNumbers = new Set<number>();
+
+      console.log('Fetching used sleeper numbers for LOT:', lotNumber);
+      console.log('Total operations:', operations.length);
+      console.log('First operation sample:', JSON.stringify(operations[0], null, 2));
+
+      operations.forEach((op: SavedOperation) => {
+        console.log('Operation:', op.serial_number, 'LOT:', op.lot_number, 'Sleeper#:', op.sleeper_number);
+        if (op.lot_number === lotNumber && op.sleeper_number) {
+          console.log('Found operation for sleeper:', op.sleeper_number, 'Op ID:', op.id);
+          usedNumbers.add(op.sleeper_number);
+        }
+      });
+
+      console.log('Used sleeper numbers:', Array.from(usedNumbers));
+      setUsedSleeperNumbers(usedNumbers);
+    } catch (error) {
+      console.error('Error fetching used sleeper numbers:', error);
+      setUsedSleeperNumbers(new Set());
+    }
+  };
+
+  // Check if LOT already has operations
+  const checkLotForExistingOperations = async (lotNumber: string) => {
+    try {
+      const response = await api.get(`/factory/operations/check-lot?lot_number=${lotNumber}`);
+      const data = response.data;
+
+      if (data.exists && data.operations.length > 0) {
+        setExistingOperations(data.operations);
+        setLotExistsMessage(`This LOT already has ${data.operations.length} operation(s). Click "Load Operation" to continue working on it.`);
+      } else {
+        setExistingOperations([]);
+        setLotExistsMessage(null);
+      }
+    } catch (error) {
+      console.error('Error checking LOT for existing operations:', error);
+      setLotExistsMessage(null);
+    }
+  };
+
+  // Handle sleeper selection
+  const handleSleeperSelect = async (sleeper: any) => {
+    const sleeperNumber = availableSleepers.indexOf(sleeper) + 1;
+    setSelectedSleeperNumber(sleeperNumber);
+
+    console.log('Selected sleeper data:', sleeper);
+
+    // Check if this sleeper has already been sliced (has an existing operation)
+    if (usedSleeperNumbers.has(sleeperNumber) && lotNumber) {
+      console.log('Sleeper already sliced, loading existing operation...');
+
+      // Find the existing operation for this sleeper
+      try {
+        const response = await api.get('/factory/operations');
+        const operations = response.data || [];
+        const existingOperation = operations.find(
+          (op: any) => op.lot_number === lotNumber && op.sleeper_number === sleeperNumber
+        );
+
+        if (existingOperation) {
+          console.log('Found existing operation:', existingOperation);
+
+          // Load the existing operation data
+          setOperationId(existingOperation.id);
+          setSerialNumber(existingOperation.serial_number);
+          setSleeperSizes(existingOperation.sleeper_sizes || []);
+          setPlankSizes(existingOperation.plank_sizes || []);
+          setOperationNotes(existingOperation.notes || '');
+          setStartTime(existingOperation.start_time);
+
+          console.log('Loaded operation with', existingOperation.plank_sizes?.length || 0, 'planks');
+          return;
+        }
+      } catch (error) {
+        console.error('Error loading existing operation:', error);
+      }
+    }
+
+    // If no existing operation, set up a new one
+    // Convert dimensions from inches/feet (stored in receipt) to cm/meters (stored in operations)
+    // Receipt stores: width/thickness in inches, length in feet
+    // Operations store: width/height in cm, length in meters
+    const widthInCm = inchesToCm(sleeper.width || 0);
+    const heightInCm = inchesToCm(sleeper.thickness || sleeper.height || 0);
+    const lengthInMeters = feetToMeters(sleeper.length || 0);
+
+    // Auto-fill sleeper dimensions
+    setSleeperSizes([{
+      id: crypto.randomUUID(),
+      sequence: 1,
+      width: widthInCm,
+      height: heightInCm,
+      length: lengthInMeters,
+      quantity: 1
+    }]);
+
+    // Reset planks - start with empty array, let user add planks manually
+    setPlankSizes([]);
   };
 
   // useEffect
@@ -1206,19 +1381,27 @@ const WoodSlicer = () => {
     setSleeperSizes(sleeperSizes.filter(size => size.id !== id));
   };
 
-  const addPlankSize = (sleeperSequence: number) => {
-    setPlankSizes([
-      ...plankSizes,
-      {
-        id: uuidv4(),
-        sequence: plankSizes.length + 1,
-        parentSequence: sleeperSequence,
-        width: 0,
-        height: 0,
-        length: 0,
-        quantity: 1
-      }
-    ]);
+  const addPlankSize = async (sleeperSequence: number) => {
+    const newPlank = {
+      id: uuidv4(),
+      sequence: plankSizes.length + 1,
+      parentSequence: sleeperSequence,
+      width: 0,
+      height: 0,
+      length: 0,
+      quantity: 1
+    };
+
+    setPlankSizes([...plankSizes, newPlank]);
+
+    // If no operation exists yet, create one now
+    if (!operationId && selectedWoodType && lotNumber && selectedSleeperNumber) {
+      console.log('Creating operation for first plank, sleeper number:', selectedSleeperNumber);
+      // Small delay to let state update
+      setTimeout(() => {
+        handleSave(false);
+      }, 100);
+    }
   };
 
   const removePlankSize = (id: string) => {
@@ -1281,11 +1464,18 @@ const WoodSlicer = () => {
   };
 
   // Save operation
-  const handleSave = async () => {
+  const handleSave = async (isAutoSave = false) => {
+    // Skip auto-save if essential data is missing
+    if (isAutoSave && (!selectedWoodType || !lotNumber || !serialNumber)) {
+      return;
+    }
+
     let attempt = 0;
 
     while (attempt < MAX_RETRIES) {
       try {
+        if (isAutoSave) setAutoSaving(true);
+
         const wastePercentage = parseFloat(calculateWastePercentage());
 
         let status: OperationStatus;
@@ -1303,40 +1493,83 @@ const WoodSlicer = () => {
           serial_number: serialNumber,
           wood_type_id: selectedWoodType!.id,
           lot_number: lotNumber || null,
+          sleeper_number: selectedSleeperNumber,
           start_time: startTime,
           sleeper_sizes: sleeperSizes,
           plank_sizes: plankSizes,
           status: status,
           waste_percentage: wastePercentage,
           notes: operationNotes,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          auto_check_completion: true // Enable auto-completion check
         };
 
+        console.log('=== SAVE OPERATION ===');
+        console.log('selectedSleeperNumber:', selectedSleeperNumber);
+        console.log('operationId:', operationId);
         console.log('Saving operation with data:', operationData);
+        console.log('Total planks being saved:', plankSizes.length);
+        console.log('Plank sizes detail:', JSON.stringify(plankSizes, null, 2));
 
         let savedOperation;
         if (operationId) {
           const response = await api.patch(`/factory/operations/${operationId}`, operationData);
           savedOperation = response.data;
+          console.log('Saved operation response:', JSON.stringify(savedOperation, null, 2));
+          console.log('Planks in saved response:', savedOperation.plank_sizes?.length, savedOperation.plank_sizes);
         } else {
           const response = await api.post('/factory/operations', operationData);
           savedOperation = response.data;
           setOperationId(savedOperation.id);
+          console.log('Created operation response:', JSON.stringify(savedOperation, null, 2));
+          console.log('Planks in created response:', savedOperation.plank_sizes?.length, savedOperation.plank_sizes);
         }
 
         setError(null);
+        setLastSaved(new Date());
         return savedOperation;
       } catch (error: any) {
         console.error('Save error:', error);
         attempt++;
         if (attempt === MAX_RETRIES) {
-          setError(error.response?.data?.message || error.message || 'Failed to save operation');
+          if (!isAutoSave) {
+            setError(error.response?.data?.message || error.message || 'Failed to save operation');
+          }
           throw error;
         }
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      } finally {
+        if (isAutoSave) setAutoSaving(false);
       }
     }
   };
+
+  // Debounced auto-save function
+  const triggerAutoSave = useCallback(() => {
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      handleSave(true);
+    }, 2000); // Auto-save 2 seconds after last change
+  }, [handleSave]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Auto-save when data changes
+  useEffect(() => {
+    if (operationId && selectedWoodType && lotNumber) {
+      triggerAutoSave();
+    }
+  }, [sleeperSizes, plankSizes, operationNotes, selectedSleeperNumber]);
 
   // Complete operation
   const handleComplete = async () => {
@@ -1386,6 +1619,10 @@ const WoodSlicer = () => {
     try {
       setIsLoading(true);
       const response = await api.get('/factory/operations');
+      console.log('Fetched operations:', response.data?.length, 'operations');
+      response.data?.forEach((op: any, index: number) => {
+        console.log(`Operation ${index + 1}:`, op.id, 'Planks:', op.plank_sizes?.length, op.plank_sizes);
+      });
       setSavedOperations(response.data || []);
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -1405,6 +1642,10 @@ const WoodSlicer = () => {
       const response = await api.get(`/factory/operations/${id}`);
       const data = response.data;
 
+      console.log('Loading operation:', id);
+      console.log('Loaded operation data:', JSON.stringify(data, null, 2));
+      console.log('Planks in loaded operation:', data.plank_sizes?.length, data.plank_sizes);
+
       if (data) {
         setOperationId(data.id);
         setSerialNumber(data.serial_number);
@@ -1415,6 +1656,8 @@ const WoodSlicer = () => {
         setStartTime(data.start_time);
         setOperationNotes(data.notes || '');
         setShowLoadDialog(false);
+
+        console.log('State after load - plankSizes:', data.plank_sizes?.length);
       }
     } catch (error: any) {
       console.error('Error loading operation:', error);
@@ -1505,8 +1748,8 @@ const WoodSlicer = () => {
               setStartTime(null);
               setOperationId(null);
               setSerialNumber(generateSerialNumber());
-              setSleeperSizes([defaultSleeperSize]);
-              setPlankSizes([defaultPlankSize]);
+              setSleeperSizes([]);
+              setPlankSizes([]);
               setSelectedWoodType(null);
             } catch (error: any) {
               console.error('Error ending operation:', error);
@@ -2252,115 +2495,55 @@ const WoodSlicer = () => {
               </Typography>
             </Box>
           </Box>
-          <Stack direction="row" spacing={1.5} flexWrap="wrap">
-            <Button
-              variant="outlined"
-              startIcon={<FolderOpenIcon />}
-              onClick={() => {
-                fetchSavedOperations();
-                setShowLoadDialog(true);
-              }}
-              sx={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                fontWeight: 600,
-                fontSize: '0.875rem',
-                textTransform: 'none',
-                px: 2.5,
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                },
-              }}
-            >
-              Load Operation
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                fetchSavedOperations();
-                setShowCompletedDialog(true);
-              }}
-              sx={{
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                color: 'white',
-                fontWeight: 600,
-                fontSize: '0.875rem',
-                textTransform: 'none',
-                px: 2.5,
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                '&:hover': {
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                  borderColor: 'rgba(255, 255, 255, 0.5)',
-                },
-              }}
-            >
-              Completed Operations
-            </Button>
-            <Button
-              variant="contained"
-              onClick={handleSave}
-              disabled={isLoading}
-              sx={{
-                backgroundColor: 'white',
-                color: '#dc2626',
-                fontWeight: 600,
-                fontSize: '0.875rem',
-                textTransform: 'none',
-                px: 3,
-                boxShadow: 'none',
-                '&:hover': {
-                  backgroundColor: '#f8fafc',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                },
-              }}
-            >
-              {operationId ? 'Update Progress' : 'Save Progress'}
-            </Button>
-            <Button
-              variant="contained"
-              onClick={handleComplete}
-              disabled={isLoading || !operationId}
-              sx={{
-                backgroundColor: '#16a34a',
-                color: 'white',
-                fontWeight: 600,
-                fontSize: '0.875rem',
-                textTransform: 'none',
-                px: 3,
-                boxShadow: 'none',
-                '&:hover': {
-                  backgroundColor: '#15803d',
-                },
-                '&:disabled': {
-                  backgroundColor: '#cbd5e1',
-                  color: '#94a3b8',
-                }
-              }}
-            >
-              Complete Operation
-            </Button>
-            <Button
-              variant="contained"
-              onClick={handleOperationToggle}
-              sx={{
-                backgroundColor: startTime ? '#dc2626' : 'white',
-                color: startTime ? 'white' : '#dc2626',
-                fontWeight: 600,
-                fontSize: '0.875rem',
-                textTransform: 'none',
-                px: 3,
-                boxShadow: 'none',
-                '&:hover': {
-                  backgroundColor: startTime ? '#b91c1c' : '#f8fafc',
-                  boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                },
-              }}
-            >
-              {startTime ? 'End Operation' : 'Start Operation'}
-            </Button>
-          </Stack>
+          {lotNumber && (
+            <Stack direction="row" spacing={1.5} flexWrap="wrap">
+              <Button
+                variant="outlined"
+                startIcon={<FolderOpenIcon />}
+                onClick={() => {
+                  fetchSavedOperations();
+                  setShowLoadDialog(true);
+                }}
+                sx={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  textTransform: 'none',
+                  px: 2.5,
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                  },
+                }}
+              >
+                Load Operation
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  fetchSavedOperations();
+                  setShowCompletedDialog(true);
+                }}
+                sx={{
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                  color: 'white',
+                  fontWeight: 600,
+                  fontSize: '0.875rem',
+                  textTransform: 'none',
+                  px: 2.5,
+                  borderColor: 'rgba(255, 255, 255, 0.3)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    borderColor: 'rgba(255, 255, 255, 0.5)',
+                  },
+                }}
+              >
+                Completed Operations
+              </Button>
+            </Stack>
+          )}
         </Box>
       </Paper>
 
@@ -2417,13 +2600,14 @@ const WoodSlicer = () => {
                 isOptionEqualToValue={(option, value) => option === value}
                 renderOption={(props, option) => {
                   const receipt = availableReceipts.find(r => r.lotNumber === option);
-                  if (!receipt) return <li {...props}>{option}</li>;
+                  const { key, ...otherProps } = props;
+                  if (!receipt) return <li key={key} {...otherProps}>{option}</li>;
 
                   const hasData = receipt.actualPieces > 0 || receipt.actualVolumeM3 > 0;
                   const statusColor = receipt.isCompleted ? '#dc2626' : receipt.isDraft ? '#64748b' : '#94a3b8';
 
                   return (
-                    <li {...props}>
+                    <li key={key} {...otherProps}>
                       <Box sx={{ width: '100%', py: 1 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                           <Typography sx={{ fontWeight: 600, fontSize: '0.9375rem', color: '#1e293b' }}>
@@ -2581,7 +2765,89 @@ const WoodSlicer = () => {
             </Box>
           </Paper>
 
+          {/* LOT Exists Warning */}
+          {lotExistsMessage && (
+            <Alert
+              severity="info"
+              sx={{ mb: 3 }}
+              action={
+                existingOperations.length > 0 && (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() => {
+                      if (existingOperations[0]?.id) {
+                        loadOperation(existingOperations[0].id);
+                      }
+                    }}
+                  >
+                    Load
+                  </Button>
+                )
+              }
+            >
+              {lotExistsMessage}
+            </Alert>
+          )}
+
+          {/* Auto-save Indicator */}
+          {(autoSaving || lastSaved) && (
+            <Paper
+              elevation={0}
+              sx={{
+                p: 2,
+                mb: 3,
+                borderRadius: 2,
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#f8fafc',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1
+              }}
+            >
+              {autoSaving ? (
+                <>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" sx={{ color: '#64748b' }}>
+                    Saving...
+                  </Typography>
+                </>
+              ) : lastSaved ? (
+                <Typography variant="body2" sx={{ color: '#16a34a' }}>
+                  ✓ Last saved: {format(lastSaved, 'HH:mm:ss')}
+                </Typography>
+              ) : null}
+            </Paper>
+          )}
+
+          {/* Sleeper Selector */}
+          {showSleeperSelector && availableSleepers.length > 0 && (
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                mb: 3,
+                borderRadius: 2,
+                border: '1px solid #e2e8f0',
+                backgroundColor: '#fff'
+              }}
+            >
+              <SleeperSelector
+                sleepers={availableSleepers.map((sleeper, index) => ({
+                  number: index + 1,
+                  width: sleeper.width || 0,
+                  height: sleeper.thickness || 0,
+                  length: sleeper.length || 0,
+                  isUsed: usedSleeperNumbers.has(index + 1)
+                }))}
+                onSelectSleeper={(sleeper) => handleSleeperSelect(availableSleepers[sleeper.number - 1])}
+                selectedSleeperNumber={selectedSleeperNumber}
+              />
+            </Paper>
+          )}
+
           {/* Sleepers and Planks */}
+          {lotNumber && selectedSleeperNumber && (
           <Paper
             elevation={0}
             sx={{
@@ -2658,76 +2924,100 @@ const WoodSlicer = () => {
                   }}
                 >
                   <Box sx={{ mb: 2.5 }}>
-                    <Typography
-                      variant="subtitle2"
-                      sx={{
-                        mb: 2,
-                        color: '#dc2626',
-                        fontWeight: 700,
-                        fontSize: '0.875rem'
-                      }}
-                    >
-                      Sleeper #{sleeper.sequence}
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} sm={6} md={3}>
-                        <DimensionInput
-                          label="Height"
-                          value={cmToInches(sleeper.height || 0)}
-                          onChange={(value) => {
-                            const newSizes = [...sleeperSizes];
-                            newSizes[sleeperIndex].height = inchesToCm(value);
-                            setSleeperSizes(newSizes);
-                          }}
-                          unit="in"
-                          convertedValue={sleeper.height?.toFixed(1)}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={3}>
-                        <DimensionInput
-                          label="Width"
-                          value={cmToInches(sleeper.width || 0)}
-                          onChange={(value) => {
-                            const newSizes = [...sleeperSizes];
-                            newSizes[sleeperIndex].width = inchesToCm(value);
-                            setSleeperSizes(newSizes);
-                          }}
-                          unit="in"
-                          convertedValue={sleeper.width?.toFixed(1)}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={3}>
-                        <DimensionInput
-                          label="Length"
-                          value={metersToFeet(sleeper.length || 0)}
-                          onChange={(value) => {
-                            const newSizes = [...sleeperSizes];
-                            newSizes[sleeperIndex].length = feetToMeters(value);
-                            setSleeperSizes(newSizes);
+                    {/* Single line layout with square label on left */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      {/* Square Sleeper Number Label */}
+                      <Box
+                        sx={{
+                          width: 100,
+                          height: 100,
+                          bgcolor: '#dc2626',
+                          color: 'white',
+                          borderRadius: 2,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          gap: 0.5
+                        }}
+                      >
+                        <Typography sx={{ fontWeight: 700, fontSize: '0.75rem', opacity: 0.9 }}>
+                          Sleeper
+                        </Typography>
+                        <Typography sx={{ fontWeight: 800, fontSize: '1.5rem', lineHeight: 1 }}>
+                          #{selectedSleeperNumber || sleeper.sequence}
+                        </Typography>
+                        <Typography sx={{ fontWeight: 600, fontSize: '0.65rem', opacity: 0.8 }}>
+                          SL{String(selectedSleeperNumber || sleeper.sequence).padStart(3, '0')}
+                        </Typography>
+                      </Box>
 
-                            const newPlankSizes = [...plankSizes];
-                            newPlankSizes.forEach(plank => {
-                              if (plank.parentSequence === sleeper.sequence) {
-                                plank.length = feetToMeters(value);
-                              }
-                            });
-                            setPlankSizes(newPlankSizes);
-                          }}
-                          unit="feet"
-                          convertedValue={sleeper.length?.toFixed(2)}
-                        />
-                      </Grid>
-                      <Grid item xs={12} sm={6} md={3}>
-                        <QuantityInput
-                          value={sleeper.quantity}
-                          onChange={(value) => {
-                            const newSizes = [...sleeperSizes];
-                            newSizes[sleeperIndex].quantity = value;
-                            setSleeperSizes(newSizes);
-                          }}
-                        />
-                      </Grid>
-                    </Grid>
+                      {/* Dimension Inputs in a row */}
+                      <Box sx={{ display: 'flex', gap: 1.5, flex: 1, flexWrap: 'nowrap', minWidth: 0 }}>
+                        <Box sx={{ flex: 1, minWidth: 120 }}>
+                          <DimensionInput
+                            label="Height"
+                            value={cmToInches(sleeper.height || 0)}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].height = inchesToCm(value);
+                              setSleeperSizes(newSizes);
+                            }}
+                            unit="in"
+                            convertedValue={sleeper.height?.toFixed(1)}
+                            disabled={true}
+                          />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 120 }}>
+                          <DimensionInput
+                            label="Width"
+                            value={cmToInches(sleeper.width || 0)}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].width = inchesToCm(value);
+                              setSleeperSizes(newSizes);
+                            }}
+                            unit="in"
+                            convertedValue={sleeper.width?.toFixed(1)}
+                            disabled={true}
+                          />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 140 }}>
+                          <DimensionInput
+                            label="Length"
+                            value={metersToFeet(sleeper.length || 0)}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].length = feetToMeters(value);
+                              setSleeperSizes(newSizes);
+
+                              const newPlankSizes = [...plankSizes];
+                              newPlankSizes.forEach(plank => {
+                                if (plank.parentSequence === sleeper.sequence) {
+                                  plank.length = feetToMeters(value);
+                                }
+                              });
+                              setPlankSizes(newPlankSizes);
+                            }}
+                            unit="feet"
+                            convertedValue={sleeper.length?.toFixed(2)}
+                            disabled={true}
+                          />
+                        </Box>
+                        <Box sx={{ flex: 0, minWidth: 100 }}>
+                          <QuantityInput
+                            value={sleeper.quantity}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].quantity = value;
+                              setSleeperSizes(newSizes);
+                            }}
+                            disabled={true}
+                          />
+                        </Box>
+                      </Box>
+                    </Box>
                   </Box>
 
                   {/* Planks Section */}
@@ -2768,78 +3058,95 @@ const WoodSlicer = () => {
                           <Box
                             key={plank.id}
                             sx={{
-                              p: 2,
+                              p: 1.5,
                               borderRadius: 1.5,
                               bgcolor: 'white',
                               border: '1px solid #e2e8f0',
                               position: 'relative'
                             }}
                           >
-                            <Typography
-                              variant="caption"
-                              sx={{
-                                mb: 1.5,
-                                display: 'block',
-                                color: '#64748b',
-                                fontWeight: 600,
-                                fontSize: '0.75rem'
-                              }}
-                            >
-                              Plank #{plank.sequence}
-                            </Typography>
-                            <Grid container spacing={2}>
-                              <Grid item xs={12} sm={6} md={4}>
-                                <DimensionInput
-                                  label="Height"
-                                  value={cmToInches(plank.height || 0)}
-                                  onChange={(value) => {
-                                    const newSizes = [...plankSizes];
-                                    const globalPlankIndex = newSizes.findIndex(p => p.id === plank.id);
-                                    newSizes[globalPlankIndex].height = inchesToCm(value);
-                                    setPlankSizes(newSizes);
-                                  }}
-                                  unit="in"
-                                  convertedValue={plank.height?.toFixed(1)}
-                                />
-                              </Grid>
-                              <Grid item xs={12} sm={6} md={4}>
-                                <DimensionInput
-                                  label="Width"
-                                  value={cmToInches(plank.width || 0)}
-                                  onChange={(value) => {
-                                    const newSizes = [...plankSizes];
-                                    const globalPlankIndex = newSizes.findIndex(p => p.id === plank.id);
-                                    newSizes[globalPlankIndex].width = inchesToCm(value);
-                                    setPlankSizes(newSizes);
-                                  }}
-                                  unit="in"
-                                  convertedValue={plank.width?.toFixed(1)}
-                                />
-                              </Grid>
-                              <Grid item xs={12} sm={6} md={4}>
-                                <QuantityInput
-                                  value={plank.quantity}
-                                  onChange={(value) => {
-                                    const newSizes = [...plankSizes];
-                                    const globalPlankIndex = newSizes.findIndex(p => p.id === plank.id);
-                                    newSizes[globalPlankIndex].quantity = value;
-                                    setPlankSizes(newSizes);
-                                  }}
-                                />
-                              </Grid>
-                              <Grid item xs={12}>
-                                <Typography
-                                  variant="caption"
-                                  sx={{
-                                    color: '#64748b',
-                                    fontSize: '0.75rem'
-                                  }}
-                                >
-                                  Length: {formatDimension(sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length || 0, 'm')}
-                                  (inherited from Sleeper #{plank.parentSequence})
+                            {/* Single line layout with square plank label on left */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              {/* Square Plank Number Label */}
+                              <Box
+                                sx={{
+                                  width: 100,
+                                  height: 100,
+                                  bgcolor: '#64748b',
+                                  color: 'white',
+                                  borderRadius: 2,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                  gap: 0.5
+                                }}
+                              >
+                                <Typography sx={{ fontWeight: 700, fontSize: '0.75rem', opacity: 0.9 }}>
+                                  Plank
                                 </Typography>
-                              </Grid>
-                            </Grid>
+                                <Typography sx={{ fontWeight: 800, fontSize: '1.25rem', lineHeight: 1 }}>
+                                  #{plankSizes.filter(p => p.parentSequence === sleeper.sequence).indexOf(plank) + 1}
+                                </Typography>
+                                <Typography sx={{ fontWeight: 600, fontSize: '0.65rem', opacity: 0.8 }}>
+                                  SL{String(selectedSleeperNumber || sleeper.sequence).padStart(3, '0')}-{String(plankSizes.filter(p => p.parentSequence === sleeper.sequence).indexOf(plank) + 1).padStart(2, '0')}
+                                </Typography>
+                              </Box>
+
+                              {/* Dimension Inputs in a row */}
+                              <Box sx={{ display: 'flex', gap: 1.5, flex: 1, flexWrap: 'nowrap', minWidth: 0 }}>
+                                <Box sx={{ flex: 1, minWidth: 120 }}>
+                                  <DimensionInput
+                                    label="Height"
+                                    value={cmToInches(plank.height || 0)}
+                                    onChange={(value) => {
+                                      const newSizes = [...plankSizes];
+                                      const globalPlankIndex = newSizes.findIndex(p => p.id === plank.id);
+                                      newSizes[globalPlankIndex].height = inchesToCm(value);
+                                      setPlankSizes(newSizes);
+                                    }}
+                                    unit="in"
+                                    convertedValue={plank.height?.toFixed(1)}
+                                  />
+                                </Box>
+                                <Box sx={{ flex: 1, minWidth: 120 }}>
+                                  <DimensionInput
+                                    label="Width"
+                                    value={cmToInches(plank.width || 0)}
+                                    onChange={(value) => {
+                                      const newSizes = [...plankSizes];
+                                      const globalPlankIndex = newSizes.findIndex(p => p.id === plank.id);
+                                      newSizes[globalPlankIndex].width = inchesToCm(value);
+                                      setPlankSizes(newSizes);
+                                    }}
+                                    unit="in"
+                                    convertedValue={plank.width?.toFixed(1)}
+                                  />
+                                </Box>
+                                <Box sx={{ flex: 1, minWidth: 140 }}>
+                                  <DimensionInput
+                                    label="Length"
+                                    value={metersToFeet(sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length || 0)}
+                                    onChange={() => {}}
+                                    unit="feet"
+                                    convertedValue={sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length?.toFixed(2) || '0.00'}
+                                    disabled={true}
+                                  />
+                                </Box>
+                                <Box sx={{ flex: 0, minWidth: 100 }}>
+                                  <QuantityInput
+                                    value={plank.quantity}
+                                    onChange={(value) => {
+                                      const newSizes = [...plankSizes];
+                                      const globalPlankIndex = newSizes.findIndex(p => p.id === plank.id);
+                                      newSizes[globalPlankIndex].quantity = value;
+                                      setPlankSizes(newSizes);
+                                    }}
+                                  />
+                                </Box>
+                              </Box>
+                            </Box>
 
                             {plankSizes.filter(p => p.parentSequence === sleeper.sequence).length > 1 && (
                               <IconButton
@@ -2891,9 +3198,78 @@ const WoodSlicer = () => {
                 </Paper>
               ))}
             </Stack>
+
+            {/* Done Slicing Button */}
+            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+              {selectedSleeperNumber && usedSleeperNumbers.has(selectedSleeperNumber) && (
+                <Button
+                  variant="outlined"
+                  size="large"
+                  onClick={async () => {
+                    // Just save and clear selection without resetting
+                    await handleSave(false);
+                    setSelectedSleeperNumber(null);
+                    setSleeperSizes([]);
+                    setPlankSizes([]);
+                    setOperationId(null);
+                  }}
+                  sx={{
+                    borderColor: '#64748b',
+                    color: '#64748b',
+                    fontWeight: 600,
+                    px: 4,
+                    py: 1.5,
+                    textTransform: 'none',
+                    '&:hover': {
+                      borderColor: '#475569',
+                      bgcolor: 'rgba(100, 116, 139, 0.04)'
+                    }
+                  }}
+                >
+                  Cancel Edit
+                </Button>
+              )}
+              <Button
+                variant="contained"
+                size="large"
+                onClick={async () => {
+                  // Save the current operation with all planks
+                  await handleSave(false);
+
+                  // Reset operation state for next sleeper
+                  setOperationId(null);
+                  setSerialNumber(generateSerialNumber());
+                  setSelectedSleeperNumber(null);
+                  setSleeperSizes([]);
+                  setPlankSizes([]);
+
+                  // Refresh used sleeper numbers to update the sleeper selector
+                  if (lotNumber) {
+                    await fetchUsedSleeperNumbers(lotNumber);
+                  }
+                }}
+                sx={{
+                  bgcolor: '#16a34a',
+                  color: 'white',
+                  fontWeight: 600,
+                  px: 4,
+                  py: 1.5,
+                  textTransform: 'none',
+                  '&:hover': {
+                    bgcolor: '#15803d'
+                  }
+                }}
+              >
+                {selectedSleeperNumber && usedSleeperNumbers.has(selectedSleeperNumber)
+                  ? 'Update Sleeper'
+                  : 'Done Slicing This Sleeper'}
+              </Button>
+            </Box>
           </Paper>
+          )}
 
           {/* Operation Notes */}
+          {lotNumber && selectedSleeperNumber && (
           <Paper
             elevation={0}
             sx={{
@@ -2925,6 +3301,7 @@ const WoodSlicer = () => {
               sx={textFieldSx}
             />
           </Paper>
+          )}
 
           {/* Summary Section */}
           {(sleeperSizes.some(size => size.height > 0 || size.width > 0 || size.length > 0) ||
@@ -2956,12 +3333,14 @@ const WoodSlicer = () => {
                   items={sleeperSizes}
                   type="sleeper"
                   sleeperSizes={sleeperSizes}
+                  selectedSleeperNumber={selectedSleeperNumber}
                 />
                 <SummarySectionTable
                   title="Plank Sizes Summary"
                   items={plankSizes}
                   type="plank"
                   sleeperSizes={sleeperSizes}
+                  selectedSleeperNumber={selectedSleeperNumber}
                 />
               </Stack>
             </Paper>
