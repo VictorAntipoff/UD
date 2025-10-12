@@ -2196,7 +2196,6 @@ export default function DryingProcess() {
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Electricity (Unit)</TableCell>
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Humidity (%)</TableCell>
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Notes</TableCell>
-                        {isAdmin && <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', width: 80 }}>Actions</TableCell>}
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -2214,23 +2213,6 @@ export default function DryingProcess() {
                           <TableCell sx={{ fontSize: '0.75rem' }}>
                             {reading.notes || '-'}
                           </TableCell>
-                          {isAdmin && (
-                            <TableCell>
-                              <IconButton
-                                size="small"
-                                onClick={() => {
-                                  setDetailsDialogOpen(false);
-                                  openEditReadingDialog(reading);
-                                }}
-                                sx={{
-                                  color: '#3b82f6',
-                                  '&:hover': { backgroundColor: alpha('#3b82f6', 0.1) }
-                                }}
-                              >
-                                <EditIcon sx={{ fontSize: 16 }} />
-                              </IconButton>
-                            </TableCell>
-                          )}
                         </TableRow>
                       ))}
                       {selectedProcess.readings.length === 0 && (
