@@ -283,11 +283,9 @@ async function managementRoutes(fastify: FastifyInstance) {
   // Get pending approvals count
   fastify.get('/approvals/pending-count', async (request, reply) => {
     try {
-      const count = await prisma.woodReceipt.count({
-        where: { status: 'PENDING' }
-      });
-
-      return { count };
+      // For now, return 0 since approval workflow is not fully implemented
+      // TODO: Implement proper approval workflow with approval_request table
+      return { count: 0 };
     } catch (error) {
       console.error('Error fetching pending count:', error);
       return reply.status(500).send({ error: 'Failed to fetch pending count' });
