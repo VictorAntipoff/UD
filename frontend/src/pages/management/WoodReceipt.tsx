@@ -558,14 +558,41 @@ const WoodReceipt = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
-                      {receipt.total_volume_m3 ? parseFloat(receipt.total_volume_m3.toString()).toFixed(4) : '0'}
-                    </Typography>
+                    <Box>
+                      <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
+                        {(() => {
+                          const volume = receipt.actualVolumeM3 || receipt.estimatedVolumeM3 || receipt.total_volume_m3;
+                          return volume ? parseFloat(volume.toString()).toFixed(4) : '0';
+                        })()}
+                      </Typography>
+                      {receipt.actualVolumeM3 && (
+                        <Typography sx={{ color: '#10b981', fontSize: '0.625rem', fontWeight: 600, mt: 0.25 }}>
+                          ACTUAL
+                        </Typography>
+                      )}
+                      {!receipt.actualVolumeM3 && (receipt.estimatedVolumeM3 || receipt.total_volume_m3) && (
+                        <Typography sx={{ color: '#64748b', fontSize: '0.625rem', fontWeight: 500, mt: 0.25 }}>
+                          EST.
+                        </Typography>
+                      )}
+                    </Box>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
-                      {receipt.total_pieces || '0'}
-                    </Typography>
+                    <Box>
+                      <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
+                        {receipt.actualPieces || receipt.estimatedPieces || receipt.total_pieces || '0'}
+                      </Typography>
+                      {receipt.actualPieces && (
+                        <Typography sx={{ color: '#10b981', fontSize: '0.625rem', fontWeight: 600, mt: 0.25 }}>
+                          ACTUAL
+                        </Typography>
+                      )}
+                      {!receipt.actualPieces && (receipt.estimatedPieces || receipt.total_pieces) && (
+                        <Typography sx={{ color: '#64748b', fontSize: '0.625rem', fontWeight: 500, mt: 0.25 }}>
+                          EST.
+                        </Typography>
+                      )}
+                    </Box>
                   </TableCell>
                   <TableCell>
                     <Chip
