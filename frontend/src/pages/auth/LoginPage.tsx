@@ -57,9 +57,8 @@ const LoginPage = () => {
   const [username, setUsername] = useState(() => {
     return localStorage.getItem('rememberedEmail') || '';
   });
-  const [password, setPassword] = useState(() => {
-    return localStorage.getItem('rememberedPassword') || '';
-  });
+  // SECURITY: Never load password from localStorage
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(() => {
     return localStorage.getItem('rememberedEmail') !== null;
@@ -74,14 +73,15 @@ const LoginPage = () => {
     try {
       await login(username, password);
 
-      // Save email and password if remember me is checked
+      // SECURITY: Only save email, NEVER save password in localStorage
       if (rememberMe) {
         localStorage.setItem('rememberedEmail', username);
-        localStorage.setItem('rememberedPassword', password);
       } else {
         localStorage.removeItem('rememberedEmail');
-        localStorage.removeItem('rememberedPassword');
       }
+
+      // Always remove any previously stored password (security cleanup)
+      localStorage.removeItem('rememberedPassword');
 
       enqueueSnackbar('Login successful!', { variant: 'success' });
       navigate('/dashboard', { replace: true });

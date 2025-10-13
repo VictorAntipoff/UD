@@ -1,7 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 async function usersRoutes(fastify: FastifyInstance) {
+  // SECURITY: Protect all user routes with authentication
+  fastify.addHook('onRequest', authenticateToken);
+
   fastify.get('/', async (request, reply) => {
     try {
       const users = await prisma.user.findMany({

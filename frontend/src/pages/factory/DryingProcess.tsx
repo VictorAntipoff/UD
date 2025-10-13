@@ -756,7 +756,7 @@ export default function DryingProcess() {
                           }}
                         />
                         <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.875rem' }}>
-                          {process.woodType.name} • {process.thickness}mm • {process.pieceCount} pieces
+                          {process.woodType.name} • {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
                           {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
                         </Typography>
                       </Box>

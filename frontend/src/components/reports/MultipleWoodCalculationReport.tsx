@@ -308,10 +308,14 @@ export const MultipleWoodCalculationReport = ({ calculations, timestamp, user }:
                     </View>
                   </View>
 
-                  {calculation.notes && (
+                  {calculation.notes && calculation.notes.trim() !== '' && (
                     <View style={styles.remarkSection}>
-                      <Text style={styles.label}>Remarks:</Text>
-                      <Text style={styles.value}>{calculation.notes}</Text>
+                      <Text style={styles.label}>
+                        <Text>Remarks:</Text>
+                      </Text>
+                      <Text style={styles.value}>
+                        <Text>{calculation.notes}</Text>
+                      </Text>
                     </View>
                   )}
                 </View>

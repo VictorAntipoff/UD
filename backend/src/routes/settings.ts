@@ -1,7 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 async function settingsRoutes(fastify: FastifyInstance) {
+  // SECURITY: Protect all settings routes with authentication
+  fastify.addHook('onRequest', authenticateToken);
+
   // Get all settings
   fastify.get('/', async (request, reply) => {
     try {

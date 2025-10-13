@@ -55,6 +55,14 @@ interface Role {
   id: number;
   name: string;
   description: string;
+  permissions?: Record<string, {
+    access: boolean;
+    read: boolean;
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
+    amount: boolean; // Permission to view prices/amounts
+  }>;
 }
 
 const StyledContainer = styled(Container)(({ theme }) => ({
@@ -135,16 +143,65 @@ export default function AdminSettings() {
     user: null
   });
 
+  const [editRoleDialog, setEditRoleDialog] = useState<{
+    open: boolean;
+    role: Role | null;
+  }>({
+    open: false,
+    role: null
+  });
+
+  const [editedRole, setEditedRole] = useState<{
+    name: string;
+    description: string;
+    permissions: Record<string, {
+      access: boolean;
+      read: boolean;
+      create: boolean;
+      edit: boolean;
+      delete: boolean;
+      amount: boolean;
+    }>;
+  }>({
+    name: '',
+    description: '',
+    permissions: {}
+  });
+
+  // Define all menu items with their default permissions
+  const menuItems = [
+    { key: 'dashboard', label: 'Dashboard', hasActions: false },
+    { key: 'wood-calculator', label: 'Wood Calculator', hasActions: false },
+    { key: 'wood-receipt', label: 'Wood Receipt', hasActions: true },
+    { key: 'wood-slicing', label: 'Wood Slicing', hasActions: true },
+    { key: 'drying-process', label: 'Drying Process', hasActions: true },
+    { key: 'wood-types', label: 'Wood Types', hasActions: true },
+    { key: 'lot-creation', label: 'LOT Creation', hasActions: true },
+    { key: 'approvals', label: 'Approvals', hasActions: true },
+    { key: 'drying-settings', label: 'Drying Settings', hasActions: true },
+    { key: 'user-settings', label: 'User Settings', hasActions: true },
+    { key: 'admin-settings', label: 'Admin Settings', hasActions: true },
+  ];
+
   const [editedUser, setEditedUser] = useState<{
     username: string;
     email: string;
     role: string;
     password: string;
+    permissions: Record<string, {
+      access: boolean;
+      read: boolean;
+      create: boolean;
+      edit: boolean;
+      delete: boolean;
+      amount: boolean;
+    }>;
   }>({
     username: '',
     email: '',
     role: '',
-    password: ''
+    password: '',
+    permissions: {}
   });
 
   // Event Handlers
@@ -198,6 +255,7 @@ export default function AdminSettings() {
         }
       } catch (error) {
         console.error('Error fetching electricity price:', error);
+        // If setting doesn't exist, it will be created on first save
       }
 
       // Fetch users
@@ -287,19 +345,164 @@ export default function AdminSettings() {
     localStorage.setItem('adminRoles', JSON.stringify(updatedRoles));
   };
 
+  const handleEditRoleClick = (role: Role) => {
+    // Initialize permissions from role or create default permissions
+    let initialPermissions: Record<string, any> = {};
+
+    if (role.permissions) {
+      initialPermissions = role.permissions;
+    } else {
+      // Create default permissions based on role name
+      menuItems.forEach(item => {
+        if (role.name === 'ADMIN') {
+          initialPermissions[item.key] = {
+            access: true,
+            read: true,
+            create: item.hasActions,
+            edit: item.hasActions,
+            delete: item.hasActions,
+            amount: true // Admin can view all amounts
+          };
+        } else if (role.name === 'MANAGER') {
+          initialPermissions[item.key] = {
+            access: item.key !== 'admin-settings',
+            read: item.key !== 'admin-settings',
+            create: item.hasActions && item.key !== 'admin-settings',
+            edit: item.hasActions && item.key !== 'admin-settings',
+            delete: item.hasActions && !['admin-settings', 'approvals'].includes(item.key),
+            amount: item.key !== 'admin-settings' // Manager can view amounts except admin settings
+          };
+        } else {
+          initialPermissions[item.key] = {
+            access: !['admin-settings', 'approvals'].includes(item.key),
+            read: !['admin-settings', 'approvals'].includes(item.key),
+            create: false,
+            edit: false,
+            delete: false,
+            amount: false // USER cannot view amounts by default
+          };
+        }
+      });
+    }
+
+    setEditRoleDialog({ open: true, role });
+    setEditedRole({
+      name: role.name,
+      description: role.description,
+      permissions: initialPermissions
+    });
+  };
+
+  const handleCloseEditRoleDialog = () => {
+    setEditRoleDialog({ open: false, role: null });
+    setEditedRole({ name: '', description: '', permissions: {} });
+  };
+
+  const handleSaveEditedRole = () => {
+    if (!editRoleDialog.role) return;
+
+    const updatedRoles = roles.map(role =>
+      role.id === editRoleDialog.role?.id
+        ? {
+            ...role,
+            name: editedRole.name,
+            description: editedRole.description,
+            permissions: editedRole.permissions
+          }
+        : role
+    );
+
+    setRoles(updatedRoles);
+    localStorage.setItem('adminRoles', JSON.stringify(updatedRoles));
+    handleCloseEditRoleDialog();
+  };
+
+  const handleEditedRoleChange = (field: keyof typeof editedRole) => (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    setEditedRole(prev => ({
+      ...prev,
+      [field]: event.target.value
+    }));
+  };
+
+  const handleRolePermissionChange = (menuKey: string, permissionType: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = event.target.checked;
+    setEditedRole(prev => ({
+      ...prev,
+      permissions: {
+        ...prev.permissions,
+        [menuKey]: {
+          ...prev.permissions[menuKey],
+          [permissionType]: checked,
+          // If unchecking access, uncheck all CRUD permissions including amount
+          ...(permissionType === 'access' && !checked ? {
+            read: false,
+            create: false,
+            edit: false,
+            delete: false,
+            amount: false
+          } : {})
+        }
+      }
+    }));
+  };
+
   const handleEditUserClick = (user: User) => {
+    console.log('Edit user clicked:', user);
+
+    // Initialize permissions for all menu items (default: all enabled for now)
+    const initialPermissions: Record<string, any> = {};
+    menuItems.forEach(item => {
+      initialPermissions[item.key] = {
+        access: true,
+        read: true,
+        create: item.hasActions,
+        edit: item.hasActions,
+        delete: item.hasActions,
+        amount: true
+      };
+    });
+
+    console.log('Initial permissions:', initialPermissions);
+
     setEditUserDialog({ open: true, user });
     setEditedUser({
       username: user.username,
       email: user.email,
       role: user.role,
-      password: ''
+      password: '',
+      permissions: initialPermissions
     });
+
+    console.log('Dialog state updated');
   };
 
   const handleCloseEditDialog = () => {
     setEditUserDialog({ open: false, user: null });
-    setEditedUser({ username: '', email: '', role: '', password: '' });
+    setEditedUser({ username: '', email: '', role: '', password: '', permissions: {} });
+  };
+
+  const handlePermissionChange = (menuKey: string, permissionType: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = event.target.checked;
+    setEditedUser(prev => ({
+      ...prev,
+      permissions: {
+        ...prev.permissions,
+        [menuKey]: {
+          ...prev.permissions[menuKey],
+          [permissionType]: checked,
+          // If unchecking access, uncheck all CRUD permissions including amount
+          ...(permissionType === 'access' && !checked ? {
+            read: false,
+            create: false,
+            edit: false,
+            delete: false,
+            amount: false
+          } : {})
+        }
+      }
+    }));
   };
 
   const handleSaveEditedUser = () => {
@@ -811,6 +1014,7 @@ export default function AdminSettings() {
                                 <Tooltip title="Edit Role">
                                   <IconButton
                                     size="small"
+                                    onClick={() => handleEditRoleClick(role)}
                                     sx={{
                                       color: '#64748b',
                                       '&:hover': {
@@ -1211,8 +1415,9 @@ export default function AdminSettings() {
       <Dialog
         open={editUserDialog.open}
         onClose={handleCloseEditDialog}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
+        disableEnforceFocus
         PaperProps={{
           sx: {
             borderRadius: 3,
@@ -1273,6 +1478,235 @@ export default function AdminSettings() {
               size="small"
               sx={textFieldSx}
             />
+
+            {/* Permissions Section */}
+            <Box sx={{ mt: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography
+                  variant="subtitle2"
+                  sx={{
+                    fontWeight: 600,
+                    color: '#1e293b',
+                    fontSize: '0.9375rem'
+                  }}
+                >
+                  Page Access & Permissions
+                </Typography>
+                <Button
+                  size="small"
+                  onClick={() => {
+                    // Find the selected role and use its permissions as template
+                    const selectedRole = roles.find(r => r.name === editedUser.role);
+
+                    if (selectedRole?.permissions) {
+                      // Use permissions from the role template
+                      setEditedUser(prev => ({ ...prev, permissions: { ...selectedRole.permissions } }));
+                    } else {
+                      // Fallback to default permissions if role doesn't have permissions defined
+                      const rolePermissions: Record<string, any> = {};
+                      menuItems.forEach(item => {
+                        if (editedUser.role === 'ADMIN') {
+                          rolePermissions[item.key] = {
+                            access: true,
+                            read: true,
+                            create: item.hasActions,
+                            edit: item.hasActions,
+                            delete: item.hasActions,
+                            amount: true
+                          };
+                        } else if (editedUser.role === 'MANAGER') {
+                          rolePermissions[item.key] = {
+                            access: item.key !== 'admin-settings',
+                            read: item.key !== 'admin-settings',
+                            create: item.hasActions && item.key !== 'admin-settings',
+                            edit: item.hasActions && item.key !== 'admin-settings',
+                            delete: item.hasActions && !['admin-settings', 'approvals'].includes(item.key),
+                            amount: item.key !== 'admin-settings'
+                          };
+                        } else {
+                          rolePermissions[item.key] = {
+                            access: !['admin-settings', 'approvals'].includes(item.key),
+                            read: !['admin-settings', 'approvals'].includes(item.key),
+                            create: false,
+                            edit: false,
+                            delete: false,
+                            amount: false
+                          };
+                        }
+                      });
+                      setEditedUser(prev => ({ ...prev, permissions: rolePermissions }));
+                    }
+                  }}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                    color: '#dc2626',
+                    borderColor: '#dc2626',
+                    px: 2,
+                    py: 0.5,
+                    '&:hover': {
+                      borderColor: '#b91c1c',
+                      backgroundColor: alpha('#dc2626', 0.08)
+                    }
+                  }}
+                  variant="outlined"
+                >
+                  Apply {editedUser.role} Defaults
+                </Button>
+              </Box>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  color: '#64748b',
+                  mb: 2,
+                  fontSize: '0.75rem',
+                  fontStyle: 'italic'
+                }}
+              >
+                Role sets default permissions. Click "Apply Defaults" then customize for this specific user.
+              </Typography>
+              <Box sx={{ border: '1px solid #e2e8f0', borderRadius: 2, overflow: 'hidden' }}>
+                <Box sx={{ display: 'flex', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', p: 1.5 }}>
+                  <Box sx={{ flex: 1.5, fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>PAGE</Box>
+                  <Box sx={{ width: 70, textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>ACCESS</Box>
+                  <Box sx={{ width: 65, textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>READ</Box>
+                  <Box sx={{ width: 68, textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>CREATE</Box>
+                  <Box sx={{ width: 60, textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>EDIT</Box>
+                  <Box sx={{ width: 68, textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>DELETE</Box>
+                  <Box sx={{ width: 72, textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b' }}>AMOUNT</Box>
+                </Box>
+                <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
+                  {menuItems.map((item, index) => (
+                    <Box
+                      key={item.key}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        p: 1.5,
+                        borderBottom: index < menuItems.length - 1 ? '1px solid #e2e8f0' : 'none',
+                        '&:hover': { backgroundColor: '#f8fafc' }
+                      }}
+                    >
+                      <Box sx={{ flex: 1.5, fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {item.label}
+                      </Box>
+                      <Box sx={{ width: 70, textAlign: 'center' }}>
+                        <Switch
+                          size="small"
+                          checked={editedUser.permissions[item.key]?.access || false}
+                          onChange={handlePermissionChange(item.key, 'access')}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': {
+                              color: '#dc2626',
+                            },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                              backgroundColor: '#dc2626',
+                            },
+                          }}
+                        />
+                      </Box>
+                      <Box sx={{ width: 65, textAlign: 'center' }}>
+                        <Switch
+                          size="small"
+                          disabled={!editedUser.permissions[item.key]?.access}
+                          checked={editedUser.permissions[item.key]?.read || false}
+                          onChange={handlePermissionChange(item.key, 'read')}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': {
+                              color: '#dc2626',
+                            },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                              backgroundColor: '#dc2626',
+                            },
+                          }}
+                        />
+                      </Box>
+                      {item.hasActions ? (
+                        <>
+                          <Box sx={{ width: 68, textAlign: 'center' }}>
+                            <Switch
+                              size="small"
+                              disabled={!editedUser.permissions[item.key]?.access}
+                              checked={editedUser.permissions[item.key]?.create || false}
+                              onChange={handlePermissionChange(item.key, 'create')}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#dc2626',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#dc2626',
+                                },
+                              }}
+                            />
+                          </Box>
+                          <Box sx={{ width: 60, textAlign: 'center' }}>
+                            <Switch
+                              size="small"
+                              disabled={!editedUser.permissions[item.key]?.access}
+                              checked={editedUser.permissions[item.key]?.edit || false}
+                              onChange={handlePermissionChange(item.key, 'edit')}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#dc2626',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#dc2626',
+                                },
+                              }}
+                            />
+                          </Box>
+                          <Box sx={{ width: 68, textAlign: 'center' }}>
+                            <Switch
+                              size="small"
+                              disabled={!editedUser.permissions[item.key]?.access}
+                              checked={editedUser.permissions[item.key]?.delete || false}
+                              onChange={handlePermissionChange(item.key, 'delete')}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#dc2626',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#dc2626',
+                                },
+                              }}
+                            />
+                          </Box>
+                        </>
+                      ) : (
+                        <>
+                          <Box sx={{ width: 68, textAlign: 'center' }}>
+                            <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>-</Typography>
+                          </Box>
+                          <Box sx={{ width: 60, textAlign: 'center' }}>
+                            <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>-</Typography>
+                          </Box>
+                          <Box sx={{ width: 68, textAlign: 'center' }}>
+                            <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>-</Typography>
+                          </Box>
+                        </>
+                      )}
+                      <Box sx={{ width: 72, textAlign: 'center' }}>
+                        <Switch
+                          size="small"
+                          disabled={!editedUser.permissions[item.key]?.access}
+                          checked={editedUser.permissions[item.key]?.amount || false}
+                          onChange={handlePermissionChange(item.key, 'amount')}
+                          sx={{
+                            '& .MuiSwitch-switchBase.Mui-checked': {
+                              color: '#dc2626',
+                            },
+                            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                              backgroundColor: '#dc2626',
+                            },
+                          }}
+                        />
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            </Box>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3, pt: 2, borderTop: '1px solid #e2e8f0' }}>
@@ -1292,6 +1726,252 @@ export default function AdminSettings() {
           <Button
             onClick={handleSaveEditedUser}
             variant="contained"
+            sx={{
+              backgroundColor: '#dc2626',
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+            }}
+          >
+            Save Changes
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Role Dialog */}
+      <Dialog
+        open={editRoleDialog.open}
+        onClose={handleCloseEditRoleDialog}
+        maxWidth="md"
+        fullWidth
+        disableEnforceFocus
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+          }
+        }}
+      >
+        <DialogTitle
+          sx={{
+            fontSize: '1.25rem',
+            fontWeight: 700,
+            color: '#1e293b',
+            borderBottom: '1px solid #e2e8f0',
+            pb: 2,
+          }}
+        >
+          Edit Role: {editRoleDialog.role?.name}
+        </DialogTitle>
+        <DialogContent sx={{ py: 3, px: 3 }}>
+          <Stack spacing={2.5} sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              label="Role Name"
+              value={editedRole.name}
+              onChange={handleEditedRoleChange('name')}
+              size="small"
+              sx={textFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="Description"
+              value={editedRole.description}
+              onChange={handleEditedRoleChange('description')}
+              size="small"
+              sx={textFieldSx}
+            />
+
+            {/* Permissions Section */}
+            <Box sx={{ mt: 3 }}>
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: 600,
+                  color: '#1e293b',
+                  fontSize: '0.9375rem',
+                  mb: 2
+                }}
+              >
+                Page Access & Permissions Template
+              </Typography>
+
+              {/* Permissions Table */}
+              <TableContainer
+                sx={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 2,
+                  maxHeight: 400,
+                  overflow: 'auto'
+                }}
+              >
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '30%' }}>
+                        PAGE
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '11%' }}>
+                        ACCESS
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '11%' }}>
+                        READ
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '12%' }}>
+                        CREATE
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '12%' }}>
+                        EDIT
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '12%' }}>
+                        DELETE
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.8125rem', bgcolor: '#f8fafc', width: '12%' }}>
+                        AMOUNT
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {menuItems.map((item) => (
+                      <TableRow key={item.key} sx={{ '&:hover': { bgcolor: '#f8fafc' } }}>
+                        <TableCell sx={{ fontSize: '0.8125rem', py: 1 }}>
+                          {item.label}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Switch
+                            size="small"
+                            checked={editedRole.permissions[item.key]?.access || false}
+                            onChange={handleRolePermissionChange(item.key, 'access')}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: '#dc2626',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: '#dc2626',
+                              },
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Switch
+                            size="small"
+                            checked={editedRole.permissions[item.key]?.read || false}
+                            onChange={handleRolePermissionChange(item.key, 'read')}
+                            disabled={!editedRole.permissions[item.key]?.access}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: '#dc2626',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: '#dc2626',
+                              },
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          {item.hasActions ? (
+                            <Switch
+                              size="small"
+                              checked={editedRole.permissions[item.key]?.create || false}
+                              onChange={handleRolePermissionChange(item.key, 'create')}
+                              disabled={!editedRole.permissions[item.key]?.access}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#dc2626',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#dc2626',
+                                },
+                              }}
+                            />
+                          ) : (
+                            <Typography sx={{ color: '#94a3b8', fontSize: '0.75rem' }}>-</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          {item.hasActions ? (
+                            <Switch
+                              size="small"
+                              checked={editedRole.permissions[item.key]?.edit || false}
+                              onChange={handleRolePermissionChange(item.key, 'edit')}
+                              disabled={!editedRole.permissions[item.key]?.access}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#dc2626',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#dc2626',
+                                },
+                              }}
+                            />
+                          ) : (
+                            <Typography sx={{ color: '#94a3b8', fontSize: '0.75rem' }}>-</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          {item.hasActions ? (
+                            <Switch
+                              size="small"
+                              checked={editedRole.permissions[item.key]?.delete || false}
+                              onChange={handleRolePermissionChange(item.key, 'delete')}
+                              disabled={!editedRole.permissions[item.key]?.access}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: '#dc2626',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: '#dc2626',
+                                },
+                              }}
+                            />
+                          ) : (
+                            <Typography sx={{ color: '#94a3b8', fontSize: '0.75rem' }}>-</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Switch
+                            size="small"
+                            checked={editedRole.permissions[item.key]?.amount || false}
+                            onChange={handleRolePermissionChange(item.key, 'amount')}
+                            disabled={!editedRole.permissions[item.key]?.access}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: '#dc2626',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: '#dc2626',
+                              },
+                            }}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, pt: 0 }}>
+          <Button
+            onClick={handleCloseEditRoleDialog}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              color: '#64748b',
+              '&:hover': {
+                backgroundColor: '#f1f5f9',
+              },
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveEditedRole}
+            variant="contained"
+            disabled={!editedRole.name}
             sx={{
               backgroundColor: '#dc2626',
               textTransform: 'none',

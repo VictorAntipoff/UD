@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { apiGet, apiPost, apiDelete } from '../../utils/api';
 import {
   Container,
   Typography,
@@ -174,16 +175,16 @@ export default function WoodCalculator() {
 
     setIsLoading(true);
     try {
-      // Fetch wood types from backend API
-      const woodTypesResponse = await fetch('http://localhost:3010/api/factory/wood-types');
+      // Fetch wood types from backend API with authentication
+      const woodTypesResponse = await apiGet('/api/factory/wood-types');
       if (!woodTypesResponse.ok) {
         throw new Error('Failed to fetch wood types');
       }
       const woodTypesData = await woodTypesResponse.json();
       setWoodTypes(woodTypesData || []);
 
-      // Fetch calculations from backend API
-      const calculationsResponse = await fetch(`http://localhost:3010/api/factory/calculations?user_id=${user.id}`);
+      // Fetch calculations from backend API with authentication
+      const calculationsResponse = await apiGet(`/api/factory/calculations?user_id=${user.id}`);
       if (!calculationsResponse.ok) {
         throw new Error('Failed to fetch calculations');
       }
@@ -369,13 +370,7 @@ Generated on: ${new Date().toLocaleString()}`;
         notes: dimensions.notes || ''
       };
 
-      const response = await fetch('http://localhost:3010/api/factory/calculations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(calculationData)
-      });
+      const response = await apiPost('/api/factory/calculations', calculationData);
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -394,9 +389,7 @@ Generated on: ${new Date().toLocaleString()}`;
 
   const deleteCalculation = async (id: string) => {
     try {
-      const response = await fetch(`http://localhost:3010/api/factory/calculations/${id}`, {
-        method: 'DELETE',
-      });
+      const response = await apiDelete(`/api/factory/calculations/${id}`);
 
       if (!response.ok) {
         const errorData = await response.json();
