@@ -1394,32 +1394,64 @@ const WoodSlicer = () => {
   // Calculation functions
   const calculateSleeperVolume = () => {
     // Calculate total volume for ALL sleepers in the LOT (from receipt measurements)
-    return availableSleepers.reduce((total, sleeper) => {
+    console.log('[calculateSleeperVolume] availableSleepers count:', availableSleepers.length);
+    const total = availableSleepers.reduce((sum, sleeper, index) => {
       // Convert from receipt units (inches/feet) to SI units (meters)
       const widthM = inchesToCm(sleeper.width || 0) / 100; // inches -> cm -> meters
       const heightM = inchesToCm(sleeper.thickness || sleeper.height || 0) / 100; // inches -> cm -> meters
       const lengthM = feetToMeters(sleeper.length || 0); // feet -> meters
       const volume = widthM * heightM * lengthM;
-      return total + volume;
+      console.log(`[calculateSleeperVolume] Sleeper ${index + 1}: ${sleeper.width}×${sleeper.thickness}×${sleeper.length} = ${volume.toFixed(4)} m³`);
+      return sum + volume;
     }, 0);
+    console.log('[calculateSleeperVolume] TOTAL:', total.toFixed(4), 'm³');
+    return total;
   };
 
   const calculatePlankVolume = () => {
     // Calculate total volume for ALL planks from ALL completed operations in this LOT
+    // PLUS planks currently being worked on (in plankSizes)
+    console.log('[calculatePlankVolume] START');
+    console.log('[calculatePlankVolume] lotOperations count:', lotOperations.length);
+    console.log('[calculatePlankVolume] current plankSizes count:', plankSizes.length);
     let total = 0;
-    lotOperations.forEach((op: SavedOperation) => {
+
+    // Add planks from saved operations
+    lotOperations.forEach((op: SavedOperation, opIndex) => {
       if (op.plank_sizes && Array.isArray(op.plank_sizes)) {
-        op.plank_sizes.forEach((plank: any) => {
+        console.log(`[calculatePlankVolume] Operation ${opIndex + 1} has ${op.plank_sizes.length} planks`);
+        op.plank_sizes.forEach((plank: any, plankIndex) => {
           // Planks are stored in cm and inherit length from sleeper
           const width = (plank.width || 0) / 100; // cm -> meters
           const height = (plank.height || 0) / 100; // cm -> meters
           const length = (plank.length || 0); // Already in meters
           const quantity = plank.quantity || 1;
           const volume = width * height * length * quantity;
+          console.log(`  Plank ${plankIndex + 1}: ${plank.width}×${plank.height}×${length} × ${quantity} = ${volume.toFixed(4)} m³`);
           total += volume;
         });
       }
     });
+
+    // Add planks currently being worked on (not yet saved)
+    console.log('[calculatePlankVolume] Processing current plankSizes...');
+    plankSizes.forEach((plank, index) => {
+      const parentSleeper = sleeperSizes.find(s => s.sequence === plank.parentSequence);
+      if (!parentSleeper) {
+        console.log(`  Current plank ${index + 1}: NO PARENT SLEEPER FOUND (parentSequence: ${plank.parentSequence})`);
+        return;
+      }
+
+      const width = (plank.width || 0) / 100; // cm -> meters
+      const height = (plank.height || 0) / 100; // cm -> meters
+      const length = parentSleeper.length; // meters
+      const quantity = plank.quantity || 1;
+      const volume = width * height * length * quantity;
+      console.log(`  Current plank ${index + 1}: ${plank.width}×${plank.height}×${length} × ${quantity} = ${volume.toFixed(4)} m³`);
+      total += volume;
+    });
+
+    console.log('[calculatePlankVolume] TOTAL:', total.toFixed(4), 'm³');
     return total;
   };
 
