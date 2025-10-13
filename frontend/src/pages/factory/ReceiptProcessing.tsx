@@ -47,6 +47,7 @@ import { Document, Page, Text, View, StyleSheet, Image, BlobProvider } from '@re
 import logo from '../../assets/images/logo.png';
 import { APP_NAME, APP_VERSION } from '../../constants/version';
 import { useSnackbar, SnackbarProvider } from 'notistack';
+import { useAuth } from '../../hooks/useAuth';
 
 // Styled Components
 const StyledContainer = styled(Container)(({ theme }) => ({
@@ -765,6 +766,9 @@ const ChangeHistoryDisplay = ({ changeHistory }: { changeHistory: ChangeHistory[
 };
 
 const ReceiptProcessing = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+  const { enqueueSnackbar } = useSnackbar();
   const [formData, setFormData] = useState<ReceiptForm>(initialFormState);
   const [showSuccess, setShowSuccess] = useState(false);
   const [receipts, setReceipts] = useState<WoodReceipt[]>([]);
@@ -879,8 +883,10 @@ const ReceiptProcessing = () => {
       if (!receipt) throw new Error('Receipt not found');
 
       // Update the receipt status and total volume
+      // Admin can complete directly, users need approval (PENDING_APPROVAL)
+      const newStatus = isAdmin ? 'COMPLETED' : 'PENDING_APPROVAL';
       await api.patch(`/management/wood-receipts/${receipt.id}`, {
-        status: 'PROCESSING',
+        status: newStatus,
         total_volume_m3: totalM3
       });
 
@@ -894,6 +900,12 @@ const ReceiptProcessing = () => {
 
       // Delete the draft after processing
       await api.delete(`/factory/drafts?receipt_id=${formData.receiptNumber}`);
+
+      // Show appropriate success message
+      const successMessage = isAdmin
+        ? 'Receipt processed and completed successfully!'
+        : 'Receipt submitted for admin approval successfully!';
+      enqueueSnackbar(successMessage, { variant: 'success' });
 
       setShowSuccess(true);
       await fetchReceipts();
@@ -2065,15 +2077,19 @@ const ReceiptProcessing = () => {
                     <Button
                       variant="contained"
                       type="submit"
-                      disabled={!formData.receiptNumber || formData.status !== 'PENDING'}
+                      disabled={!formData.receiptNumber || formData.status !== 'PENDING' || measurements.length === 0}
                       sx={{
                         bgcolor: '#dc2626',
                         '&:hover': {
                           bgcolor: '#b91c1c',
+                        },
+                        '&:disabled': {
+                          bgcolor: '#cbd5e1',
+                          color: '#94a3b8'
                         }
                       }}
                     >
-                      Complete Processing
+                      {isAdmin ? 'Complete Processing' : 'Submit for Approval'}
                     </Button>
                   </Box>
                 )}
