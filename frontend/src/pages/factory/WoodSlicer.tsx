@@ -1304,6 +1304,11 @@ const WoodSlicer = () => {
     const heightInCm = inchesToCm(sleeper.thickness || sleeper.height || 0);
     const lengthInMeters = feetToMeters(sleeper.length || 0);
 
+    console.log('Converting sleeper dimensions:', {
+      original: { width: sleeper.width, thickness: sleeper.thickness, height: sleeper.height, length: sleeper.length },
+      converted: { widthInCm, heightInCm, lengthInMeters }
+    });
+
     // Auto-fill sleeper dimensions
     setSleeperSizes([{
       id: crypto.randomUUID(),
@@ -1385,14 +1390,17 @@ const WoodSlicer = () => {
 
   // Calculation functions
   const calculateSleeperVolume = () => {
-    return sleeperSizes.reduce((total, size) => {
+    const total = sleeperSizes.reduce((total, size) => {
       const width = (size.width || 0) / 100;
       const height = (size.height || 0) / 100;
       const length = (size.length || 0);
       const quantity = size.quantity || 1;
       const volume = width * height * length * quantity;
+      console.log('Calculating sleeper volume:', { size, width, height, length, quantity, volume });
       return total + volume;
     }, 0);
+    console.log('Total sleeper volume:', total, 'from', sleeperSizes.length, 'sleepers');
+    return total;
   };
 
   const calculatePlankVolume = () => {
