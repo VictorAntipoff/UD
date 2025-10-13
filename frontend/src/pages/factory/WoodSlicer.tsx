@@ -1004,6 +1004,7 @@ const WoodSlicer = () => {
   const [selectedSleeperNumber, setSelectedSleeperNumber] = useState<number | null>(null);
   const [usedSleeperNumbers, setUsedSleeperNumbers] = useState<Set<number>>(new Set());
   const [showSleeperSelector, setShowSleeperSelector] = useState(false);
+  const [lotOperations, setLotOperations] = useState<SavedOperation[]>([]); // All operations for current LOT
 
   // Get user role from AuthContext
   const { user } = useAuth();
@@ -1237,6 +1238,7 @@ const WoodSlicer = () => {
       const response = await api.get(`/factory/operations?_t=${Date.now()}`);
       const operations = response.data || [];
       const usedNumbers = new Set<number>();
+      const lotOps: SavedOperation[] = [];
 
       console.log('Fetching used sleeper numbers for LOT:', lotNumber);
       console.log('Total operations:', operations.length);
@@ -1244,17 +1246,23 @@ const WoodSlicer = () => {
 
       operations.forEach((op: SavedOperation) => {
         console.log('Operation:', op.serial_number, 'LOT:', op.lot_number, 'Sleeper#:', op.sleeper_number);
-        if (op.lot_number === lotNumber && op.sleeper_number) {
-          console.log('Found operation for sleeper:', op.sleeper_number, 'Op ID:', op.id);
-          usedNumbers.add(op.sleeper_number);
+        if (op.lot_number === lotNumber) {
+          lotOps.push(op); // Store all operations for this LOT
+          if (op.sleeper_number) {
+            console.log('Found operation for sleeper:', op.sleeper_number, 'Op ID:', op.id);
+            usedNumbers.add(op.sleeper_number);
+          }
         }
       });
 
       console.log('Used sleeper numbers:', Array.from(usedNumbers));
+      console.log('LOT operations:', lotOps.length);
       setUsedSleeperNumbers(usedNumbers);
+      setLotOperations(lotOps); // Store for volume calculation
     } catch (error) {
       console.error('Error fetching used sleeper numbers:', error);
       setUsedSleeperNumbers(new Set());
+      setLotOperations([]);
     }
   };
 
@@ -1385,28 +1393,34 @@ const WoodSlicer = () => {
 
   // Calculation functions
   const calculateSleeperVolume = () => {
-    return sleeperSizes.reduce((total, size) => {
-      const width = (size.width || 0) / 100;
-      const height = (size.height || 0) / 100;
-      const length = (size.length || 0);
-      const quantity = size.quantity || 1;
-      const volume = width * height * length * quantity;
+    // Calculate total volume for ALL sleepers in the LOT (from receipt measurements)
+    return availableSleepers.reduce((total, sleeper) => {
+      // Convert from receipt units (inches/feet) to SI units (meters)
+      const widthM = inchesToCm(sleeper.width || 0) / 100; // inches -> cm -> meters
+      const heightM = inchesToCm(sleeper.thickness || sleeper.height || 0) / 100; // inches -> cm -> meters
+      const lengthM = feetToMeters(sleeper.length || 0); // feet -> meters
+      const volume = widthM * heightM * lengthM;
       return total + volume;
     }, 0);
   };
 
   const calculatePlankVolume = () => {
-    return plankSizes.reduce((total, plank) => {
-      const parentSleeper = sleeperSizes.find(s => s.sequence === plank.parentSequence);
-      if (!parentSleeper) return total;
-
-      const width = (plank.width || 0) / 100;
-      const height = (plank.height || 0) / 100;
-      const length = parentSleeper.length;
-      const quantity = plank.quantity || 1;
-      const volume = width * height * length * quantity;
-      return total + volume;
-    }, 0);
+    // Calculate total volume for ALL planks from ALL completed operations in this LOT
+    let total = 0;
+    lotOperations.forEach((op: SavedOperation) => {
+      if (op.plank_sizes && Array.isArray(op.plank_sizes)) {
+        op.plank_sizes.forEach((plank: any) => {
+          // Planks are stored in cm and inherit length from sleeper
+          const width = (plank.width || 0) / 100; // cm -> meters
+          const height = (plank.height || 0) / 100; // cm -> meters
+          const length = (plank.length || 0); // Already in meters
+          const quantity = plank.quantity || 1;
+          const volume = width * height * length * quantity;
+          total += volume;
+        });
+      }
+    });
+    return total;
   };
 
   const calculateWastePercentage = () => {
