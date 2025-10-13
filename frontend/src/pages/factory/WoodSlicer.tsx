@@ -1423,6 +1423,47 @@ const WoodSlicer = () => {
     return total;
   };
 
+  // Calculate volume for CURRENT sleeper being worked on (from sleeperSizes)
+  const calculateCurrentSleeperVolume = () => {
+    return sleeperSizes.reduce((total, size) => {
+      const width = (size.width || 0) / 100;
+      const height = (size.height || 0) / 100;
+      const length = (size.length || 0);
+      const quantity = size.quantity || 1;
+      const volume = width * height * length * quantity;
+      return total + volume;
+    }, 0);
+  };
+
+  // Calculate volume for planks cut from CURRENT sleeper (from plankSizes)
+  const calculateCurrentPlankVolume = () => {
+    return plankSizes.reduce((total, plank) => {
+      const parentSleeper = sleeperSizes.find(s => s.sequence === plank.parentSequence);
+      if (!parentSleeper) return total;
+
+      const width = (plank.width || 0) / 100;
+      const height = (plank.height || 0) / 100;
+      const length = parentSleeper.length;
+      const quantity = plank.quantity || 1;
+      const volume = width * height * length * quantity;
+      return total + volume;
+    }, 0);
+  };
+
+  // Calculate waste percentage for CURRENT sleeper
+  const calculateCurrentSleeperWaste = () => {
+    const sleeperVolume = calculateCurrentSleeperVolume();
+    const plankVolume = calculateCurrentPlankVolume();
+
+    if (sleeperVolume === 0) return '0.00';
+
+    const wasteVolume = sleeperVolume - plankVolume;
+    const wastePercentage = (wasteVolume / sleeperVolume) * 100;
+
+    return Math.max(0, wastePercentage).toFixed(2);
+  };
+
+  // Calculate waste percentage for FULL LOT
   const calculateWastePercentage = () => {
     const sleeperVolume = calculateSleeperVolume();
     const plankVolume = calculatePlankVolume();
@@ -3130,6 +3171,47 @@ const WoodSlicer = () => {
                           </Box>
                       ))}
                     </Stack>
+
+                    {/* Per-Sleeper Calculation Summary */}
+                    {plankSizes.filter(p => p.parentSequence === sleeper.sequence).length > 0 && (
+                      <Box sx={{ mt: 3, p: 2, bgcolor: alpha('#3b82f6', 0.05), borderRadius: 1.5, border: '1px solid', borderColor: alpha('#3b82f6', 0.2) }}>
+                        <Typography variant="subtitle2" sx={{ color: '#475569', fontSize: '0.75rem', fontWeight: 600, mb: 1.5 }}>
+                          Current Sleeper Summary
+                        </Typography>
+                        <Grid container spacing={2}>
+                          <Grid item xs={4}>
+                            <Box>
+                              <Typography sx={{ color: '#64748b', fontSize: '0.625rem', fontWeight: 600, mb: 0.5 }}>
+                                SLEEPER VOL.
+                              </Typography>
+                              <Typography sx={{ color: '#1e293b', fontSize: '0.875rem', fontWeight: 700 }}>
+                                {calculateCurrentSleeperVolume().toFixed(3)} m³
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Box>
+                              <Typography sx={{ color: '#64748b', fontSize: '0.625rem', fontWeight: 600, mb: 0.5 }}>
+                                PLANK VOL.
+                              </Typography>
+                              <Typography sx={{ color: '#1e293b', fontSize: '0.875rem', fontWeight: 700 }}>
+                                {calculateCurrentPlankVolume().toFixed(3)} m³
+                              </Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Box>
+                              <Typography sx={{ color: '#dc2626', fontSize: '0.625rem', fontWeight: 600, mb: 0.5 }}>
+                                WASTE %
+                              </Typography>
+                              <Typography sx={{ color: '#dc2626', fontSize: '0.875rem', fontWeight: 700 }}>
+                                {calculateCurrentSleeperWaste()}%
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    )}
                   </Box>
 
                   {sleeperSizes.length > 1 && (
