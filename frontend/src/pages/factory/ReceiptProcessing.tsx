@@ -881,12 +881,13 @@ const ReceiptProcessing = () => {
 
       if (!receipt) throw new Error('Receipt not found');
 
-      // Update the receipt status and total volume
+      // Update the receipt status and save actual volume/pieces from measurements
       // Admin can complete directly, users need approval (PENDING_APPROVAL)
       const newStatus = isAdmin ? 'COMPLETED' : 'PENDING_APPROVAL';
       await api.patch(`/management/wood-receipts/${receipt.id}`, {
         status: newStatus,
-        total_volume_m3: totalM3
+        actual_volume_m3: totalM3,
+        actual_pieces: measurements.length
       });
 
       // Insert the measurements as receipt items
