@@ -13,8 +13,12 @@ export interface WoodReceipt {
   status: ReceiptStatus; // Changed to use the ReceiptStatus type
   notes?: string;
   created_by?: string;
-  total_volume_m3?: number;
-  total_pieces?: number;
+  total_volume_m3?: number; // Estimated volume
+  total_pieces?: number; // Estimated pieces
+  estimatedVolumeM3?: number; // Backend field name
+  estimatedPieces?: number; // Backend field name
+  actualVolumeM3?: number; // Actual volume after processing
+  actualPieces?: number; // Actual pieces after processing
   total_amount: number;
   created_at?: string;
   updated_at?: string;
