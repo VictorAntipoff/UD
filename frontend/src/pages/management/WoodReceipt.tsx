@@ -373,18 +373,18 @@ const WoodReceipt = () => {
         }}>
           <Box>
             <Typography
-              variant="h4"
+              variant="h5"
               sx={{
                 color: '#dc2626',
-                fontWeight: 800,
-                fontSize: '2rem',
+                fontWeight: 700,
+                fontSize: '1.5rem',
                 mb: 0.5,
-                letterSpacing: '-0.5px',
+                letterSpacing: '-0.025em',
               }}
             >
               LOT Management
             </Typography>
-            <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.9375rem', fontWeight: 500 }}>
+            <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 400 }}>
               Create and manage LOT numbers with wood receipt information
             </Typography>
           </Box>
@@ -396,17 +396,16 @@ const WoodReceipt = () => {
               backgroundColor: '#dc2626',
               color: '#fff',
               textTransform: 'none',
-              px: 4,
-              py: 1.5,
-              fontSize: '0.9375rem',
-              fontWeight: 700,
+              px: 3,
+              py: 1,
+              fontSize: '0.875rem',
+              fontWeight: 600,
               borderRadius: 2,
-              boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
-              transition: 'all 0.3s ease',
+              boxShadow: '0 2px 8px rgba(220, 38, 38, 0.2)',
+              transition: 'all 0.2s ease',
               '&:hover': {
                 backgroundColor: '#b91c1c',
-                boxShadow: '0 6px 16px rgba(220, 38, 38, 0.4)',
-                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(220, 38, 38, 0.3)',
               }
             }}
           >
@@ -428,17 +427,17 @@ const WoodReceipt = () => {
         <TableContainer>
           <Table sx={{
             '& .MuiTableCell-root': {
-              fontSize: '0.875rem',
-              py: 2,
-              px: 3,
+              fontSize: '0.8125rem',
+              py: 1.5,
+              px: 2,
               borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
             },
             '& .MuiTableCell-head': {
-              fontWeight: 700,
+              fontWeight: 600,
               backgroundColor: '#fef2f2',
               color: '#dc2626',
-              py: 2.5,
-              fontSize: '0.8125rem',
+              py: 1.75,
+              fontSize: '0.75rem',
               textTransform: 'uppercase',
               letterSpacing: '0.5px',
               borderBottom: '2px solid #dc2626',
@@ -473,18 +472,17 @@ const WoodReceipt = () => {
                         alignItems: 'center',
                         backgroundColor: '#dc2626',
                         color: '#fff',
-                        px: 2,
-                        py: 0.75,
+                        px: 1.5,
+                        py: 0.5,
                         borderRadius: 1,
                         fontWeight: 600,
-                        fontSize: '0.8125rem',
-                        letterSpacing: '0.5px',
+                        fontSize: '0.75rem',
+                        letterSpacing: '0.025em',
                         cursor: receipt.lot_number ? 'pointer' : 'default',
                         transition: 'all 0.2s ease',
                         '&:hover': receipt.lot_number ? {
                           backgroundColor: '#b91c1c',
-                          transform: 'scale(1.05)',
-                          boxShadow: '0 4px 8px rgba(220, 38, 38, 0.3)',
+                          boxShadow: '0 2px 4px rgba(220, 38, 38, 0.3)',
                         } : {},
                       }}
                     >
@@ -492,27 +490,27 @@ const WoodReceipt = () => {
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.875rem' }}>
+                    <Typography sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.8125rem' }}>
                       {receipt.wood_type?.name}
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ color: '#475569', fontSize: '0.875rem' }}>
+                    <Typography sx={{ color: '#475569', fontSize: '0.8125rem' }}>
                       {receipt.supplier}
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 500 }}>
+                    <Typography sx={{ color: '#64748b', fontSize: '0.8125rem', fontWeight: 500 }}>
                       {receipt.purchase_order || 'N/A'}
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.875rem' }}>
+                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
                       {receipt.total_volume_m3 || '0'}
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.875rem' }}>
+                    <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
                       {receipt.total_pieces || '0'}
                     </Typography>
                   </TableCell>
@@ -521,10 +519,10 @@ const WoodReceipt = () => {
                       label={receipt.status}
                       size="small"
                       sx={{
-                        fontSize: '0.75rem',
-                        fontWeight: 700,
-                        height: '28px',
-                        px: 1.5,
+                        fontSize: '0.6875rem',
+                        fontWeight: 600,
+                        height: '24px',
+                        px: 1.25,
                         borderRadius: 1,
                         backgroundColor: receipt.status === 'CREATED' ? '#64748b' :
                           receipt.status === 'PENDING' ? '#fbbf24' :
@@ -1077,7 +1075,7 @@ const WoodReceipt = () => {
         </DialogActions>
       </Dialog>
 
-      {/* LOT Traceability Dialog */}
+      {/* LOT Management Dialog */}
       <Dialog
         open={traceabilityDialogOpen}
         onClose={() => setTraceabilityDialogOpen(false)}
@@ -1098,7 +1096,7 @@ const WoodReceipt = () => {
         <DialogTitle sx={{ borderBottom: '1px solid #e2e8f0', pb: 2 }}>
           <Box>
             <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626' }}>
-              LOT Traceability: {traceabilityData?.lotNumber}
+              LOT Management: {traceabilityData?.lotNumber}
             </Typography>
             <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
               Full tracking history for this LOT number
@@ -1282,92 +1280,168 @@ const WoodReceipt = () => {
                     sx={{ backgroundColor: '#dc2626', color: '#fff', fontWeight: 700 }}
                   />
                 </Box>
-                {traceabilityData.stages.slicing.length > 0 ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {traceabilityData.stages.slicing.map((operation: any) => (
+                {traceabilityData.stages.slicing.length > 0 ? (() => {
+                  // Calculate LOT-wide aggregated data
+                  const operations = traceabilityData.stages.slicing;
+                  let totalSleeperVolume = 0;
+                  let totalPlankVolume = 0;
+                  let totalSleepers = operations.length;
+                  let totalPlanks = 0;
+
+                  operations.forEach((op: any) => {
+                    // Calculate sleeper volume
+                    if (op.sleeperSizes) {
+                      const sleeperVol = op.sleeperSizes.reduce((sum: number, size: any) => {
+                        const width = (size.width || 0) / 100;
+                        const height = (size.height || 0) / 100;
+                        const length = size.length || 0;
+                        const quantity = size.quantity || 1;
+                        return sum + (width * height * length * quantity);
+                      }, 0);
+                      totalSleeperVolume += sleeperVol;
+                    }
+
+                    // Calculate plank volume
+                    if (op.plankSizes) {
+                      const plankVol = op.plankSizes.reduce((sum: number, size: any) => {
+                        const width = (size.width || 0) / 100;
+                        const height = (size.height || 0) / 100;
+                        const length = size.length || 0;
+                        const quantity = size.quantity || 1;
+                        return sum + (width * height * length * quantity);
+                      }, 0);
+                      totalPlankVolume += plankVol;
+                      totalPlanks += op.plankSizes.length;
+                    }
+                  });
+
+                  const wasteVolume = totalSleeperVolume - totalPlankVolume;
+                  const wastePercentage = totalSleeperVolume > 0 ? (wasteVolume / totalSleeperVolume) * 100 : 0;
+
+                  // Get earliest start time
+                  const sortedByTime = [...operations].sort((a: any, b: any) => {
+                    const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
+                    const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
+                    return timeA - timeB;
+                  });
+                  const firstOperation = sortedByTime[0];
+                  const startTime = firstOperation?.startTime;
+                  const woodType = firstOperation?.woodType || 'Unknown';
+
+                  return (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      {/* LOT Summary */}
                       <Paper
-                        key={operation.id}
                         elevation={0}
                         sx={{
                           border: '2px solid #fee2e2',
                           borderRadius: 2,
                           p: 3,
-                          backgroundColor: '#fef2f2',
-                          transition: 'all 0.2s ease',
-                          '&:hover': {
-                            borderColor: '#dc2626',
-                            boxShadow: '0 4px 12px rgba(220, 38, 38, 0.15)',
-                          }
+                          backgroundColor: '#fef2f2'
                         }}
                       >
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#dc2626', mb: 2 }}>
+                          LOT Summary
+                        </Typography>
                         <Grid container spacing={2}>
-                          <Grid item xs={12} sm={6} md={4}>
-                            <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
-                              Serial Number
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
-                              {operation.serialNumber}
-                            </Typography>
-                          </Grid>
-                          <Grid item xs={12} sm={6} md={4}>
+                          <Grid item xs={6} sm={4}>
                             <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
                               Wood Type
                             </Typography>
                             <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
-                              {operation.woodType}
+                              {woodType}
                             </Typography>
                           </Grid>
-                          <Grid item xs={12} sm={6} md={4}>
+                          <Grid item xs={6} sm={4}>
                             <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
-                              Status
+                              Sleepers Sliced
                             </Typography>
-                            <Chip
-                              label={operation.status.toUpperCase()}
-                              size="small"
-                              sx={{
-                                mt: 0.5,
-                                backgroundColor: operation.status === 'completed' ? '#10b981' : operation.status === 'in_progress' ? '#f59e0b' : '#6b7280',
-                                color: '#fff',
-                                fontWeight: 700,
-                                fontSize: '0.7rem'
-                              }}
-                            />
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
+                              {totalSleepers} sleepers
+                            </Typography>
                           </Grid>
-                          {operation.wastePercentage != null && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
-                                Waste %
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '0.95rem' }}>
-                                {operation.wastePercentage.toFixed(2)}%
-                              </Typography>
-                            </Grid>
-                          )}
-                          {operation.startTime && (
-                            <Grid item xs={12} sm={6} md={4}>
-                              <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
-                                Started
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
-                                {new Date(operation.startTime).toLocaleString()}
-                              </Typography>
-                            </Grid>
-                          )}
-                          {operation.notes && (
-                            <Grid item xs={12}>
-                              <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
-                                Notes
-                              </Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 500, color: '#475569', fontSize: '0.9rem', fontStyle: 'italic' }}>
-                                {operation.notes}
-                              </Typography>
-                            </Grid>
-                          )}
+                          <Grid item xs={12} sm={4}>
+                            <Typography variant="caption" sx={{ color: '#64748b', textTransform: 'uppercase', fontWeight: 600, fontSize: '0.7rem' }}>
+                              Started
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: '#1a1a1a', fontSize: '0.95rem' }}>
+                              {startTime ? new Date(startTime).toLocaleString() : 'Not started'}
+                            </Typography>
+                          </Grid>
                         </Grid>
                       </Paper>
-                    ))}
-                  </Box>
-                ) : (
+
+                      {/* Volume Statistics */}
+                      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            flex: 1,
+                            minWidth: 200,
+                            p: 2.5,
+                            borderRadius: 2,
+                            backgroundColor: '#eff6ff',
+                            border: '2px solid #bfdbfe'
+                          }}
+                        >
+                          <Typography variant="caption" sx={{ color: '#1e40af', fontSize: '0.75rem', fontWeight: 600 }}>
+                            TOTAL SLEEPER VOLUME
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e40af', mt: 1 }}>
+                            {totalSleeperVolume.toFixed(3)} m³
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                            Input material
+                          </Typography>
+                        </Paper>
+
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            flex: 1,
+                            minWidth: 200,
+                            p: 2.5,
+                            borderRadius: 2,
+                            backgroundColor: '#f0fdf4',
+                            border: '2px solid #bbf7d0'
+                          }}
+                        >
+                          <Typography variant="caption" sx={{ color: '#15803d', fontSize: '0.75rem', fontWeight: 600 }}>
+                            TOTAL PLANK VOLUME
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#15803d', mt: 1 }}>
+                            {totalPlankVolume.toFixed(3)} m³
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                            {totalPlanks} planks produced
+                          </Typography>
+                        </Paper>
+
+                        <Paper
+                          elevation={0}
+                          sx={{
+                            flex: 1,
+                            minWidth: 200,
+                            p: 2.5,
+                            borderRadius: 2,
+                            backgroundColor: '#fef2f2',
+                            border: '2px solid #fecaca'
+                          }}
+                        >
+                          <Typography variant="caption" sx={{ color: '#dc2626', fontSize: '0.75rem', fontWeight: 600 }}>
+                            TOTAL WASTE
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626', mt: 1 }}>
+                            {wastePercentage.toFixed(2)}%
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                            {wasteVolume.toFixed(3)} m³ waste
+                          </Typography>
+                        </Paper>
+                      </Box>
+                    </Box>
+                  );
+                })() : (
                   <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
                     <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
                       No slicing operations recorded for this LOT yet
@@ -1375,24 +1449,6 @@ const WoodReceipt = () => {
                   </Paper>
                 )}
               </Box>
-
-              <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#64748b', mb: 1, fontSize: '1rem' }}>
-                  ☀️ Drying Process (Coming Soon)
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
-                  This stage will track the drying process and moisture levels
-                </Typography>
-              </Paper>
-
-              <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
-                <Typography variant="h6" sx={{ fontWeight: 700, color: '#64748b', mb: 1, fontSize: '1rem' }}>
-                  ✓ Quality Control (Coming Soon)
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
-                  This stage will track quality inspections and grading
-                </Typography>
-              </Paper>
             </Box>
           ) : null}
         </DialogContent>

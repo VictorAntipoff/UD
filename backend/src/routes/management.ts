@@ -1,7 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 async function managementRoutes(fastify: FastifyInstance) {
+  // SECURITY: Protect all management routes with authentication
+  fastify.addHook('onRequest', authenticateToken);
+
   // Get all wood receipts
   fastify.get('/wood-receipts', async (request, reply) => {
     try {

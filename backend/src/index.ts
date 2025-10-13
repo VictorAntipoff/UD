@@ -51,20 +51,26 @@ const setupServer = async () => {
         'http://localhost:3020',
         'http://localhost:5173',
         'http://localhost:5174',
-        process.env.FRONTEND_URL
+        process.env.FRONTEND_URL,
+        process.env.PRODUCTION_FRONTEND_URL // Add specific production URL
       ].filter(Boolean);
 
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return cb(null, true);
-
-      // In production, allow all Vercel and Railway origins
-      if (origin && (origin.includes('.vercel.app') || origin.includes('.railway.app'))) {
+      // SECURITY: In production, do NOT allow requests with no origin
+      // This prevents CSRF attacks
+      if (!origin) {
+        if (process.env.NODE_ENV === 'production') {
+          return cb(new Error('Origin required in production'), false);
+        }
+        // Allow in development for tools like Postman
         return cb(null, true);
       }
 
+      // SECURITY: Only allow SPECIFIC Vercel/Railway URLs, not all subdomains
+      // Specify your exact domain in .env as PRODUCTION_FRONTEND_URL
       if (allowedOrigins.includes(origin)) {
         cb(null, true);
       } else {
+        console.warn(`CORS blocked origin: ${origin}`);
         cb(new Error('Not allowed by CORS'), false);
       }
     },

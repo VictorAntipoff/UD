@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 interface WoodCalculationData {
   user_id: string;
@@ -16,6 +17,9 @@ interface WoodCalculationData {
 }
 
 async function factoryRoutes(fastify: FastifyInstance) {
+  // SECURITY: Protect all factory routes with authentication
+  fastify.addHook('onRequest', authenticateToken);
+
   // Get all calculations for a user
   fastify.get('/calculations', async (request, reply) => {
     try {

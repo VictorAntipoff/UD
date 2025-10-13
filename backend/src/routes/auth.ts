@@ -15,13 +15,12 @@ interface LoginBody {
 }
 
 async function authRoutes(fastify: FastifyInstance) {
-  // Debug logging
+  // Secure logging - only log non-sensitive data
   fastify.addHook('onRequest', async (request) => {
     console.log('Auth request:', {
       url: request.url,
-      method: request.method,
-      body: request.body,
-      headers: request.headers
+      method: request.method
+      // SECURITY: DO NOT log body or headers - contains passwords and tokens!
     });
   });
 
@@ -57,12 +56,20 @@ async function authRoutes(fastify: FastifyInstance) {
       }
 
       // Generate token
+      // SECURITY: Fail if JWT_SECRET is not configured
+      if (!process.env.JWT_SECRET) {
+        console.error('CRITICAL: JWT_SECRET environment variable is not set!');
+        return reply.status(500).send({
+          error: 'Server configuration error'
+        });
+      }
+
       const token = jwt.sign(
         {
           userId: user.id,
           role: user.role
         },
-        process.env.JWT_SECRET || 'your-super-secret-jwt-key',
+        process.env.JWT_SECRET,
         { expiresIn: '24h' }
       );
 

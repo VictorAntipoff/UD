@@ -1189,9 +1189,6 @@ const WoodSlicer = () => {
           }
         }
 
-        // Check if LOT already has operations
-        await checkLotForExistingOperations(lot);
-
         // Fetch sleeper measurements from draft
         await fetchSleeperMeasurements(lot);
 
@@ -1258,25 +1255,6 @@ const WoodSlicer = () => {
     } catch (error) {
       console.error('Error fetching used sleeper numbers:', error);
       setUsedSleeperNumbers(new Set());
-    }
-  };
-
-  // Check if LOT already has operations
-  const checkLotForExistingOperations = async (lotNumber: string) => {
-    try {
-      const response = await api.get(`/factory/operations/check-lot?lot_number=${lotNumber}`);
-      const data = response.data;
-
-      if (data.exists && data.operations.length > 0) {
-        setExistingOperations(data.operations);
-        setLotExistsMessage(`This LOT already has ${data.operations.length} operation(s). Click "Load Operation" to continue working on it.`);
-      } else {
-        setExistingOperations([]);
-        setLotExistsMessage(null);
-      }
-    } catch (error) {
-      console.error('Error checking LOT for existing operations:', error);
-      setLotExistsMessage(null);
     }
   };
 
@@ -1885,8 +1863,8 @@ const WoodSlicer = () => {
       >
         <Button
           onClick={() => {
-            const completedOperations = savedOperations.filter(op => op.status === 'completed');
-            generateCombinedReport(completedOperations);
+            const lotOperations = savedOperations.filter(op => op.lot_number === lotNumber);
+            generateCombinedReport(lotOperations);
           }}
           startIcon={<PrintIcon />}
           variant="contained"

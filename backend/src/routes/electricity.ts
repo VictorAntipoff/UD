@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 interface ElectricityRechargeBody {
   rechargeDate: string;
@@ -15,6 +16,9 @@ interface ElectricityRechargeBody {
 }
 
 async function electricityRoutes(fastify: FastifyInstance) {
+  // SECURITY: Protect all electricity routes with authentication
+  fastify.addHook('onRequest', authenticateToken);
+
   // Get all electricity recharges
   fastify.get('/recharges', async (request, reply) => {
     try {
