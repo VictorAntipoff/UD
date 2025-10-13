@@ -782,7 +782,6 @@ const ReceiptProcessing = () => {
   const [lotToDelete, setLotToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [measurementUnit, setMeasurementUnit] = useState<'imperial' | 'metric'>('imperial'); // imperial = inch/ft, metric = cm
-  const { enqueueSnackbar } = useSnackbar();
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
