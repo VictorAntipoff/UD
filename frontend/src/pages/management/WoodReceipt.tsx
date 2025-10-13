@@ -29,6 +29,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
+import LockIcon from '@mui/icons-material/Lock';
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
@@ -281,6 +282,30 @@ const WoodReceipt = () => {
     } catch (error: any) {
       console.error('Error reopening LOT:', error);
       enqueueSnackbar(error?.response?.data?.error || 'Failed to reopen LOT', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLockLot = async (receipt: WoodReceiptType) => {
+    if (!isAdmin) {
+      enqueueSnackbar('Only admins can lock LOTs', { variant: 'error' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Change status to COMPLETED to lock the LOT
+      await api.patch(`/management/wood-receipts/${receipt.id}`, {
+        status: 'COMPLETED'
+      });
+
+      enqueueSnackbar(`LOT ${receipt.lot_number} has been locked successfully`, { variant: 'success' });
+      await fetchReceipts();
+    } catch (error: any) {
+      console.error('Error locking LOT:', error);
+      enqueueSnackbar(error?.response?.data?.error || 'Failed to lock LOT', { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -597,6 +622,25 @@ const WoodReceipt = () => {
                         }}
                       >
                         <LockOpenIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                    {isAdmin && (receipt.status === 'PENDING' || receipt.status === 'PROCESSING') && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleLockLot(receipt)}
+                        sx={{
+                          backgroundColor: '#f59e0b',
+                          color: '#fff',
+                          ml: 1,
+                          width: 32,
+                          height: 32,
+                          '&:hover': {
+                            backgroundColor: '#d97706',
+                          },
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <LockIcon fontSize="small" />
                       </IconButton>
                     )}
                     {(receipt.status === 'CREATED' || receipt.status === 'PENDING') && (
