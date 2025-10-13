@@ -2,6 +2,10 @@
 // File: src/main.tsx
 // Description: Main entry point for the React application
 
+// Polyfill for @react-pdf/renderer
+import { Buffer } from 'buffer';
+window.Buffer = Buffer;
+
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
