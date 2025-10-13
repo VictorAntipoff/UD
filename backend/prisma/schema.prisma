@@ -12,20 +12,23 @@ datasource db {
 }
 
 model User {
-  id              String            @id @default(uuid())
-  email           String            @unique
-  password        String
-  firstName       String?
-  lastName        String?
-  role            String            @default("user")
-  isActive        Boolean           @default(true)
-  projects        Project[]         @relation("ProjectOwner")
-  factories       Factory[]
-  designs         Design[]          @relation("DesignCreator")
-  comments        Comment[]         @relation("CommentAuthor")
-  calculations    WoodCalculation[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                    String            @id @default(uuid())
+  email                 String            @unique
+  password              String
+  firstName             String?
+  lastName              String?
+  role                  String            @default("user")
+  isActive              Boolean           @default(true)
+  failedLoginAttempts   Int               @default(0)
+  accountLockedAt       DateTime?
+  lastFailedLoginAt     DateTime?
+  projects              Project[]         @relation("ProjectOwner")
+  factories             Factory[]
+  designs               Design[]          @relation("DesignCreator")
+  comments              Comment[]         @relation("CommentAuthor")
+  calculations          WoodCalculation[]
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
 
 }
 
