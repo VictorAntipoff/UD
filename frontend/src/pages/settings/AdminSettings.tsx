@@ -34,21 +34,29 @@ import EditIcon from '@mui/icons-material/Edit';
 import BlockIcon from '@mui/icons-material/Block';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import AddIcon from '@mui/icons-material/Add';
 import SecurityIcon from '@mui/icons-material/Security';
 import { useDevelopment } from '../../contexts/DevelopmentContext';
 import api from '../../lib/api';
+import { apiPost } from '../../utils/api';
 import { alpha, styled } from '@mui/material/styles';
 
 // Types
 interface User {
-  id: number;
-  username: string;
+  id: string;
+  username?: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
   role: string;
-  status: string;
+  status?: string;
+  isActive: boolean;
+  failedLoginAttempts?: number;
+  accountLockedAt?: string | null;
+  lastFailedLoginAt?: string | null;
 }
 
 interface Role {
@@ -528,6 +536,25 @@ export default function AdminSettings() {
     }));
   };
 
+  // SECURITY: Unlock user account
+  const handleUnlockUser = async (userId: string) => {
+    try {
+      const response = await apiPost(`/api/users/unlock/${userId}`, {});
+
+      if (response.ok) {
+        // Refresh users list
+        fetchUsers();
+        enqueueSnackbar('Account unlocked successfully', { variant: 'success' });
+      } else {
+        const error = await response.json();
+        enqueueSnackbar(error.message || 'Failed to unlock account', { variant: 'error' });
+      }
+    } catch (error) {
+      console.error('Error unlocking account:', error);
+      enqueueSnackbar('Failed to unlock account', { variant: 'error' });
+    }
+  };
+
   const getStatusColor = (status: string) => {
     return status === 'active'
       ? { bg: '#dcfce7', color: '#166534' }
@@ -812,6 +839,23 @@ export default function AdminSettings() {
                                       <LockResetIcon sx={{ fontSize: '1.25rem' }} />
                                     </IconButton>
                                   </Tooltip>
+                                  {user.accountLockedAt && (
+                                    <Tooltip title="Unlock Account">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleUnlockUser(user.id)}
+                                        sx={{
+                                          color: '#64748b',
+                                          '&:hover': {
+                                            backgroundColor: alpha('#16a34a', 0.08),
+                                            color: '#16a34a',
+                                          },
+                                        }}
+                                      >
+                                        <LockOpenIcon sx={{ fontSize: '1.25rem' }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  )}
                                   <Tooltip title="Delete User">
                                     <IconButton
                                       size="small"

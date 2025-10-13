@@ -31,8 +31,8 @@ async function authRoutes(fastify: FastifyInstance) {
 
       // Validate input
       if (!email || !password) {
-        return reply.status(400).send({ 
-          error: 'Email and password are required' 
+        return reply.status(400).send({
+          error: 'Email and password are required'
         });
       }
 
@@ -42,16 +42,57 @@ async function authRoutes(fastify: FastifyInstance) {
       });
 
       if (!user) {
-        return reply.status(401).send({ 
-          error: 'Invalid credentials' 
+        return reply.status(401).send({
+          error: 'Invalid credentials'
+        });
+      }
+
+      // SECURITY: Check if account is locked
+      if (user.accountLockedAt) {
+        return reply.status(403).send({
+          error: 'Account locked',
+          message: 'Your account has been locked due to too many failed login attempts. Please contact an administrator to unlock your account.'
         });
       }
 
       // Verify password
       const validPassword = await compare(password, user.password);
+
       if (!validPassword) {
-        return reply.status(401).send({ 
-          error: 'Invalid credentials' 
+        // SECURITY: Increment failed login attempts
+        const failedAttempts = user.failedLoginAttempts + 1;
+        const shouldLock = failedAttempts >= 5;
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            failedLoginAttempts: failedAttempts,
+            lastFailedLoginAt: new Date(),
+            accountLockedAt: shouldLock ? new Date() : null
+          }
+        });
+
+        if (shouldLock) {
+          return reply.status(403).send({
+            error: 'Account locked',
+            message: 'Your account has been locked due to too many failed login attempts. Please contact an administrator to unlock your account.'
+          });
+        }
+
+        return reply.status(401).send({
+          error: 'Invalid credentials',
+          message: `Invalid email or password. ${5 - failedAttempts} attempts remaining before account lockout.`
+        });
+      }
+
+      // SECURITY: Reset failed attempts on successful login
+      if (user.failedLoginAttempts > 0) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: {
+            failedLoginAttempts: 0,
+            lastFailedLoginAt: null
+          }
         });
       }
 
@@ -84,8 +125,8 @@ async function authRoutes(fastify: FastifyInstance) {
       };
     } catch (error) {
       console.error('Login error:', error);
-      return reply.status(500).send({ 
-        error: 'Internal server error' 
+      return reply.status(500).send({
+        error: 'Internal server error'
       });
     }
   });
