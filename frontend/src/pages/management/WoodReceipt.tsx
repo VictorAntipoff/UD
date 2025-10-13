@@ -559,7 +559,7 @@ const WoodReceipt = () => {
                   </TableCell>
                   <TableCell>
                     <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
-                      {receipt.total_volume_m3 || '0'}
+                      {receipt.total_volume_m3 ? parseFloat(receipt.total_volume_m3.toString()).toFixed(6) : '0'}
                     </Typography>
                   </TableCell>
                   <TableCell>
