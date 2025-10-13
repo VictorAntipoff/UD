@@ -3400,7 +3400,7 @@ const WoodSlicer = () => {
               top: 24,
             }}
           >
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+            <Box sx={{ mb: 3 }}>
               <Typography
                 variant="h6"
                 sx={{
@@ -3411,21 +3411,16 @@ const WoodSlicer = () => {
               >
                 Calculation Results
               </Typography>
-              <Button
-                variant="contained"
-                onClick={calculateWaste}
-                disabled={!selectedWoodType}
+              <Typography
+                variant="body2"
                 sx={{
-                  textTransform: 'none',
-                  bgcolor: '#dc2626',
-                  fontWeight: 600,
+                  color: '#64748b',
                   fontSize: '0.75rem',
-                  '&:hover': { bgcolor: '#b91c1c' },
-                  '&:disabled': { bgcolor: '#cbd5e1', color: '#94a3b8' }
+                  mt: 0.5
                 }}
               >
-                Calculate
-              </Button>
+                Updates automatically as you add planks
+              </Typography>
             </Box>
 
             <Stack spacing={2.5}>
