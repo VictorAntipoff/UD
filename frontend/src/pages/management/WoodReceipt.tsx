@@ -28,7 +28,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { useSnackbar } from 'notistack';
+import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
 import api from '../../lib/api';
 import type { WoodReceipt as WoodReceiptType } from '../../types/wood-receipt';
@@ -108,6 +110,8 @@ const textFieldSx = {
 };
 
 const WoodReceipt = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
   const { enqueueSnackbar } = useSnackbar();
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
   const [receipts, setReceipts] = useState<WoodReceiptType[]>([]);
@@ -256,6 +260,30 @@ const WoodReceipt = () => {
       total_pieces: receipt.total_pieces?.toString() || '',
     });
     setEditDialogOpen(true);
+  };
+
+  const handleReopenLot = async (receipt: WoodReceiptType) => {
+    if (!isAdmin) {
+      enqueueSnackbar('Only admins can reopen completed LOTs', { variant: 'error' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Change status back to PENDING so it can be processed again
+      await api.patch(`/management/wood-receipts/${receipt.id}`, {
+        status: 'PENDING'
+      });
+
+      enqueueSnackbar(`LOT ${receipt.lot_number} has been reopened successfully`, { variant: 'success' });
+      await fetchReceipts();
+    } catch (error: any) {
+      console.error('Error reopening LOT:', error);
+      enqueueSnackbar(error?.response?.data?.error || 'Failed to reopen LOT', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleUpdateReceipt = async () => {
@@ -552,6 +580,25 @@ const WoodReceipt = () => {
                     >
                       <EditIcon fontSize="small" />
                     </IconButton>
+                    {isAdmin && receipt.status === 'COMPLETED' && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleReopenLot(receipt)}
+                        sx={{
+                          backgroundColor: '#10b981',
+                          color: '#fff',
+                          ml: 1,
+                          width: 32,
+                          height: 32,
+                          '&:hover': {
+                            backgroundColor: '#059669',
+                          },
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <LockOpenIcon fontSize="small" />
+                      </IconButton>
+                    )}
                     {(receipt.status === 'CREATED' || receipt.status === 'PENDING') && (
                       <IconButton
                         size="small"
