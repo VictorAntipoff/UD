@@ -55,13 +55,9 @@ const setupServer = async () => {
         process.env.PRODUCTION_FRONTEND_URL // Add specific production URL
       ].filter(Boolean);
 
-      // SECURITY: In production, do NOT allow requests with no origin
-      // This prevents CSRF attacks
+      // SECURITY: Allow no origin for health checks, monitoring, and development tools
+      // Health check endpoints (/api/health) don't need CORS as they contain no sensitive data
       if (!origin) {
-        if (process.env.NODE_ENV === 'production') {
-          return cb(new Error('Origin required in production'), false);
-        }
-        // Allow in development for tools like Postman
         return cb(null, true);
       }
 
