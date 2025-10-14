@@ -67,8 +67,8 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const inchesToCm = (inches: number) => inches * 2.54;
 const feetToMeters = (feet: number) => feet * 0.3048;
-const cmToInches = (cm: number) => cm / 2.54;
-const metersToFeet = (m: number) => m / 0.3048;
+const cmToInches = (cm: number) => Math.round((cm / 2.54) * 100) / 100;
+const metersToFeet = (m: number) => Math.round((m / 0.3048) * 100) / 100;
 
 // Interfaces
 interface WoodType {
@@ -1387,71 +1387,91 @@ const WoodSlicer = () => {
     }
   };
 
-  const removePlankSize = (id: string) => {
-    setPlankSizes(plankSizes.filter(size => size.id !== id));
+  const removePlankSize = async (id: string) => {
+    const plankToRemove = plankSizes.find(p => p.id === id);
+    if (!plankToRemove) return;
+
+    // Check if this is the last plank for this sleeper
+    const planksForThisSleeper = plankSizes.filter(p => p.parentSequence === plankToRemove.parentSequence);
+
+    if (planksForThisSleeper.length === 1) {
+      // This is the last plank - delete the entire operation
+      if (operationId) {
+        try {
+          await api.delete(`/factory/operations/${operationId}`);
+
+          // Reset state
+          setOperationId(null);
+          setSelectedSleeperNumber(null);
+          setSleeperSizes([]);
+          setPlankSizes([]);
+          setStartTime(null);
+          setError(null);
+
+          // Refresh used sleeper numbers
+          if (lotNumber) {
+            await fetchUsedSleeperNumbers(lotNumber);
+          }
+        } catch (error: any) {
+          setError('Failed to delete operation: ' + (error.response?.data?.message || error.message));
+        }
+      } else {
+        // No operation saved yet, just clear the plank
+        setPlankSizes(plankSizes.filter(size => size.id !== id));
+      }
+    } else {
+      // Not the last plank, just remove it
+      setPlankSizes(plankSizes.filter(size => size.id !== id));
+    }
   };
 
   // Calculation functions
   const calculateSleeperVolume = () => {
-    // Calculate total volume for ALL sleepers in the LOT (from receipt measurements)
-    console.log('[calculateSleeperVolume] availableSleepers count:', availableSleepers.length);
-    const total = availableSleepers.reduce((sum, sleeper, index) => {
-      // Convert from receipt units (inches/feet) to SI units (meters)
-      const widthM = inchesToCm(sleeper.width || 0) / 100; // inches -> cm -> meters
-      const heightM = inchesToCm(sleeper.thickness || sleeper.height || 0) / 100; // inches -> cm -> meters
-      const lengthM = feetToMeters(sleeper.length || 0); // feet -> meters
+    const total = availableSleepers.reduce((sum, sleeper) => {
+      const widthM = inchesToCm(sleeper.width || 0) / 100;
+      const heightM = inchesToCm(sleeper.thickness || sleeper.height || 0) / 100;
+      const lengthM = feetToMeters(sleeper.length || 0);
       const volume = widthM * heightM * lengthM;
-      console.log(`[calculateSleeperVolume] Sleeper ${index + 1}: ${sleeper.width}×${sleeper.thickness}×${sleeper.length} = ${volume.toFixed(4)} m³`);
       return sum + volume;
     }, 0);
-    console.log('[calculateSleeperVolume] TOTAL:', total.toFixed(4), 'm³');
     return total;
   };
 
   const calculatePlankVolume = () => {
-    // Calculate total volume for ALL planks from ALL completed operations in this LOT
-    // PLUS planks currently being worked on (in plankSizes)
-    console.log('[calculatePlankVolume] START');
-    console.log('[calculatePlankVolume] lotOperations count:', lotOperations.length);
-    console.log('[calculatePlankVolume] current plankSizes count:', plankSizes.length);
     let total = 0;
 
     // Add planks from saved operations
-    lotOperations.forEach((op: SavedOperation, opIndex) => {
+    lotOperations.forEach((op: SavedOperation) => {
       if (op.plank_sizes && Array.isArray(op.plank_sizes)) {
-        console.log(`[calculatePlankVolume] Operation ${opIndex + 1} has ${op.plank_sizes.length} planks`);
-        op.plank_sizes.forEach((plank: any, plankIndex) => {
-          // Planks are stored in cm and inherit length from sleeper
-          const width = (plank.width || 0) / 100; // cm -> meters
-          const height = (plank.height || 0) / 100; // cm -> meters
-          const length = (plank.length || 0); // Already in meters
+        const opSleeper = op.sleeper_sizes && op.sleeper_sizes.length > 0 ? op.sleeper_sizes[0] : null;
+
+        op.plank_sizes.forEach((plank: any) => {
+          const width = (plank.width || 0) / 100;
+          const height = (plank.height || 0) / 100;
+          let length = plank.length || 0;
+          if (length === 0 && opSleeper) {
+            length = opSleeper.length || 0;
+          }
           const quantity = plank.quantity || 1;
           const volume = width * height * length * quantity;
-          console.log(`  Plank ${plankIndex + 1}: ${plank.width}×${plank.height}×${length} × ${quantity} = ${volume.toFixed(4)} m³`);
           total += volume;
         });
       }
     });
 
-    // Add planks currently being worked on (not yet saved)
-    console.log('[calculatePlankVolume] Processing current plankSizes...');
-    plankSizes.forEach((plank, index) => {
+    // Add planks currently being worked on
+    plankSizes.forEach((plank) => {
       const parentSleeper = sleeperSizes.find(s => s.sequence === plank.parentSequence);
-      if (!parentSleeper) {
-        console.log(`  Current plank ${index + 1}: NO PARENT SLEEPER FOUND (parentSequence: ${plank.parentSequence})`);
-        return;
-      }
+      if (!parentSleeper) return;
 
-      const width = (plank.width || 0) / 100; // cm -> meters
-      const height = (plank.height || 0) / 100; // cm -> meters
-      const length = parentSleeper.length; // meters
+      const width = (plank.width || 0) / 100;
+      const height = (plank.height || 0) / 100;
+      const length = parentSleeper.length;
       const quantity = plank.quantity || 1;
       const volume = width * height * length * quantity;
-      console.log(`  Current plank ${index + 1}: ${plank.width}×${plank.height}×${length} × ${quantity} = ${volume.toFixed(4)} m³`);
       total += volume;
     });
 
-    console.log('[calculatePlankVolume] TOTAL:', total.toFixed(4), 'm³');
     return total;
   };
 
@@ -1505,7 +1525,8 @@ const WoodSlicer = () => {
     const wasteVolume = sleeperVolume - plankVolume;
     const wastePercentage = (wasteVolume / sleeperVolume) * 100;
 
-    return Math.max(0, wastePercentage).toFixed(2);
+    // Round to 2 decimal places to avoid floating point display issues
+    return (Math.round(Math.max(0, wastePercentage) * 100) / 100).toFixed(2);
   };
 
   const calculateWaste = () => {
@@ -1549,6 +1570,14 @@ const WoodSlicer = () => {
 
         if (!serialNumber) {
           setSerialNumber(generateSerialNumber());
+        }
+
+        // Don't save if planks or sleepers have invalid dimensions
+        const hasInvalidPlanks = plankSizes.some(p => !p.width || !p.height || p.width === 0 || p.height === 0);
+        const hasInvalidSleepers = sleeperSizes.some(s => !s.length || s.length === 0);
+        if ((hasInvalidPlanks || hasInvalidSleepers) && isAutoSave) {
+          // Skip auto-save if dimensions are incomplete
+          return null;
         }
 
         const operationData = {
@@ -3179,27 +3208,25 @@ const WoodSlicer = () => {
                               </Box>
                             </Box>
 
-                            {plankSizes.filter(p => p.parentSequence === sleeper.sequence).length > 1 && (
-                              <IconButton
-                                onClick={() => removePlankSize(plank.id)}
-                                size="small"
-                                sx={{
-                                  position: 'absolute',
-                                  top: -10,
-                                  right: -10,
-                                  width: 28,
-                                  height: 28,
-                                  bgcolor: '#dc2626',
-                                  color: 'white',
-                                  '&:hover': {
-                                    bgcolor: '#b91c1c',
-                                  },
-                                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                                }}
-                              >
-                                <DeleteIcon sx={{ fontSize: '1rem' }} />
-                              </IconButton>
-                            )}
+                            <IconButton
+                              onClick={() => removePlankSize(plank.id)}
+                              size="small"
+                              sx={{
+                                position: 'absolute',
+                                top: -10,
+                                right: -10,
+                                width: 28,
+                                height: 28,
+                                bgcolor: '#dc2626',
+                                color: 'white',
+                                '&:hover': {
+                                  bgcolor: '#b91c1c',
+                                },
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                              }}
+                            >
+                              <DeleteIcon sx={{ fontSize: '1rem' }} />
+                            </IconButton>
                           </Box>
                       ))}
                     </Stack>
@@ -3485,7 +3512,7 @@ const WoodSlicer = () => {
                     fontSize: '1.5rem'
                   }}
                 >
-                  {calculateSleeperVolume().toFixed(3)} m³
+                  {(Math.round(calculateSleeperVolume() * 1000) / 1000).toFixed(3)} m³
                 </Typography>
               </Paper>
 
@@ -3518,7 +3545,7 @@ const WoodSlicer = () => {
                     fontSize: '1.5rem'
                   }}
                 >
-                  {calculatePlankVolume().toFixed(3)} m³
+                  {(Math.round(calculatePlankVolume() * 1000) / 1000).toFixed(3)} m³
                 </Typography>
               </Paper>
 
