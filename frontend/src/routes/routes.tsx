@@ -1,10 +1,10 @@
 import { RouteObject } from 'react-router-dom';
 import Dashboard from '../pages/dashboard/Dashboard';
-import { 
-  WoodCalculator, 
-  WoodSlicer, 
+import {
+  WoodCalculator,
+  WoodSlicer,
   DryingProcess,
-  ReceiptProcessing 
+  ReceiptProcessing
 } from '../pages/factory';
 import { UserSettings, AdminSettings } from '../pages/settings';
 import WoodTypeManagement from '../pages/management/WoodTypeManagement';
@@ -15,6 +15,9 @@ import Layout from '../components/Layout/Layout';
 import ApprovalsManagement from '../pages/management/ApprovalsManagement';
 import WoodReceipt from '../pages/management/WoodReceipt';
 import WoodDryingSettings from '../pages/management/WoodDryingSettings';
+import AssetList from '../pages/assets/AssetList';
+import AssetDetail from '../pages/assets/AssetDetail';
+import AssetForm from '../pages/assets/AssetForm';
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -85,6 +88,27 @@ export const routes: RouteObject[] = [
           {
             path: 'admin',
             element: <AdminSettings />
+          }
+        ]
+      },
+      {
+        path: 'assets',
+        children: [
+          {
+            index: true,
+            element: <AssetList />
+          },
+          {
+            path: 'new',
+            element: <AssetForm />
+          },
+          {
+            path: ':id',
+            element: <AssetDetail />
+          },
+          {
+            path: ':id/edit',
+            element: <AssetForm />
           }
         ]
       }

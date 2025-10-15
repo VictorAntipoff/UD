@@ -1,5 +1,8 @@
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 async function factoryRoutes(fastify) {
+    // SECURITY: Protect all factory routes with authentication
+    fastify.addHook('onRequest', authenticateToken);
     // Get all calculations for a user
     fastify.get('/calculations', async (request, reply) => {
         try {
@@ -248,6 +251,7 @@ async function factoryRoutes(fastify) {
                 serial_number: op.serialNumber,
                 wood_type_id: op.woodTypeId,
                 lot_number: op.lotNumber,
+                sleeper_number: op.sleeperNumber,
                 start_time: op.startTime?.toISOString() || null,
                 end_time: op.endTime?.toISOString() || null,
                 sleeper_sizes: op.sleeperSizes,
@@ -259,11 +263,42 @@ async function factoryRoutes(fastify) {
                 updated_at: op.updatedAt.toISOString(),
                 wood_type: op.woodType
             }));
+            console.log('GET /operations - Returning', transformedOperations.length, 'operations');
+            transformedOperations.forEach((op, index) => {
+                console.log(`  Operation ${index + 1} (${op.id}): Sleeper #${op.sleeper_number}, Planks:`, Array.isArray(op.plank_sizes) ? op.plank_sizes.length : 'not array');
+            });
             return transformedOperations;
         }
         catch (error) {
             console.error('Error fetching operations:', error);
             return reply.status(500).send({ error: 'Failed to fetch operations' });
+        }
+    });
+    // Check if LOT has existing operations
+    fastify.get('/operations/check-lot', async (request, reply) => {
+        try {
+            const { lot_number } = request.query;
+            if (!lot_number) {
+                return reply.status(400).send({ error: 'lot_number is required' });
+            }
+            const operations = await prisma.operation.findMany({
+                where: {
+                    lotNumber: lot_number,
+                    status: { not: 'completed' } // Only check for non-completed operations
+                }
+            });
+            return {
+                exists: operations.length > 0,
+                operations: operations.map(op => ({
+                    id: op.id,
+                    serial_number: op.serialNumber,
+                    status: op.status
+                }))
+            };
+        }
+        catch (error) {
+            console.error('Error checking LOT:', error);
+            return reply.status(500).send({ error: 'Failed to check LOT' });
         }
     });
     // Get a single operation by ID
@@ -285,6 +320,7 @@ async function factoryRoutes(fastify) {
                 serial_number: operation.serialNumber,
                 wood_type_id: operation.woodTypeId,
                 lot_number: operation.lotNumber,
+                sleeper_number: operation.sleeperNumber,
                 start_time: operation.startTime?.toISOString() || null,
                 end_time: operation.endTime?.toISOString() || null,
                 sleeper_sizes: operation.sleeperSizes,
@@ -296,6 +332,10 @@ async function factoryRoutes(fastify) {
                 updated_at: operation.updatedAt.toISOString(),
                 wood_type: operation.woodType
             };
+            console.log('GET /operations/:id - Returning operation:', operation.id);
+            console.log('Plank sizes type:', typeof operation.plankSizes, 'isArray:', Array.isArray(operation.plankSizes));
+            console.log('Plank sizes count:', Array.isArray(operation.plankSizes) ? operation.plankSizes.length : 'not an array');
+            console.log('Plank sizes data:', JSON.stringify(operation.plankSizes));
             return transformed;
         }
         catch (error) {
@@ -315,6 +355,7 @@ async function factoryRoutes(fastify) {
                     serialNumber: data.serial_number,
                     woodTypeId: data.wood_type_id,
                     lotNumber: data.lot_number,
+                    sleeperNumber: data.sleeper_number || null,
                     startTime: data.start_time ? new Date(data.start_time) : null,
                     endTime: data.end_time ? new Date(data.end_time) : null,
                     sleeperSizes: data.sleeper_sizes || [],
@@ -333,6 +374,7 @@ async function factoryRoutes(fastify) {
                 serial_number: operation.serialNumber,
                 wood_type_id: operation.woodTypeId,
                 lot_number: operation.lotNumber,
+                sleeper_number: operation.sleeperNumber,
                 start_time: operation.startTime?.toISOString() || null,
                 end_time: operation.endTime?.toISOString() || null,
                 sleeper_sizes: operation.sleeperSizes,
@@ -356,30 +398,101 @@ async function factoryRoutes(fastify) {
         try {
             const { id } = request.params;
             const data = request.body;
+            console.log('PATCH /operations/:id - Received data for operation:', id);
+            console.log('Plank sizes in request:', typeof data.plank_sizes, 'isArray:', Array.isArray(data.plank_sizes));
+            console.log('Plank sizes count:', Array.isArray(data.plank_sizes) ? data.plank_sizes.length : 'not an array');
+            console.log('Plank sizes data:', JSON.stringify(data.plank_sizes));
+            // Build update data object
+            const updateData = {
+                serialNumber: data.serial_number,
+                woodTypeId: data.wood_type_id,
+                lotNumber: data.lot_number,
+                startTime: data.start_time ? new Date(data.start_time) : null,
+                endTime: data.end_time ? new Date(data.end_time) : null,
+                sleeperSizes: data.sleeper_sizes,
+                plankSizes: data.plank_sizes,
+                status: data.status,
+                wastePercentage: data.waste_percentage || null,
+                notes: data.notes || null
+            };
+            // Only update sleeperNumber if it's provided in the request
+            if (data.sleeper_number !== undefined) {
+                updateData.sleeperNumber = data.sleeper_number;
+            }
             const operation = await prisma.operation.update({
                 where: { id },
-                data: {
-                    serialNumber: data.serial_number,
-                    woodTypeId: data.wood_type_id,
-                    lotNumber: data.lot_number,
-                    startTime: data.start_time ? new Date(data.start_time) : null,
-                    endTime: data.end_time ? new Date(data.end_time) : null,
-                    sleeperSizes: data.sleeper_sizes,
-                    plankSizes: data.plank_sizes,
-                    status: data.status,
-                    wastePercentage: data.waste_percentage || null,
-                    notes: data.notes || null
-                },
+                data: updateData,
                 include: {
                     woodType: true
                 }
             });
+            console.log('PATCH /operations/:id - After save, plank sizes:', typeof operation.plankSizes, 'count:', Array.isArray(operation.plankSizes) ? operation.plankSizes.length : 'not array');
+            // Check if all sleepers in the LOT have been sliced
+            if (data.auto_check_completion) {
+                // Get total sleepers from draft
+                const drafts = await prisma.receiptDraft.findMany({
+                    where: { receiptId: operation.lotNumber }
+                });
+                if (drafts.length > 0) {
+                    const measurements = drafts[0].measurements;
+                    const totalSleepers = Array.isArray(measurements) ? measurements.length : 0;
+                    // Count sliced sleepers for this LOT
+                    const slicedOperations = await prisma.operation.findMany({
+                        where: {
+                            lotNumber: operation.lotNumber,
+                            status: { in: ['draft', 'pending_approval', 'supervisor_approved', 'admin_approved', 'completed'] }
+                        }
+                    });
+                    const slicedSleeperNumbers = new Set(slicedOperations
+                        .filter(op => op.sleeperNumber !== null)
+                        .map(op => op.sleeperNumber));
+                    // If all sleepers are sliced, auto-submit for approval
+                    if (totalSleepers > 0 && slicedSleeperNumbers.size >= totalSleepers) {
+                        // Update all draft operations to pending_approval
+                        await prisma.operation.updateMany({
+                            where: {
+                                lotNumber: operation.lotNumber,
+                                status: 'draft'
+                            },
+                            data: {
+                                status: 'pending_approval'
+                            }
+                        });
+                        // Create supervisor approval request for each operation
+                        const draftOps = await prisma.operation.findMany({
+                            where: {
+                                lotNumber: operation.lotNumber,
+                                status: 'pending_approval'
+                            }
+                        });
+                        for (const op of draftOps) {
+                            // Check if approval already exists
+                            const existingApproval = await prisma.approval.findFirst({
+                                where: {
+                                    operationId: op.id,
+                                    approverRole: 'SUPERVISOR'
+                                }
+                            });
+                            if (!existingApproval) {
+                                await prisma.approval.create({
+                                    data: {
+                                        operationId: op.id,
+                                        approverRole: 'SUPERVISOR',
+                                        status: 'pending'
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             // Transform response
             const transformed = {
                 id: operation.id,
                 serial_number: operation.serialNumber,
                 wood_type_id: operation.woodTypeId,
                 lot_number: operation.lotNumber,
+                sleeper_number: operation.sleeperNumber,
                 start_time: operation.startTime?.toISOString() || null,
                 end_time: operation.endTime?.toISOString() || null,
                 sleeper_sizes: operation.sleeperSizes,
@@ -647,7 +760,8 @@ async function factoryRoutes(fastify) {
                     electricityMeter: data.electricityMeter,
                     humidity: data.humidity,
                     readingTime: data.readingTime ? new Date(data.readingTime) : new Date(),
-                    notes: data.notes || ''
+                    notes: data.notes || '',
+                    lukuSms: data.lukuSms || null
                 }
             });
             return reading;
@@ -667,7 +781,9 @@ async function factoryRoutes(fastify) {
                 data: {
                     ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
                     ...(data.humidity !== undefined && { humidity: data.humidity }),
-                    ...(data.notes !== undefined && { notes: data.notes })
+                    ...(data.readingTime !== undefined && { readingTime: new Date(data.readingTime) }),
+                    ...(data.notes !== undefined && { notes: data.notes }),
+                    ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms })
                 }
             });
             return reading;
@@ -832,6 +948,96 @@ async function factoryRoutes(fastify) {
         catch (error) {
             console.error('Error creating history entry:', error);
             return reply.status(500).send({ error: 'Failed to create history entry' });
+        }
+    });
+    // ============= APPROVAL WORKFLOW ENDPOINTS =============
+    // Get pending approvals for a specific role
+    fastify.get('/approvals/pending', async (request, reply) => {
+        try {
+            const { role } = request.query;
+            if (!role || (role !== 'SUPERVISOR' && role !== 'ADMIN')) {
+                return reply.status(400).send({ error: 'Valid role (SUPERVISOR or ADMIN) is required' });
+            }
+            const approvals = await prisma.approval.findMany({
+                where: {
+                    approverRole: role,
+                    status: 'pending'
+                },
+                include: {
+                    operation: {
+                        include: {
+                            woodType: true
+                        }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+            return approvals;
+        }
+        catch (error) {
+            console.error('Error fetching pending approvals:', error);
+            return reply.status(500).send({ error: 'Failed to fetch pending approvals' });
+        }
+    });
+    // Approve or reject an approval request
+    fastify.patch('/approvals/:id', async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const data = request.body;
+            if (!data.status || !data.approver_id || !data.approver_name) {
+                return reply.status(400).send({ error: 'status, approver_id, and approver_name are required' });
+            }
+            // Update the approval record
+            const approval = await prisma.approval.update({
+                where: { id },
+                data: {
+                    status: data.status,
+                    approverId: data.approver_id,
+                    approverName: data.approver_name,
+                    notes: data.notes || null,
+                    actionTakenAt: new Date()
+                },
+                include: {
+                    operation: true
+                }
+            });
+            // If approved by supervisor, create admin approval request
+            if (data.status === 'approved' && approval.approverRole === 'SUPERVISOR') {
+                await prisma.approval.create({
+                    data: {
+                        operationId: approval.operationId,
+                        approverRole: 'ADMIN',
+                        status: 'pending'
+                    }
+                });
+                // Update operation status to supervisor_approved
+                await prisma.operation.update({
+                    where: { id: approval.operationId },
+                    data: { status: 'supervisor_approved' }
+                });
+            }
+            // If approved by admin, mark operation as completed
+            if (data.status === 'approved' && approval.approverRole === 'ADMIN') {
+                await prisma.operation.update({
+                    where: { id: approval.operationId },
+                    data: {
+                        status: 'completed',
+                        endTime: new Date()
+                    }
+                });
+            }
+            // If rejected, update operation status back to draft
+            if (data.status === 'rejected') {
+                await prisma.operation.update({
+                    where: { id: approval.operationId },
+                    data: { status: 'draft' }
+                });
+            }
+            return approval;
+        }
+        catch (error) {
+            console.error('Error updating approval:', error);
+            return reply.status(500).send({ error: 'Failed to update approval' });
         }
     });
 }

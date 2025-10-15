@@ -40,15 +40,22 @@ const setupServer = async () => {
             const allowedOrigins = [
                 'http://localhost:3020',
                 'http://localhost:5173',
-                process.env.FRONTEND_URL
+                'http://localhost:5174',
+                process.env.FRONTEND_URL,
+                process.env.PRODUCTION_FRONTEND_URL // Add specific production URL
             ].filter(Boolean);
-            // Allow requests with no origin (like mobile apps or curl requests)
-            if (!origin)
+            // SECURITY: Allow no origin for health checks, monitoring, and development tools
+            // Health check endpoints (/api/health) don't need CORS as they contain no sensitive data
+            if (!origin) {
                 return cb(null, true);
+            }
+            // SECURITY: Only allow SPECIFIC Vercel/Railway URLs, not all subdomains
+            // Specify your exact domain in .env as PRODUCTION_FRONTEND_URL
             if (allowedOrigins.includes(origin)) {
                 cb(null, true);
             }
             else {
+                console.warn(`CORS blocked origin: ${origin}`);
                 cb(new Error('Not allowed by CORS'), false);
             }
         },
@@ -372,7 +379,7 @@ const startServer = async () => {
         await prismaClient.$connect();
         console.log('✅ Database connected');
         await setupServer();
-        await app.listen({ port: PORT });
+        await app.listen({ port: PORT, host: '0.0.0.0' });
         console.log(`🚀 Server running on port ${PORT}`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
     }

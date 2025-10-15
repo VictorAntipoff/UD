@@ -1248,8 +1248,7 @@ const WoodSlicer = () => {
         console.log('Operation:', op.serial_number, 'LOT:', op.lot_number, 'Sleeper#:', op.sleeper_number);
         if (op.lot_number === lotNumber) {
           lotOps.push(op); // Store all operations for this LOT
-          // Only mark as "used" if the operation has planks
-          if (op.sleeper_number && op.plank_sizes && op.plank_sizes.length > 0) {
+          if (op.sleeper_number) {
             console.log('Found operation for sleeper:', op.sleeper_number, 'Op ID:', op.id);
             usedNumbers.add(op.sleeper_number);
           }
@@ -1270,13 +1269,7 @@ const WoodSlicer = () => {
   // Handle sleeper selection
   const handleSleeperSelect = async (sleeper: any) => {
     const sleeperNumber = availableSleepers.indexOf(sleeper) + 1;
-
-    // Reset state first to prevent carrying over data from previous sleeper
-    setOperationId(null);
     setSelectedSleeperNumber(sleeperNumber);
-    setSleeperSizes([]);
-    setPlankSizes([]);
-    setOperationNotes('');
 
     console.log('Selected sleeper data:', sleeper);
 
@@ -1387,14 +1380,10 @@ const WoodSlicer = () => {
     // If no operation exists yet, create one now
     if (!operationId && selectedWoodType && lotNumber && selectedSleeperNumber) {
       console.log('Creating operation for first plank, sleeper number:', selectedSleeperNumber);
-      console.log('Current operationId:', operationId);
-      console.log('usedSleeperNumbers:', Array.from(usedSleeperNumbers));
       // Small delay to let state update
       setTimeout(() => {
         handleSave(false);
       }, 100);
-    } else if (operationId) {
-      console.log('Operation already exists, operationId:', operationId);
     }
   };
 
@@ -1583,17 +1572,6 @@ const WoodSlicer = () => {
           setSerialNumber(generateSerialNumber());
         }
 
-        // Don't save if there are no planks
-        if (plankSizes.length === 0) {
-          if (isAutoSave) {
-            // Skip auto-save if no planks added yet
-            return null;
-          } else {
-            // Show error for manual save
-            throw new Error('Cannot save operation without any planks. Please add at least one plank.');
-          }
-        }
-
         // Don't save if planks or sleepers have invalid dimensions
         const hasInvalidPlanks = plankSizes.some(p => !p.width || !p.height || p.width === 0 || p.height === 0);
         const hasInvalidSleepers = sleeperSizes.some(s => !s.length || s.length === 0);
@@ -1618,31 +1596,22 @@ const WoodSlicer = () => {
         };
 
         let savedOperation;
-
-        console.log('handleSave - operationId:', operationId);
-        console.log('handleSave - selectedSleeperNumber:', selectedSleeperNumber);
-        console.log('handleSave - lotNumber:', lotNumber);
-
         if (operationId) {
-          // Updating existing operation - no duplicate check needed
-          console.log('Updating existing operation:', operationId);
+          // Updating existing operation
           const response = await api.patch(`/factory/operations/${operationId}`, operationData);
           savedOperation = response.data;
           console.log('Saved operation response:', JSON.stringify(savedOperation, null, 2));
           console.log('Planks in saved response:', savedOperation.plank_sizes?.length, savedOperation.plank_sizes);
         } else {
           // Creating new operation - check for duplicates first
-          console.log('Creating new operation, checking for duplicates...');
           if (selectedSleeperNumber && lotNumber) {
             const checkResponse = await api.get('/factory/operations');
             const existingOps = checkResponse.data || [];
-            console.log('Existing operations:', existingOps.filter((op: any) => op.lot_number === lotNumber).map((op: any) => ({id: op.id, sleeper: op.sleeper_number})));
             const duplicate = existingOps.find(
               (op: any) => op.lot_number === lotNumber && op.sleeper_number === selectedSleeperNumber
             );
 
             if (duplicate) {
-              console.log('Found duplicate operation:', duplicate.id);
               throw new Error(`Sleeper #${selectedSleeperNumber} has already been sliced! Please select a different sleeper.`);
             }
           }
@@ -1921,14 +1890,14 @@ const WoodSlicer = () => {
         Slicing History for {lotNumber}
       </DialogTitle>
       <DialogContent sx={{ p: 0 }}>
-        {savedOperations.filter(op => op.lot_number === lotNumber && op.plank_sizes && op.plank_sizes.length > 0).length === 0 ? (
+        {savedOperations.filter(op => op.lot_number === lotNumber).length === 0 ? (
           <Box sx={{ p: 8, textAlign: 'center', color: '#94a3b8' }}>
             <Typography sx={{ fontSize: '0.875rem' }}>No slicing operations found for this LOT</Typography>
           </Box>
         ) : (
           <List sx={{ py: 0 }}>
             {savedOperations
-              .filter(op => op.lot_number === lotNumber && op.plank_sizes && op.plank_sizes.length > 0)
+              .filter(op => op.lot_number === lotNumber)
               .sort((a, b) => (a.sleeper_number || 0) - (b.sleeper_number || 0))
               .map((operation) => {
                 const { sleeperVolume } = calculateOperationVolumes(operation);
@@ -2164,10 +2133,10 @@ const WoodSlicer = () => {
               </Typography>
               <Stack spacing={0.5} sx={{ mt: 0.5 }}>
                 <Typography variant="body2" sx={{ fontSize: '0.75rem', color: '#334155' }}>
-                  Start: {selectedOperation.start_time ? format(new Date(selectedOperation.start_time), 'PPpp') : 'Not started'}
+                  Start: {format(new Date(selectedOperation.start_time || ''), 'PPpp')}
                 </Typography>
                 <Typography variant="body2" sx={{ fontSize: '0.75rem', color: '#334155' }}>
-                  End: {selectedOperation.updated_at ? format(new Date(selectedOperation.updated_at), 'PPpp') : 'N/A'}
+                  End: {format(new Date(selectedOperation.updated_at), 'PPpp')}
                 </Typography>
                 <Typography
                   variant="subtitle2"
@@ -2953,6 +2922,45 @@ const WoodSlicer = () => {
               >
                 Sleepers and Planks
               </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5 }}>
+                <Button
+                  startIcon={<AddIcon />}
+                  onClick={addSleeperSize}
+                  variant="outlined"
+                  size="small"
+                  sx={{
+                    textTransform: 'none',
+                    borderColor: '#e2e8f0',
+                    color: '#64748b',
+                    fontWeight: 600,
+                    '&:hover': {
+                      borderColor: '#dc2626',
+                      color: '#dc2626',
+                      bgcolor: alpha('#dc2626', 0.04)
+                    }
+                  }}
+                >
+                  Add Sleeper
+                </Button>
+                <Button
+                  onClick={() => setShowPasteDialog(true)}
+                  variant="outlined"
+                  size="small"
+                  sx={{
+                    textTransform: 'none',
+                    borderColor: '#e2e8f0',
+                    color: '#64748b',
+                    fontWeight: 600,
+                    '&:hover': {
+                      borderColor: '#dc2626',
+                      color: '#dc2626',
+                      bgcolor: alpha('#dc2626', 0.04)
+                    }
+                  }}
+                >
+                  Paste from Excel
+                </Button>
+              </Box>
             </Box>
 
             <Stack spacing={2.5}>
@@ -2969,13 +2977,13 @@ const WoodSlicer = () => {
                   }}
                 >
                   <Box sx={{ mb: 2.5 }}>
-                    {/* Responsive layout with square label and dimensions */}
-                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+                    {/* Single line layout with square label on left */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                       {/* Square Sleeper Number Label */}
                       <Box
                         sx={{
-                          width: { xs: 80, sm: 100 },
-                          height: { xs: 80, sm: 100 },
+                          width: 100,
+                          height: 100,
                           bgcolor: '#dc2626',
                           color: 'white',
                           borderRadius: 2,
@@ -2987,47 +2995,79 @@ const WoodSlicer = () => {
                           gap: 0.5
                         }}
                       >
-                        <Typography sx={{ fontWeight: 700, fontSize: { xs: '0.65rem', sm: '0.75rem' }, opacity: 0.9 }}>
+                        <Typography sx={{ fontWeight: 700, fontSize: '0.75rem', opacity: 0.9 }}>
                           Sleeper
                         </Typography>
-                        <Typography sx={{ fontWeight: 800, fontSize: { xs: '1.25rem', sm: '1.5rem' }, lineHeight: 1 }}>
+                        <Typography sx={{ fontWeight: 800, fontSize: '1.5rem', lineHeight: 1 }}>
                           #{selectedSleeperNumber || sleeper.sequence}
                         </Typography>
-                        <Typography sx={{ fontWeight: 600, fontSize: { xs: '0.6rem', sm: '0.65rem' }, opacity: 0.8 }}>
+                        <Typography sx={{ fontWeight: 600, fontSize: '0.65rem', opacity: 0.8 }}>
                           SL{String(selectedSleeperNumber || sleeper.sequence).padStart(3, '0')}
                         </Typography>
                       </Box>
 
-                      {/* Dimensions as styled text (not inputs) */}
-                      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}>
-                        <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600, fontSize: '0.75rem' }}>
-                          Dimensions
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                          <Box>
-                            <Typography sx={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, mb: 0.5 }}>
-                              HEIGHT
-                            </Typography>
-                            <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
-                              {cmToInches(sleeper.height || 0).toFixed(0)}" <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>({sleeper.height?.toFixed(1)}cm)</Typography>
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography sx={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, mb: 0.5 }}>
-                              WIDTH
-                            </Typography>
-                            <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
-                              {cmToInches(sleeper.width || 0).toFixed(0)}" <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>({sleeper.width?.toFixed(1)}cm)</Typography>
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography sx={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 600, mb: 0.5 }}>
-                              LENGTH
-                            </Typography>
-                            <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: '#1e293b' }}>
-                              {metersToFeet(sleeper.length || 0).toFixed(0)}' <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>({sleeper.length?.toFixed(2)}m)</Typography>
-                            </Typography>
-                          </Box>
+                      {/* Dimension Inputs in a row */}
+                      <Box sx={{ display: 'flex', gap: 1.5, flex: 1, flexWrap: 'nowrap', minWidth: 0 }}>
+                        <Box sx={{ flex: 1, minWidth: 120 }}>
+                          <DimensionInput
+                            label="Height"
+                            value={cmToInches(sleeper.height || 0)}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].height = inchesToCm(value);
+                              setSleeperSizes(newSizes);
+                            }}
+                            unit="in"
+                            convertedValue={sleeper.height?.toFixed(1)}
+                            disabled={true}
+                          />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 120 }}>
+                          <DimensionInput
+                            label="Width"
+                            value={cmToInches(sleeper.width || 0)}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].width = inchesToCm(value);
+                              setSleeperSizes(newSizes);
+                            }}
+                            unit="in"
+                            convertedValue={sleeper.width?.toFixed(1)}
+                            disabled={true}
+                          />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 140 }}>
+                          <DimensionInput
+                            label="Length"
+                            value={metersToFeet(sleeper.length || 0)}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].length = feetToMeters(value);
+                              setSleeperSizes(newSizes);
+
+                              const newPlankSizes = [...plankSizes];
+                              newPlankSizes.forEach(plank => {
+                                if (plank.parentSequence === sleeper.sequence) {
+                                  plank.length = feetToMeters(value);
+                                }
+                              });
+                              setPlankSizes(newPlankSizes);
+                            }}
+                            unit="feet"
+                            convertedValue={sleeper.length?.toFixed(2)}
+                            disabled={true}
+                          />
+                        </Box>
+                        <Box sx={{ flex: 0, minWidth: 100 }}>
+                          <QuantityInput
+                            value={sleeper.quantity}
+                            onChange={(value) => {
+                              const newSizes = [...sleeperSizes];
+                              newSizes[sleeperIndex].quantity = value;
+                              setSleeperSizes(newSizes);
+                            }}
+                            disabled={true}
+                          />
                         </Box>
                       </Box>
                     </Box>
@@ -3071,24 +3111,20 @@ const WoodSlicer = () => {
                           <Box
                             key={plank.id}
                             sx={{
-                              p: 2,
-                              borderRadius: 2,
-                              bgcolor: '#fafafa',
+                              p: 1.5,
+                              borderRadius: 1.5,
+                              bgcolor: 'white',
                               border: '1px solid #e2e8f0',
-                              position: 'relative',
-                              '&:hover': {
-                                bgcolor: 'white',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
-                              }
+                              position: 'relative'
                             }}
                           >
-                            {/* Responsive layout with square plank label on left */}
-                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+                            {/* Single line layout with square plank label on left */}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                               {/* Square Plank Number Label */}
                               <Box
                                 sx={{
-                                  width: { xs: 70, sm: 100 },
-                                  height: { xs: 70, sm: 100 },
+                                  width: 100,
+                                  height: 100,
                                   bgcolor: '#64748b',
                                   color: 'white',
                                   borderRadius: 2,
@@ -3100,26 +3136,20 @@ const WoodSlicer = () => {
                                   gap: 0.5
                                 }}
                               >
-                                <Typography sx={{ fontWeight: 700, fontSize: { xs: '0.65rem', sm: '0.75rem' }, opacity: 0.9 }}>
+                                <Typography sx={{ fontWeight: 700, fontSize: '0.75rem', opacity: 0.9 }}>
                                   Plank
                                 </Typography>
-                                <Typography sx={{ fontWeight: 800, fontSize: { xs: '1.1rem', sm: '1.25rem' }, lineHeight: 1 }}>
+                                <Typography sx={{ fontWeight: 800, fontSize: '1.25rem', lineHeight: 1 }}>
                                   #{plankSizes.filter(p => p.parentSequence === sleeper.sequence).indexOf(plank) + 1}
                                 </Typography>
-                                <Typography sx={{ fontWeight: 600, fontSize: { xs: '0.55rem', sm: '0.65rem' }, opacity: 0.8 }}>
+                                <Typography sx={{ fontWeight: 600, fontSize: '0.65rem', opacity: 0.8 }}>
                                   SL{String(selectedSleeperNumber || sleeper.sequence).padStart(3, '0')}-{String(plankSizes.filter(p => p.parentSequence === sleeper.sequence).indexOf(plank) + 1).padStart(2, '0')}
                                 </Typography>
                               </Box>
 
-                              {/* Dimension Inputs - 2x2 grid layout */}
-                              <Box sx={{ flex: 1, minWidth: 0 }}>
-                                {/* Row 1: Height and Width */}
-                                <Box sx={{
-                                  display: 'grid',
-                                  gridTemplateColumns: '1fr 1fr',
-                                  gap: 2,
-                                  mb: 2
-                                }}>
+                              {/* Dimension Inputs in a row */}
+                              <Box sx={{ display: 'flex', gap: 1.5, flex: 1, flexWrap: 'nowrap', minWidth: 0 }}>
+                                <Box sx={{ flex: 1, minWidth: 120 }}>
                                   <DimensionInput
                                     label="Height"
                                     value={cmToInches(plank.height || 0)}
@@ -3132,6 +3162,8 @@ const WoodSlicer = () => {
                                     unit="in"
                                     convertedValue={plank.height?.toFixed(1)}
                                   />
+                                </Box>
+                                <Box sx={{ flex: 1, minWidth: 120 }}>
                                   <DimensionInput
                                     label="Width"
                                     value={cmToInches(plank.width || 0)}
@@ -3145,12 +3177,7 @@ const WoodSlicer = () => {
                                     convertedValue={plank.width?.toFixed(1)}
                                   />
                                 </Box>
-                                {/* Row 2: Length and Quantity */}
-                                <Box sx={{
-                                  display: 'grid',
-                                  gridTemplateColumns: '1fr 1fr',
-                                  gap: 2
-                                }}>
+                                <Box sx={{ flex: 1, minWidth: 140 }}>
                                   <DimensionInput
                                     label="Length"
                                     value={metersToFeet(sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length || 0)}
@@ -3159,6 +3186,8 @@ const WoodSlicer = () => {
                                     convertedValue={sleeperSizes.find(s => s.sequence === plank.parentSequence)?.length?.toFixed(2) || '0.00'}
                                     disabled={true}
                                   />
+                                </Box>
+                                <Box sx={{ flex: 0, minWidth: 100 }}>
                                   <QuantityInput
                                     value={plank.quantity}
                                     onChange={(value) => {

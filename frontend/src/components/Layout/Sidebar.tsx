@@ -27,6 +27,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import DryIcon from '@mui/icons-material/Dry';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
+import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -49,6 +50,9 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   const [factoryOpen, setFactoryOpen] = useState(
     location.pathname.startsWith('/factory')
   );
+  const [assetsOpen, setAssetsOpen] = useState(
+    location.pathname.startsWith('/assets')
+  );
   const [settingsOpen, setSettingsOpen] = useState(
     location.pathname.startsWith('/settings')
   );
@@ -63,6 +67,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   ) => () => {
     // Close all menus first
     setFactoryOpen(false);
+    setAssetsOpen(false);
     setSettingsOpen(false);
     setManagementOpen(false);
 
@@ -215,6 +220,41 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
             </ListItemIcon>
             <ListItemText primary="Wood Calculator" />
           </ListItem>
+
+          {/* Assets Section */}
+          <ListItem button onClick={handleMenuClick(setAssetsOpen, assetsOpen)} sx={sectionHeaderStyles}>
+            <ListItemIcon sx={{
+              color: assetsOpen ? colors.primary : colors.grey.main,
+              transition: 'all 0.3s ease'
+            }}>
+              <BusinessCenterIcon />
+            </ListItemIcon>
+            <ListItemText primary="Assets" />
+            <Box sx={{
+              transition: 'transform 0.3s ease',
+              transform: assetsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+              display: 'flex',
+              alignItems: 'center'
+            }}>
+              <ExpandMore />
+            </Box>
+          </ListItem>
+
+          <Collapse in={assetsOpen} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              <ListItem
+                button
+                sx={submenuStyles}
+                onClick={() => handleNavigate('/assets')}
+                selected={location.pathname === '/assets'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/assets' ? colors.primary : colors.grey.main }}>
+                  <InventoryIcon />
+                </ListItemIcon>
+                <ListItemText primary="Items" />
+              </ListItem>
+            </List>
+          </Collapse>
 
           {/* Factory Section */}
           <ListItem button onClick={handleMenuClick(setFactoryOpen, factoryOpen)} sx={sectionHeaderStyles}>

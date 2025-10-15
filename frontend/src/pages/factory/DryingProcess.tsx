@@ -45,6 +45,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -147,6 +148,7 @@ export default function DryingProcess() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [readingDialogOpen, setReadingDialogOpen] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState<DryingProcess | null>(null);
+  const [expandedProcesses, setExpandedProcesses] = useState<string[]>([]);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
@@ -384,6 +386,14 @@ export default function DryingProcess() {
     setEditReadingDialogOpen(true);
   };
 
+  const toggleProcessExpanded = (processId: string) => {
+    setExpandedProcesses(prev =>
+      prev.includes(processId)
+        ? prev.filter(id => id !== processId)
+        : [...prev, processId]
+    );
+  };
+
   const handleCompleteProcess = async (process: DryingProcess) => {
     try {
       // Check if we have enough readings
@@ -597,6 +607,7 @@ export default function DryingProcess() {
     setEditDialogOpen(true);
   };
 
+
   const handleUpdateProcess = async () => {
     if (!selectedProcess) return;
 
@@ -715,7 +726,9 @@ export default function DryingProcess() {
 
             return (
               <Grid item xs={12} key={process.id}>
-                <Paper
+                <Accordion
+                  expanded={expandedProcesses.includes(process.id)}
+                  onChange={() => toggleProcessExpanded(process.id)}
                   elevation={0}
                   sx={{
                     borderRadius: 2,
@@ -725,12 +738,24 @@ export default function DryingProcess() {
                     '&:hover': {
                       boxShadow: '0 4px 12px rgba(220, 38, 38, 0.1)',
                       borderColor: '#dc2626',
+                    },
+                    '&:before': {
+                      display: 'none'
                     }
                   }}
                 >
                   {/* Process Header */}
-                  <Box sx={{ p: 3, borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <AccordionSummary
+                    expandIcon={<ExpandMoreIcon sx={{ color: '#dc2626' }} />}
+                    sx={{
+                      p: 2,
+                      backgroundColor: '#f8fafc',
+                      '&:hover': {
+                        backgroundColor: '#f1f5f9'
+                      }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', mr: 2 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Box
                           sx={{
@@ -760,52 +785,61 @@ export default function DryingProcess() {
                           {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
                         </Typography>
                       </Box>
-                      <Stack direction="row" spacing={1}>
-                        <Button
-                          size="small"
-                          startIcon={<AddIcon />}
-                          onClick={() => {
-                            setSelectedProcess(process);
-                            setReadingDialogOpen(true);
-                          }}
-                          sx={{
-                            color: '#dc2626',
-                            borderColor: '#dc2626',
-                            fontSize: '0.75rem',
-                            textTransform: 'none',
-                            '&:hover': {
-                              borderColor: '#b91c1c',
-                              backgroundColor: alpha('#dc2626', 0.04),
-                            }
-                          }}
-                          variant="outlined"
-                        >
-                          Add Reading
-                        </Button>
+                      <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
                         {process.status === 'IN_PROGRESS' && (
-                          <Button
-                            size="small"
-                            startIcon={<CheckCircleIcon />}
-                            onClick={() => handleCompleteProcess(process)}
-                            sx={{
-                              color: '#10b981',
-                              borderColor: '#10b981',
-                              fontSize: '0.75rem',
-                              textTransform: 'none',
-                              '&:hover': {
-                                borderColor: '#059669',
-                                backgroundColor: alpha('#10b981', 0.04),
-                              }
-                            }}
-                            variant="outlined"
-                          >
-                            Complete
-                          </Button>
+                          <>
+                            <Button
+                              size="small"
+                              startIcon={<AddIcon />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedProcess(process);
+                                setReadingDialogOpen(true);
+                              }}
+                              sx={{
+                                color: '#dc2626',
+                                borderColor: '#dc2626',
+                                fontSize: '0.75rem',
+                                textTransform: 'none',
+                                '&:hover': {
+                                  borderColor: '#b91c1c',
+                                  backgroundColor: alpha('#dc2626', 0.04),
+                                }
+                              }}
+                              variant="outlined"
+                            >
+                              Add Reading
+                            </Button>
+                            <Button
+                              size="small"
+                              startIcon={<CheckCircleIcon />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCompleteProcess(process);
+                              }}
+                              sx={{
+                                color: '#10b981',
+                                borderColor: '#10b981',
+                                fontSize: '0.75rem',
+                                textTransform: 'none',
+                                '&:hover': {
+                                  borderColor: '#059669',
+                                  backgroundColor: alpha('#10b981', 0.04),
+                                }
+                              }}
+                              variant="outlined"
+                            >
+                              Complete
+                            </Button>
+                          </>
                         )}
                         {isAdmin && (
                           <Button
                             size="small"
-                            onClick={() => openDetailsDialog(process)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDetailsDialog(process);
+                            }}
                             sx={{
                               color: '#3b82f6',
                               borderColor: '#3b82f6',
@@ -821,10 +855,13 @@ export default function DryingProcess() {
                             View Details
                           </Button>
                         )}
-                        {isAdmin && (
+                        {isAdmin && process.status !== 'COMPLETED' && (
                           <IconButton
                             size="small"
-                            onClick={() => openEditDialog(process)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditDialog(process);
+                            }}
                             sx={{
                               color: '#f59e0b',
                               '&:hover': {
@@ -836,21 +873,28 @@ export default function DryingProcess() {
                             <EditIcon fontSize="small" />
                           </IconButton>
                         )}
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeleteProcess(process.id)}
-                          sx={{
-                            color: '#ef4444',
-                            '&:hover': {
-                              backgroundColor: alpha('#ef4444', 0.1)
-                            }
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                        {process.status !== 'COMPLETED' && (
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteProcess(process.id);
+                            }}
+                            sx={{
+                              color: '#ef4444',
+                              '&:hover': {
+                                backgroundColor: alpha('#ef4444', 0.1)
+                              }
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </Stack>
                     </Box>
-                  </Box>
+                  </AccordionSummary>
+
+                  <AccordionDetails sx={{ p: 0 }}>
 
                   {/* Process Stats */}
                   <Box sx={{ p: 3 }}>
@@ -1434,7 +1478,8 @@ export default function DryingProcess() {
                       })()}
                     </Box>
                   )}
-                </Paper>
+                  </AccordionDetails>
+                </Accordion>
               </Grid>
             );
           })}
@@ -2248,7 +2293,44 @@ export default function DryingProcess() {
           )}
         </DialogContent>
         <Divider />
-        <DialogActions sx={{ p: 2.5 }}>
+        <DialogActions sx={{ p: 2.5, justifyContent: 'space-between' }}>
+          {selectedProcess && (
+            <Button
+              startIcon={<PictureAsPdfIcon />}
+              variant="contained"
+              onClick={async () => {
+                try {
+                  const response = await api.get(`/factory/drying-processes/${selectedProcess.id}/pdf`, {
+                    responseType: 'blob'
+                  });
+
+                  const blob = new Blob([response.data], { type: 'application/pdf' });
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `UD - Drying Details (${selectedProcess.batchNumber}).pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                } catch (error) {
+                  console.error('Error generating PDF:', error);
+                  alert(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+              }}
+              sx={{
+                backgroundColor: '#dc2626',
+                color: '#fff',
+                textTransform: 'none',
+                fontWeight: 600,
+                '&:hover': {
+                  backgroundColor: '#b91c1c',
+                },
+              }}
+            >
+              Generate PDF
+            </Button>
+          )}
           <Button
             onClick={() => setDetailsDialogOpen(false)}
             sx={{
