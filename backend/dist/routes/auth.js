@@ -6,13 +6,12 @@ import jwt from 'jsonwebtoken';
 import { compare } from 'bcrypt';
 const prisma = new PrismaClient();
 async function authRoutes(fastify) {
-    // Debug logging
+    // Secure logging - only log non-sensitive data
     fastify.addHook('onRequest', async (request) => {
         console.log('Auth request:', {
             url: request.url,
-            method: request.method,
-            body: request.body,
-            headers: request.headers
+            method: request.method
+            // SECURITY: DO NOT log body or headers - contains passwords and tokens!
         });
     });
     // Login route
@@ -34,18 +33,60 @@ async function authRoutes(fastify) {
                     error: 'Invalid credentials'
                 });
             }
+            // SECURITY: Check if account is locked
+            if (user.accountLockedAt) {
+                return reply.status(403).send({
+                    error: 'Account locked',
+                    message: 'Your account has been locked due to too many failed login attempts. Please contact an administrator to unlock your account.'
+                });
+            }
             // Verify password
             const validPassword = await compare(password, user.password);
             if (!validPassword) {
+                // SECURITY: Increment failed login attempts
+                const failedAttempts = user.failedLoginAttempts + 1;
+                const shouldLock = failedAttempts >= 5;
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: {
+                        failedLoginAttempts: failedAttempts,
+                        lastFailedLoginAt: new Date(),
+                        accountLockedAt: shouldLock ? new Date() : null
+                    }
+                });
+                if (shouldLock) {
+                    return reply.status(403).send({
+                        error: 'Account locked',
+                        message: 'Your account has been locked due to too many failed login attempts. Please contact an administrator to unlock your account.'
+                    });
+                }
                 return reply.status(401).send({
-                    error: 'Invalid credentials'
+                    error: 'Invalid credentials',
+                    message: `Invalid email or password. ${5 - failedAttempts} attempts remaining before account lockout.`
+                });
+            }
+            // SECURITY: Reset failed attempts on successful login
+            if (user.failedLoginAttempts > 0) {
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: {
+                        failedLoginAttempts: 0,
+                        lastFailedLoginAt: null
+                    }
                 });
             }
             // Generate token
+            // SECURITY: Fail if JWT_SECRET is not configured
+            if (!process.env.JWT_SECRET) {
+                console.error('CRITICAL: JWT_SECRET environment variable is not set!');
+                return reply.status(500).send({
+                    error: 'Server configuration error'
+                });
+            }
             const token = jwt.sign({
                 userId: user.id,
                 role: user.role
-            }, process.env.JWT_SECRET || 'your-super-secret-jwt-key', { expiresIn: '24h' });
+            }, process.env.JWT_SECRET, { expiresIn: '24h' });
             // Return success
             return {
                 token,

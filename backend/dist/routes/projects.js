@@ -1,6 +1,9 @@
 import { PrismaClient } from '@prisma/client';
+import { authenticateToken } from '../middleware/auth.js';
 const prisma = new PrismaClient();
 async function projectRoutes(fastify) {
+    // SECURITY: Protect all project routes with authentication
+    fastify.addHook('onRequest', authenticateToken);
     fastify.get('/', async (request, reply) => {
         try {
             const projects = await prisma.project.findMany();

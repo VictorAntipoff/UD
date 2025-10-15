@@ -1,17 +1,22 @@
-import { 
-  AppBar, 
-  Toolbar, 
-  Typography, 
-  IconButton, 
-  Box, 
-  Avatar, 
-  Menu, 
-  MenuItem, 
+import {
+  AppBar,
+  Toolbar,
+  Typography,
+  IconButton,
+  Box,
+  Avatar,
+  Menu,
+  MenuItem,
   Badge,
   Tooltip,
   Divider,
   ListItemIcon,
-  useTheme
+  useTheme,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar,
+  Chip
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
@@ -20,9 +25,14 @@ import ChatIcon from '@mui/icons-material/Chat';
 import PersonIcon from '@mui/icons-material/Person';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
-import { useState } from 'react';
+import AssignmentIcon from '@mui/icons-material/Assignment';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import ContentCutIcon from '@mui/icons-material/ContentCut';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
+import { formatDistanceToNow } from 'date-fns';
+import api from '../../lib/api';
 
 interface TopBarProps {
   onSidebarToggle: () => void;
@@ -39,9 +49,87 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
   const [notificationAnchor, setNotificationAnchor] = useState<null | HTMLElement>(null);
   const [chatAnchor, setChatAnchor] = useState<null | HTMLElement>(null);
 
-  // Notification and chat counts
-  const [notificationCount] = useState(3);
-  const [chatCount] = useState(2);
+  // Notifications and messages state
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [chatCount] = useState(0); // Messages feature placeholder
+
+  // Fetch notifications
+  useEffect(() => {
+    fetchNotifications();
+    // Poll for new notifications every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const receiptsRes = await api.get('/management/wood-receipts');
+
+      const receipts = receiptsRes.data || [];
+      const pendingReceipts = receipts.filter((r: any) =>
+        r.status === 'CREATED' || r.status === 'PENDING'
+      );
+      const receivedReceipts = receipts.filter((r: any) =>
+        r.status === 'RECEIVED' && !r.receiptConfirmedAt
+      );
+      const slicingReceipts = receipts.filter((r: any) =>
+        r.status === 'SLICING' || r.status === 'IN_PROCESS'
+      );
+
+      const notifs: any[] = [];
+
+      // Add approval notifications (wood receipts awaiting confirmation)
+      receivedReceipts.slice(0, 3).forEach((receipt: any) => {
+        notifs.push({
+          id: `approval-${receipt.id}`,
+          type: 'approval',
+          title: 'Awaiting Confirmation',
+          message: `${receipt.lotNumber} - ${receipt.supplier} received`,
+          timestamp: receipt.updatedAt,
+          icon: <AssignmentIcon fontSize="small" />,
+          color: '#f59e0b',
+          action: () => navigate('/management/wood-receipt')
+        });
+      });
+
+      // Add pending receipt notifications
+      pendingReceipts.slice(0, 3).forEach((receipt: any) => {
+        notifs.push({
+          id: `receipt-${receipt.id}`,
+          type: 'receipt',
+          title: 'Pending Delivery',
+          message: `${receipt.lotNumber} awaiting delivery`,
+          timestamp: receipt.createdAt,
+          icon: <LocalShippingIcon fontSize="small" />,
+          color: '#3b82f6',
+          action: () => navigate('/management/wood-receipt')
+        });
+      });
+
+      // Add slicing notifications
+      slicingReceipts.slice(0, 2).forEach((receipt: any) => {
+        notifs.push({
+          id: `slicing-${receipt.id}`,
+          type: 'slicing',
+          title: 'Slicing in Progress',
+          message: `${receipt.lotNumber} is being processed`,
+          timestamp: receipt.updatedAt,
+          icon: <ContentCutIcon fontSize="small" />,
+          color: '#8b5cf6',
+          action: () => navigate('/factory/wood-slicer')
+        });
+      });
+
+      // Sort by timestamp (most recent first)
+      notifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      setNotifications(notifs.slice(0, 8)); // Keep only latest 8
+      setNotificationCount(notifs.length);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  };
 
   const handleUserMenu = (event: React.MouseEvent<HTMLElement>) => {
     setUserMenuAnchor(event.currentTarget);
@@ -112,53 +200,55 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           {/* Notifications */}
           <Tooltip title="Notifications">
-            <IconButton 
+            <IconButton
               onClick={handleNotificationMenu}
-              sx={{ 
-                color: theme.palette.text.primary,
+              sx={{
                 '&:hover': {
                   backgroundColor: theme.palette.action.hover
                 }
               }}
             >
-              <Badge 
-                badgeContent={notificationCount} 
+              <Badge
+                badgeContent={notificationCount}
                 color="error"
                 sx={{
                   '& .MuiBadge-badge': {
-                    backgroundColor: theme.palette.error.main,
+                    backgroundColor: '#dc2626',
                     color: 'white'
                   }
                 }}
               >
-                <NotificationsIcon />
+                <NotificationsIcon sx={{ color: '#dc2626' }} />
               </Badge>
             </IconButton>
           </Tooltip>
 
           {/* Chat */}
           <Tooltip title="Messages">
-            <IconButton 
+            <IconButton
               onClick={handleChatMenu}
-              sx={{ 
-                color: theme.palette.text.primary,
+              sx={{
                 '&:hover': {
                   backgroundColor: theme.palette.action.hover
                 }
               }}
             >
-              <Badge 
-                badgeContent={chatCount} 
-                color="error"
-                sx={{
-                  '& .MuiBadge-badge': {
-                    backgroundColor: theme.palette.error.main,
-                    color: 'white'
-                  }
-                }}
-              >
-                <ChatIcon />
-              </Badge>
+              {chatCount > 0 ? (
+                <Badge
+                  badgeContent={chatCount}
+                  color="error"
+                  sx={{
+                    '& .MuiBadge-badge': {
+                      backgroundColor: '#dc2626',
+                      color: 'white'
+                    }
+                  }}
+                >
+                  <ChatIcon sx={{ color: '#dc2626' }} />
+                </Badge>
+              ) : (
+                <ChatIcon sx={{ color: '#dc2626' }} />
+              )}
             </IconButton>
           </Tooltip>
 
@@ -190,7 +280,7 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
           </Tooltip>
         </Box>
 
-        {/* Menus with updated styling */}
+        {/* Notifications Menu */}
         <Menu
           anchorEl={notificationAnchor}
           open={Boolean(notificationAnchor)}
@@ -203,25 +293,74 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
               mt: 1.5,
               border: '1px solid',
               borderColor: 'divider',
-              '& .MuiMenuItem-root': {
-                fontSize: '0.875rem',
-                color: theme.palette.text.primary
-              }
+              width: 380,
+              maxHeight: 480
             }
           }}
         >
-          <MenuItem onClick={handleCloseNotifications}>
-            New order received
-          </MenuItem>
-          <MenuItem onClick={handleCloseNotifications}>
-            System update available
-          </MenuItem>
-          <Divider />
-          <MenuItem onClick={handleCloseNotifications}>
-            View all notifications
-          </MenuItem>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+              Notifications
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              You have {notificationCount} notification{notificationCount !== 1 ? 's' : ''}
+            </Typography>
+          </Box>
+
+          {notifications.length === 0 ? (
+            <Box sx={{ px: 3, py: 4, textAlign: 'center' }}>
+              <NotificationsIcon sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                No notifications
+              </Typography>
+            </Box>
+          ) : (
+            <List sx={{ py: 0, maxHeight: 360, overflow: 'auto' }}>
+              {notifications.map((notification) => (
+                <ListItem
+                  key={notification.id}
+                  button
+                  onClick={() => {
+                    handleCloseNotifications();
+                    notification.action();
+                  }}
+                  sx={{
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    '&:hover': {
+                      backgroundColor: 'action.hover'
+                    }
+                  }}
+                >
+                  <ListItemAvatar>
+                    <Avatar sx={{ bgcolor: notification.color, width: 40, height: 40 }}>
+                      {notification.icon}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={
+                      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                        {notification.title}
+                      </Typography>
+                    }
+                    secondary={
+                      <Box>
+                        <Typography variant="body2" sx={{ fontSize: '0.8rem', color: 'text.secondary', mb: 0.5 }}>
+                          {notification.message}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem' }}>
+                          {formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
         </Menu>
 
+        {/* Messages Menu */}
         <Menu
           anchorEl={chatAnchor}
           open={Boolean(chatAnchor)}
@@ -234,23 +373,28 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
               mt: 1.5,
               border: '1px solid',
               borderColor: 'divider',
-              '& .MuiMenuItem-root': {
-                fontSize: '0.875rem',
-                color: theme.palette.text.primary
-              }
+              width: 380
             }
           }}
         >
-          <MenuItem onClick={handleCloseChat}>
-            Message from John
-          </MenuItem>
-          <MenuItem onClick={handleCloseChat}>
-            Message from Sarah
-          </MenuItem>
-          <Divider />
-          <MenuItem onClick={handleCloseChat}>
-            Open chat
-          </MenuItem>
+          <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+              Messages
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              No new messages
+            </Typography>
+          </Box>
+
+          <Box sx={{ px: 3, py: 4, textAlign: 'center' }}>
+            <ChatIcon sx={{ fontSize: 48, color: '#cbd5e1', mb: 1 }} />
+            <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
+              No messages yet
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.75rem' }}>
+              Internal messaging feature coming soon
+            </Typography>
+          </Box>
         </Menu>
 
         <Menu

@@ -7,6 +7,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import { useTheme } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,11 +18,13 @@ interface DashboardStats {
   totalLots: number;
   activeLots: number;
   pendingApprovals: number;
+  pendingReceipts: number;
   slicingInProgress: number;
   completedLots: number;
   woodTypes: number;
   totalVolume: number;
   recentLots: any[];
+  ongoingDrying: any[];
 }
 
 const Dashboard = () => {
@@ -32,11 +35,13 @@ const Dashboard = () => {
     totalLots: 0,
     activeLots: 0,
     pendingApprovals: 0,
+    pendingReceipts: 0,
     slicingInProgress: 0,
     completedLots: 0,
     woodTypes: 0,
     totalVolume: 0,
-    recentLots: []
+    recentLots: [],
+    ongoingDrying: []
   });
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -49,18 +54,24 @@ const Dashboard = () => {
       setLoading(true);
 
       // Fetch all necessary data
-      const [receiptsRes, woodTypesRes, approvalsRes] = await Promise.all([
+      const [receiptsRes, woodTypesRes, approvalsRes, dryingRes] = await Promise.all([
         api.get('/management/wood-receipts'),
         api.get('/factory/wood-types'),
-        api.get('/management/approvals/pending-count')
+        api.get('/management/approvals/pending-count'),
+        api.get('/factory/drying-processes')
       ]);
 
       const receipts = receiptsRes.data || [];
       const woodTypes = woodTypesRes.data || [];
+      const dryingProcesses = dryingRes.data || [];
 
       // Calculate statistics
       const activeLots = receipts.filter((r: any) =>
         r.status !== 'COMPLETED' && r.status !== 'CANCELLED'
+      ).length;
+
+      const pendingReceipts = receipts.filter((r: any) =>
+        r.status === 'CREATED' || r.status === 'PENDING'
       ).length;
 
       const slicingInProgress = receipts.filter((r: any) =>
@@ -80,15 +91,22 @@ const Dashboard = () => {
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 5);
 
+      // Filter ongoing drying processes
+      const ongoingDrying = dryingProcesses.filter((p: any) =>
+        p.status === 'IN_PROGRESS' || p.status === 'ACTIVE'
+      );
+
       setStats({
         totalLots: receipts.length,
         activeLots,
         pendingApprovals: approvalsRes.data.count || 0,
+        pendingReceipts,
         slicingInProgress,
         completedLots,
         woodTypes: woodTypes.length,
         totalVolume: Math.round(totalVolume * 100) / 100,
-        recentLots
+        recentLots,
+        ongoingDrying
       });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -108,6 +126,15 @@ const Dashboard = () => {
       gradient: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
     },
     {
+      icon: <LocalShippingIcon sx={{ fontSize: 40 }} />,
+      count: loading ? <CircularProgress size={24} /> : stats.pendingReceipts,
+      label: 'Pending Receipts',
+      color: '#3b82f6',
+      subtext: 'Awaiting Delivery',
+      path: '/management/wood-receipt',
+      gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+    },
+    {
       icon: <AssignmentTurnedInIcon sx={{ fontSize: 40 }} />,
       count: loading ? <CircularProgress size={24} /> : stats.pendingApprovals,
       label: 'Pending Approvals',
@@ -120,19 +147,10 @@ const Dashboard = () => {
       icon: <ContentCutIcon sx={{ fontSize: 40 }} />,
       count: loading ? <CircularProgress size={24} /> : stats.slicingInProgress,
       label: 'Slicing in Progress',
-      color: '#3b82f6',
+      color: '#8b5cf6',
       subtext: 'Currently Processing',
       path: '/factory/wood-slicer',
-      gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
-    },
-    {
-      icon: <TrendingUpIcon sx={{ fontSize: 40 }} />,
-      count: loading ? <CircularProgress size={24} /> : stats.completedLots,
-      label: 'Completed LOTs',
-      color: '#10b981',
-      subtext: 'Finished Processing',
-      path: '/management/wood-receipt',
-      gradient: 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+      gradient: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)'
     }
   ];
 
@@ -161,19 +179,19 @@ const Dashboard = () => {
   };
 
   return (
-    <Box sx={{ p: 3, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+    <Box sx={{ p: 2, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
+      <Box sx={{ mb: 2 }}>
         <Typography
           variant="h4"
           component="h1"
           sx={{
-            fontSize: '2rem',
+            fontSize: '1.5rem',
             fontWeight: 800,
             background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
-            mb: 1
+            mb: 0.5
           }}
         >
           {user?.firstName ? `Welcome back, ${user.firstName}!` : 'Dashboard'}
@@ -182,7 +200,7 @@ const Dashboard = () => {
           variant="body1"
           sx={{
             color: '#64748b',
-            fontSize: '1rem',
+            fontSize: '0.875rem',
             fontWeight: 500
           }}
         >
@@ -191,25 +209,25 @@ const Dashboard = () => {
       </Box>
 
       {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
         {statCards.map((card, index) => (
           <Grid item xs={12} sm={6} md={3} key={index}>
             <Paper
               elevation={0}
               onClick={() => navigate(card.path)}
               sx={{
-                p: 3,
+                p: 2,
                 height: '100%',
                 background: '#fff',
-                border: '2px solid #fee2e2',
-                borderRadius: 2,
+                border: '1px solid #fee2e2',
+                borderRadius: 1.5,
                 cursor: 'pointer',
-                transition: 'all 0.3s ease',
+                transition: 'all 0.2s ease',
                 position: 'relative',
                 overflow: 'hidden',
                 '&:hover': {
-                  transform: 'translateY(-8px)',
-                  boxShadow: '0 12px 24px rgba(0,0,0,0.1)',
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 8px 16px rgba(0,0,0,0.08)',
                   borderColor: card.color,
                   '&::before': {
                     transform: 'translateX(0)'
@@ -221,23 +239,24 @@ const Dashboard = () => {
                   top: 0,
                   left: 0,
                   right: 0,
-                  height: '4px',
+                  height: '3px',
                   background: card.gradient,
                   transform: 'translateX(-100%)',
-                  transition: 'transform 0.3s ease'
+                  transition: 'transform 0.2s ease'
                 }
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
                 <Box sx={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 2,
+                  width: 44,
+                  height: 44,
+                  borderRadius: 1.5,
                   background: `${card.color}15`,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: card.color
+                  color: card.color,
+                  '& svg': { fontSize: 28 }
                 }}>
                   {card.icon}
                 </Box>
@@ -247,7 +266,7 @@ const Dashboard = () => {
                 variant="h3"
                 sx={{
                   color: card.color,
-                  fontSize: '2.5rem',
+                  fontSize: '1.75rem',
                   fontWeight: 800,
                   mb: 0.5,
                   lineHeight: 1
@@ -282,35 +301,35 @@ const Dashboard = () => {
       </Grid>
 
       {/* Additional Info Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid item xs={12} md={6}>
           <Paper
             elevation={0}
             sx={{
-              p: 3,
+              p: 2,
               background: 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)',
-              border: '2px solid #fee2e2',
-              borderRadius: 2
+              border: '1px solid #fee2e2',
+              borderRadius: 1.5
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <Box sx={{
-                width: 48,
-                height: 48,
-                borderRadius: 2,
+                width: 40,
+                height: 40,
+                borderRadius: 1.5,
                 background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff'
               }}>
-                <LocalShippingIcon sx={{ fontSize: 28 }} />
+                <LocalShippingIcon sx={{ fontSize: 22 }} />
               </Box>
               <Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626' }}>
-                  {loading ? <CircularProgress size={20} /> : `${stats.totalVolume} CBM`}
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '1.25rem' }}>
+                  {loading ? <CircularProgress size={16} /> : `${parseFloat(stats.totalVolume).toFixed(3)} CBM`}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600, fontSize: '0.75rem' }}>
                   Total Wood Volume
                 </Typography>
               </Box>
@@ -322,30 +341,30 @@ const Dashboard = () => {
           <Paper
             elevation={0}
             sx={{
-              p: 3,
+              p: 2,
               background: 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)',
-              border: '2px solid #fee2e2',
-              borderRadius: 2
+              border: '1px solid #fee2e2',
+              borderRadius: 1.5
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <Box sx={{
-                width: 48,
-                height: 48,
-                borderRadius: 2,
+                width: 40,
+                height: 40,
+                borderRadius: 1.5,
                 background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff'
               }}>
-                <ForestIcon sx={{ fontSize: 28 }} />
+                <ForestIcon sx={{ fontSize: 22 }} />
               </Box>
               <Box>
-                <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626' }}>
-                  {loading ? <CircularProgress size={20} /> : stats.woodTypes}
+                <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '1.25rem' }}>
+                  {loading ? <CircularProgress size={16} /> : stats.woodTypes}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600, fontSize: '0.75rem' }}>
                   Wood Types Available
                 </Typography>
               </Box>
@@ -358,19 +377,19 @@ const Dashboard = () => {
       <Paper
         elevation={0}
         sx={{
-          p: 3,
+          p: 2,
           background: '#fff',
-          border: '2px solid #fee2e2',
-          borderRadius: 2
+          border: '1px solid #fee2e2',
+          borderRadius: 1.5
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <ReceiptLongIcon sx={{ color: '#dc2626', fontSize: 28 }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <ReceiptLongIcon sx={{ color: '#dc2626', fontSize: 24 }} />
             <Typography
               variant="h6"
               sx={{
-                fontSize: '1.25rem',
+                fontSize: '1rem',
                 fontWeight: 700,
                 color: '#1e293b'
               }}
@@ -382,7 +401,7 @@ const Dashboard = () => {
             onClick={() => navigate('/management/wood-receipt')}
             sx={{
               color: '#dc2626',
-              fontSize: '0.875rem',
+              fontSize: '0.75rem',
               fontWeight: 600,
               cursor: 'pointer',
               '&:hover': {
@@ -395,13 +414,13 @@ const Dashboard = () => {
         </Box>
 
         {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress sx={{ color: '#dc2626' }} />
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+            <CircularProgress sx={{ color: '#dc2626' }} size={24} />
           </Box>
         ) : stats.recentLots.length === 0 ? (
-          <Box sx={{ py: 4, textAlign: 'center' }}>
-            <WarningAmberIcon sx={{ fontSize: 48, color: '#cbd5e1', mb: 2 }} />
-            <Typography sx={{ color: '#64748b', fontWeight: 500 }}>
+          <Box sx={{ py: 3, textAlign: 'center' }}>
+            <WarningAmberIcon sx={{ fontSize: 40, color: '#cbd5e1', mb: 1.5 }} />
+            <Typography sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.875rem' }}>
               No LOTs found. Create your first LOT to get started!
             </Typography>
           </Box>
@@ -413,9 +432,9 @@ const Dashboard = () => {
                 elevation={0}
                 onClick={() => navigate('/management/wood-receipt')}
                 sx={{
-                  p: 2.5,
+                  p: 1.5,
                   border: '1px solid #e2e8f0',
-                  borderRadius: 1.5,
+                  borderRadius: 1,
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   '&:hover': {
@@ -461,7 +480,7 @@ const Dashboard = () => {
                       Volume
                     </Typography>
                     <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                      {lot.estimatedVolumeM3 || lot.actualVolumeM3 || 0} CBM
+                      {(lot.estimatedVolumeM3 || lot.actualVolumeM3 || 0).toFixed(3)} CBM
                     </Typography>
                   </Grid>
                   <Grid item xs={12} sm={2}>
@@ -470,6 +489,148 @@ const Dashboard = () => {
                       size="small"
                       sx={{
                         backgroundColor: getStatusColor(lot.status),
+                        color: '#fff',
+                        fontWeight: 700,
+                        fontSize: '0.75rem',
+                        height: 28
+                      }}
+                    />
+                  </Grid>
+                </Grid>
+              </Paper>
+            ))}
+          </Box>
+        )}
+      </Paper>
+
+      {/* Ongoing Drying Processes */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          mt: 2,
+          background: '#fff',
+          border: '1px solid #fee2e2',
+          borderRadius: 1.5
+        }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <LocalFireDepartmentIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+            <Typography
+              variant="h6"
+              sx={{
+                fontSize: '1rem',
+                fontWeight: 700,
+                color: '#1e293b'
+              }}
+            >
+              Ongoing Drying Processes
+            </Typography>
+          </Box>
+          <Typography
+            onClick={() => navigate('/factory/drying-process')}
+            sx={{
+              color: '#dc2626',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              '&:hover': {
+                textDecoration: 'underline'
+              }
+            }}
+          >
+            View All →
+          </Typography>
+        </Box>
+
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+            <CircularProgress sx={{ color: '#dc2626' }} size={24} />
+          </Box>
+        ) : stats.ongoingDrying.length === 0 ? (
+          <Box sx={{ py: 3, textAlign: 'center' }}>
+            <LocalFireDepartmentIcon sx={{ fontSize: 40, color: '#cbd5e1', mb: 1.5 }} />
+            <Typography sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.875rem' }}>
+              No ongoing drying processes. Start a new drying process!
+            </Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {stats.ongoingDrying.map((process: any) => (
+              <Paper
+                key={process.id}
+                elevation={0}
+                onClick={() => navigate('/factory/drying-process')}
+                sx={{
+                  p: 1.5,
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 1,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateX(4px)',
+                    borderColor: '#dc2626',
+                    boxShadow: '0 4px 12px rgba(220, 38, 38, 0.1)'
+                  }
+                }}
+              >
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} sm={3}>
+                    <Box sx={{
+                      display: 'inline-block',
+                      backgroundColor: '#dc2626',
+                      color: '#fff',
+                      px: 2,
+                      py: 0.75,
+                      borderRadius: 1,
+                      fontWeight: 700,
+                      fontSize: '0.875rem'
+                    }}>
+                      {process.batchNumber || 'N/A'}
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Wood Type
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {process.woodType?.name || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Pieces
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {process.pieceCount || 0} pcs
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Latest Humidity
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {process.readings && process.readings.length > 0
+                        ? `${process.readings[process.readings.length - 1].humidity}%`
+                        : 'No readings'
+                      }
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={1}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Readings
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {process.readings?.length || 0}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Chip
+                      label={process.status === 'IN_PROGRESS' ? 'In Progress' : 'Active'}
+                      size="small"
+                      sx={{
+                        backgroundColor: '#f59e0b',
                         color: '#fff',
                         fontWeight: 700,
                         fontSize: '0.75rem',

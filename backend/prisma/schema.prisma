@@ -309,3 +309,186 @@ model Approval {
   @@index([status])
   @@index([approverRole])
 }
+
+// ===== ASSET MANAGEMENT MODELS =====
+
+model AssetCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  assets      Asset[]
+
+  @@index([name])
+}
+
+model Asset {
+  id                    String    @id @default(uuid())
+  assetTag              String    @unique // Unique identifier/barcode
+  name                  String
+  description           String?
+  categoryId            String
+
+  // Basic Information
+  brand                 String?
+  modelNumber           String?
+  serialNumber          String?
+  location              String?   // Physical location or department
+  status                String    @default("ACTIVE") // ACTIVE, IN_MAINTENANCE, BROKEN, DISPOSED, RETIRED
+
+  // Purchase Information
+  purchaseDate          DateTime
+  purchasePrice         Float
+  supplier              String?
+  invoiceNumber         String?
+  invoiceDocument       String?   // File path/URL
+
+  // Warranty Information
+  warrantyStartDate     DateTime?
+  warrantyEndDate       DateTime?
+  warrantyTerms         String?
+
+  // Financial/Depreciation
+  depreciationMethod    String    @default("STRAIGHT_LINE") // STRAIGHT_LINE, DECLINING_BALANCE, CUSTOM, NONE
+  usefulLifeYears       Float?    // Useful life in years
+  usefulLifeMonths      Int?      // Useful life in months (calculated from years)
+  salvageValue          Float?    @default(0) // Residual value at end of useful life
+  depreciationPerMonth  Float?    // Auto-calculated monthly depreciation
+  accumulatedDepreciation Float?  @default(0) // Total depreciation to date
+  currentBookValue      Float?    // Current value (purchase price - accumulated depreciation)
+
+  // Technical Specifications (flexible JSON field)
+  technicalSpecs        Json?
+
+  // Assignment
+  assignedToUserId      String?
+  assignedToTeam        String?
+  assignedToProject     String?
+  assignmentDate        DateTime?
+
+  // Disposal Information
+  disposalDate          DateTime?
+  disposalMethod        String?   // SOLD, SCRAPPED, DONATED, etc.
+  disposalValue         Float?
+  disposalNotes         String?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  createdBy             String?
+  updatedBy             String?
+
+  // Relations
+  category              AssetCategory        @relation(fields: [categoryId], references: [id])
+  maintenanceRecords    AssetMaintenance[]
+  documents             AssetDocument[]
+  assignmentHistory     AssetAssignment[]
+  depreciationSchedule  DepreciationSchedule[]
+
+  @@index([assetTag])
+  @@index([categoryId])
+  @@index([status])
+  @@index([assignedToUserId])
+  @@index([purchaseDate])
+}
+
+model AssetMaintenance {
+  id                  String    @id @default(uuid())
+  assetId             String
+  maintenanceType     String    // ROUTINE, REPAIR, EMERGENCY, INSPECTION, CALIBRATION
+  scheduledDate       DateTime?
+  completedDate       DateTime?
+  nextDueDate         DateTime?
+
+  // Maintenance Details
+  description         String
+  performedBy         String?   // Company or person who performed maintenance
+  cost                Float?
+  laborHours          Float?
+  downtime            Float?    // Hours of downtime
+
+  // Parts & Materials
+  partsUsed           Json?     // Array of parts/materials used
+
+  status              String    @default("SCHEDULED") // SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED
+  notes               String?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  createdBy           String?
+
+  // Relations
+  asset               Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([scheduledDate])
+  @@index([nextDueDate])
+  @@index([status])
+}
+
+model AssetDocument {
+  id            String    @id @default(uuid())
+  assetId       String
+  documentType  String    // MANUAL, CERTIFICATE, PHOTO, VIDEO, CAD, INVOICE, WARRANTY, OTHER
+  title         String
+  description   String?
+  fileUrl       String    // Path/URL to the document
+  fileName      String
+  fileSize      Int?      // Size in bytes
+  mimeType      String?
+
+  uploadedAt    DateTime  @default(now())
+  uploadedBy    String?
+
+  // Relations
+  asset         Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([documentType])
+}
+
+model AssetAssignment {
+  id              String    @id @default(uuid())
+  assetId         String
+  assignedToUserId String?
+  assignedToTeam  String?
+  assignedToProject String?
+  assignedBy      String?
+
+  assignmentDate  DateTime  @default(now())
+  returnDate      DateTime?
+  notes           String?
+
+  createdAt       DateTime  @default(now())
+
+  // Relations
+  asset           Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([assignedToUserId])
+  @@index([assignmentDate])
+}
+
+model DepreciationSchedule {
+  id                    String    @id @default(uuid())
+  assetId               String
+  month                 Int       // Month number (1-N)
+  year                  Int
+  monthYear             String    // YYYY-MM format for easy querying
+
+  openingBookValue      Float
+  depreciationAmount    Float
+  accumulatedDepreciation Float
+  closingBookValue      Float
+
+  createdAt             DateTime  @default(now())
+
+  // Relations
+  asset                 Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, monthYear])
+  @@index([assetId])
+  @@index([monthYear])
+}

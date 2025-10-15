@@ -1,5 +1,8 @@
 import { prisma } from '../lib/prisma.js';
+import { authenticateToken } from '../middleware/auth.js';
 async function electricityRoutes(fastify) {
+    // SECURITY: Protect all electricity routes with authentication
+    fastify.addHook('onRequest', authenticateToken);
     // Get all electricity recharges
     fastify.get('/recharges', async (request, reply) => {
         try {
@@ -32,6 +35,72 @@ async function electricityRoutes(fastify) {
         catch (error) {
             console.error('Error calculating electricity statistics:', error);
             return reply.status(500).send({ error: 'Failed to calculate statistics' });
+        }
+    });
+    // Get current electricity balance
+    fastify.get('/balance', async (request, reply) => {
+        try {
+            // Calculate total kWh purchased from all recharges
+            const recharges = await prisma.electricityRecharge.findMany();
+            const totalPurchased = recharges.reduce((sum, r) => sum + r.kwhAmount, 0);
+            // Calculate total kWh used from all drying processes
+            const processes = await prisma.dryingProcess.findMany({
+                include: {
+                    readings: {
+                        orderBy: { readingTime: 'asc' }
+                    }
+                }
+            });
+            let totalUsed = 0;
+            for (const process of processes) {
+                if (process.readings.length > 0) {
+                    const readings = process.readings;
+                    // Calculate usage from consecutive readings
+                    for (let i = 1; i < readings.length; i++) {
+                        const prevReading = readings[i - 1].electricityMeter;
+                        const currReading = readings[i].electricityMeter;
+                        const diff = currReading - prevReading;
+                        // If meter went down, it's normal usage (prepaid meter counting down)
+                        // If meter went up significantly, it's a recharge - ignore it
+                        if (diff < 0) {
+                            // Normal usage: meter went down (e.g., 989 -> 726 = -263, so 263 kWh used)
+                            totalUsed += Math.abs(diff);
+                        }
+                        else if (diff > 100) {
+                            // Large positive jump = recharge happened, don't count it as usage
+                            continue;
+                        }
+                        else {
+                            // Small positive change might be usage on regular meter
+                            totalUsed += diff;
+                        }
+                    }
+                    // Also account for usage from starting point to first reading
+                    if (process.startingElectricityUnits && readings.length > 0) {
+                        const firstReading = readings[0].electricityMeter;
+                        const diff = firstReading - process.startingElectricityUnits;
+                        if (diff < 0) {
+                            totalUsed += Math.abs(diff);
+                        }
+                        else if (diff <= 100) {
+                            totalUsed += diff;
+                        }
+                    }
+                }
+            }
+            const balance = totalPurchased - totalUsed;
+            const percentageRemaining = totalPurchased > 0 ? (balance / totalPurchased) * 100 : 0;
+            return {
+                totalPurchased: Math.round(totalPurchased * 100) / 100,
+                totalUsed: Math.round(totalUsed * 100) / 100,
+                balance: Math.round(balance * 100) / 100,
+                percentageRemaining: Math.round(percentageRemaining * 100) / 100,
+                isLowBalance: balance < (totalPurchased * 0.2) // Less than 20% remaining
+            };
+        }
+        catch (error) {
+            console.error('Error calculating electricity balance:', error);
+            return reply.status(500).send({ error: 'Failed to calculate electricity balance' });
         }
     });
     // Create a new electricity recharge
