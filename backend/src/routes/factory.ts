@@ -946,27 +946,44 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const depreciationCost = runningHours * DEPRECIATION_PER_HOUR;
       const totalCost = electricityCost + depreciationCost;
 
-      // Create PDF
-      const doc = new PDFDocument({ margin: 50 });
-      const chunks: Buffer[] = [];
+      // Create PDF with Promise-based approach
+      const generatePDF = () => {
+        return new Promise<Buffer>((resolve, reject) => {
+          const doc = new PDFDocument({
+            margin: 50,
+            bufferPages: true,
+            autoFirstPage: true
+          });
+          const chunks: Buffer[] = [];
 
-      doc.on('data', (chunk) => chunks.push(chunk));
-      doc.on('end', () => {
-        try {
-          const pdfBuffer = Buffer.concat(chunks);
-          console.log(`[PDF] Generated PDF for ${process.batchNumber}: ${pdfBuffer.length} bytes`);
-          reply.type('application/pdf');
-          reply.header('Content-Disposition', `attachment; filename="UD - Drying Details (${process.batchNumber}).pdf"`);
-          reply.send(pdfBuffer);
-        } catch (error) {
-          console.error('[PDF] Error in end handler:', error);
-          reply.status(500).send({ error: 'Failed to generate PDF buffer' });
-        }
-      });
-      doc.on('error', (error) => {
-        console.error('[PDF] PDFKit error:', error);
-        reply.status(500).send({ error: 'PDF generation failed' });
-      });
+          doc.on('data', (chunk) => {
+            chunks.push(chunk);
+            console.log(`[PDF] Received chunk: ${chunk.length} bytes, total chunks: ${chunks.length}`);
+          });
+
+          doc.on('end', () => {
+            try {
+              const pdfBuffer = Buffer.concat(chunks);
+              console.log(`[PDF] Document ended. Generated PDF: ${pdfBuffer.length} bytes from ${chunks.length} chunks`);
+
+              if (pdfBuffer.length === 0) {
+                console.error('[PDF] ERROR: PDF buffer is empty!');
+                reject(new Error('Generated PDF is empty'));
+              } else {
+                resolve(pdfBuffer);
+              }
+            } catch (error) {
+              console.error('[PDF] Error in end handler:', error);
+              reject(error);
+            }
+          });
+
+          doc.on('error', (error) => {
+            console.error('[PDF] PDFKit error:', error);
+            reject(error);
+          });
+
+          try {
 
       // ===== PAGE 1: Summary Information =====
 
@@ -1155,13 +1172,28 @@ async function factoryRoutes(fastify: FastifyInstance) {
         doc.fontSize(10).fillColor('#94a3b8').text('No readings recorded yet.');
       }
 
-      // Page number at bottom of page 2
-      doc.fontSize(8).fillColor('#94a3b8');
-      doc.text('Page 2 of 2', 50, doc.page.height - 50, { align: 'right' });
+            // Page number at bottom of page 2
+            doc.fontSize(8).fillColor('#94a3b8');
+            doc.text('Page 2 of 2', 50, doc.page.height - 50, { align: 'right' });
 
-      doc.end();
+            console.log('[PDF] Calling doc.end()');
+            doc.end();
+          } catch (error) {
+            console.error('[PDF] Error building PDF content:', error);
+            reject(error);
+          }
+        });
+      };
+
+      // Generate PDF and send response
+      const pdfBuffer = await generatePDF();
+
+      console.log(`[PDF] Sending PDF for ${process.batchNumber}: ${pdfBuffer.length} bytes`);
+      reply.type('application/pdf');
+      reply.header('Content-Disposition', `attachment; filename="UD - Drying Details (${process.batchNumber}).pdf"`);
+      return reply.send(pdfBuffer);
     } catch (error) {
-      console.error('Error generating PDF:', error);
+      console.error('[PDF] Error generating PDF:', error);
       return reply.status(500).send({ error: 'Failed to generate PDF' });
     }
   });
