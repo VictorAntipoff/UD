@@ -50,281 +50,162 @@ interface DryingProcessReportProps {
 
 const styles = StyleSheet.create({
   page: {
-    padding: '18px 28px 30px 28px',
-    fontSize: 6,
+    padding: '40 60',
     fontFamily: 'Helvetica',
-    color: '#2c3e50',
+    fontSize: 10,
+    color: '#2c3e50'
   },
-  // Compact header with horizontal layout
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 5,
-    paddingBottom: 4,
-    borderBottomWidth: 2,
-    borderBottomColor: '#dc2626',
-    borderBottomStyle: 'solid',
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+    marginBottom: 20,
+    borderBottom: 1,
+    borderColor: '#e2e8f0',
+    paddingBottom: 15
   },
   logo: {
-    width: 38,
-    height: 38,
-  },
-  headerText: {
-    flexDirection: 'column',
+    width: 120,
+    marginBottom: 10
   },
   title: {
-    fontSize: 10,
+    fontSize: 20,
     fontFamily: 'Helvetica-Bold',
-    color: '#dc2626',
-    marginBottom: 1,
+    marginBottom: 5,
+    color: '#dc2626'
   },
   subtitle: {
-    fontSize: 5,
+    fontSize: 10,
     color: '#64748b',
-  },
-  headerRight: {
-    alignItems: 'flex-end',
-  },
-  batchNumber: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-    color: '#dc2626',
-    backgroundColor: '#fee2e2',
-    padding: '2px 5px',
-    borderRadius: 2,
-    marginBottom: 1.5,
+    marginBottom: 15
   },
   metadata: {
-    fontSize: 4.5,
-    color: '#94a3b8',
-    textAlign: 'right',
-  },
-  // Two-column layout for process info
-  infoSection: {
     flexDirection: 'row',
-    gap: 5,
-    marginBottom: 5,
-    marginTop: 3,
+    justifyContent: 'space-between',
+    fontSize: 9,
+    color: '#64748b'
   },
-  infoBox: {
-    flex: 1,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderStyle: 'solid',
-    borderRadius: 2,
-    padding: 4,
+  section: {
+    marginBottom: 15
   },
-  infoBoxTitle: {
-    fontSize: 6,
+  sectionTitle: {
+    fontSize: 12,
     fontFamily: 'Helvetica-Bold',
     color: '#dc2626',
-    marginBottom: 2,
-    paddingBottom: 1.5,
-    borderBottomWidth: 1,
-    borderBottomColor: '#fee2e2',
-    borderBottomStyle: 'solid',
+    marginBottom: 8,
+    backgroundColor: '#f8fafc',
+    padding: '6 8',
+    borderRadius: 4
   },
-  infoRow: {
+  row: {
     flexDirection: 'row',
-    marginBottom: 1.2,
+    marginBottom: 4,
+    fontSize: 10
   },
-  infoLabel: {
-    width: '50%',
-    fontSize: 5,
-    color: '#64748b',
+  label: {
+    width: '30%',
+    color: '#64748b'
   },
-  infoValue: {
-    width: '50%',
-    fontSize: 5,
-    color: '#2c3e50',
-    fontFamily: 'Helvetica-Bold',
+  value: {
+    width: '70%',
+    color: '#2c3e50'
   },
-  // Statistics in 4 columns
   statsGrid: {
     flexDirection: 'row',
-    gap: 3,
-    marginBottom: 5,
+    gap: 10,
+    marginBottom: 15,
   },
   statBox: {
     flex: 1,
+    backgroundColor: '#f8fafc',
     borderWidth: 1,
-    borderColor: '#dc2626',
+    borderColor: '#e2e8f0',
     borderStyle: 'solid',
-    borderRadius: 2,
-    padding: 3,
-    backgroundColor: '#fff5f5',
+    borderRadius: 4,
+    padding: 10,
     alignItems: 'center',
   },
   statLabel: {
-    fontSize: 4.5,
+    fontSize: 9,
     color: '#64748b',
-    marginBottom: 0.5,
-    textAlign: 'center',
+    marginBottom: 3,
   },
   statValue: {
-    fontSize: 7,
+    fontSize: 14,
     fontFamily: 'Helvetica-Bold',
     color: '#dc2626',
-    textAlign: 'center',
   },
-  statUnit: {
-    fontSize: 4,
-    color: '#94a3b8',
-    textAlign: 'center',
-  },
-  // Cost section
-  costSection: {
+  result: {
+    marginTop: 15,
+    padding: 10,
     backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderStyle: 'solid',
-    borderRadius: 2,
-    padding: 4,
-    marginBottom: 5,
+    borderRadius: 4,
+    borderLeft: 2,
+    borderLeftColor: '#dc2626'
   },
-  costTitle: {
-    fontSize: 6,
+  resultText: {
     fontFamily: 'Helvetica-Bold',
-    color: '#dc2626',
-    marginBottom: 2,
-  },
-  costRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 1.2,
-  },
-  costLabel: {
-    fontSize: 5,
-    color: '#64748b',
-  },
-  costValue: {
-    fontSize: 5,
     color: '#2c3e50',
-    fontFamily: 'Helvetica-Bold',
+    fontSize: 12
   },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 2,
-    borderTopWidth: 1,
-    borderTopColor: '#dc2626',
-    borderTopStyle: 'solid',
-    marginTop: 1.5,
-  },
-  totalLabel: {
-    fontSize: 6,
-    fontFamily: 'Helvetica-Bold',
-    color: '#dc2626',
-  },
-  totalValue: {
-    fontSize: 7,
-    fontFamily: 'Helvetica-Bold',
-    color: '#dc2626',
-  },
-  // Compact section title
-  sectionTitle: {
-    fontSize: 7,
-    fontFamily: 'Helvetica-Bold',
-    backgroundColor: '#dc2626',
-    color: '#ffffff',
-    padding: '2px 3px',
-    marginBottom: 3,
-    marginTop: 2,
-  },
-  // Chart section
-  chartSection: {
-    marginTop: 3,
-    marginBottom: 5,
-  },
-  chartContainer: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderStyle: 'solid',
-    borderRadius: 2,
-    padding: 5,
-    backgroundColor: '#ffffff',
-  },
-  // Compact table
   table: {
-    marginTop: 3,
+    marginTop: 10
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#dc2626',
-    color: '#ffffff',
-    padding: 2.5,
+    backgroundColor: '#f8fafc',
+    borderBottomColor: '#e2e8f0',
+    borderBottomWidth: 1,
+    padding: '8 6',
+    fontSize: 9,
     fontFamily: 'Helvetica-Bold',
-    fontSize: 5,
+    color: '#64748b'
   },
   tableRow: {
     flexDirection: 'row',
-    padding: 1.5,
-    borderBottomWidth: 0.5,
     borderBottomColor: '#e2e8f0',
-    borderBottomStyle: 'solid',
-    fontSize: 5,
+    borderBottomWidth: 1,
+    padding: '8 6'
   },
-  tableRowAlt: {
+  tableCell: {
+    flex: 1
+  },
+  notes: {
+    marginTop: 15,
+    padding: 10,
     backgroundColor: '#f8fafc',
-  },
-  col1: {
-    width: '28%',
-  },
-  col2: {
-    width: '18%',
-  },
-  col3: {
-    width: '18%',
-  },
-  col4: {
-    width: '36%',
-  },
-  notesSection: {
-    backgroundColor: '#fffbeb',
-    borderWidth: 1,
-    borderColor: '#fef3c7',
-    borderStyle: 'solid',
-    borderRadius: 2,
-    padding: 4,
-    marginBottom: 5,
-    marginTop: 3,
-  },
-  notesTitle: {
-    fontSize: 6,
-    fontFamily: 'Helvetica-Bold',
-    color: '#92400e',
-    marginBottom: 1.5,
-  },
-  notesText: {
-    fontSize: 5,
-    color: '#78350f',
-    lineHeight: 1.3,
-  },
-  pageNumber: {
-    position: 'absolute',
-    bottom: 10,
-    right: 28,
-    fontSize: 5,
-    color: '#94a3b8',
+    borderRadius: 4
   },
   footer: {
     position: 'absolute',
-    bottom: 10,
-    left: 28,
+    bottom: 40,
+    left: 60,
     right: 60,
-    fontSize: 5,
+    textAlign: 'center',
     color: '#94a3b8',
+    fontSize: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0'
   },
   vixText: {
-    color: '#dc2626',
-    fontFamily: 'Helvetica-Bold',
+    color: '#dc2626'
+  },
+  pageNumber: {
+    position: 'absolute',
+    bottom: 20,
+    right: 60,
+    fontSize: 8,
+    color: '#94a3b8',
+  },
+  col1: {
+    width: '30%',
+  },
+  col2: {
+    width: '20%',
+  },
+  col3: {
+    width: '20%',
+  },
+  col4: {
+    width: '30%',
   },
 });
 
