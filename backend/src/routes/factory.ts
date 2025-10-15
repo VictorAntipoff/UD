@@ -984,197 +984,195 @@ async function factoryRoutes(fastify: FastifyInstance) {
           });
 
           try {
+            // ===== PAGE 1: Summary Information =====
 
-      // ===== PAGE 1: Summary Information =====
+            // Header
+            doc.fontSize(20).fillColor('#dc2626').text('Drying Process Report', { align: 'center' });
+            doc.moveDown(0.3);
+            doc.fontSize(14).fillColor('#000').text(process.batchNumber, { align: 'center' });
+            doc.moveDown(1);
 
-      // Header
-      doc.fontSize(24).fillColor('#dc2626').text('Drying Process Report', { align: 'center' });
-      doc.moveDown();
-      doc.fontSize(16).fillColor('#000').text(process.batchNumber, { align: 'center' });
-      doc.moveDown(2);
+            // Process Information
+            doc.fontSize(12).fillColor('#dc2626').text('Process Information');
+            doc.moveDown(0.3);
+            doc.fontSize(9).fillColor('#000');
+            doc.text(`Wood Type: ${process.woodType.name}  |  Grade: ${process.woodType.grade}  |  Thickness: ${(process.thickness / 10).toFixed(1)}cm (${(process.thickness / 25.4).toFixed(2)}in)`);
+            doc.text(`Piece Count: ${process.pieceCount}  |  Status: ${process.status}`);
+            if (process.startingHumidity) {
+              doc.text(`Starting Humidity: ${process.startingHumidity.toFixed(1)}%  |  Current Humidity: ${currentHumidity.toFixed(1)}%`);
+            } else {
+              doc.text(`Current Humidity: ${currentHumidity.toFixed(1)}%`);
+            }
+            doc.text(`Start Time: ${new Date(process.startTime).toLocaleString()}`);
+            if (process.endTime) {
+              doc.text(`End Time: ${new Date(process.endTime).toLocaleString()}`);
+            }
+            doc.text(`Duration: ${runningHours.toFixed(1)} hours`);
+            doc.moveDown(1);
 
-      // Process Information
-      doc.fontSize(14).fillColor('#dc2626').text('Process Information');
-      doc.moveDown(0.5);
-      doc.fontSize(10).fillColor('#000');
-      doc.text(`Wood Type: ${process.woodType.name}`);
-      doc.text(`Grade: ${process.woodType.grade}`);
-      doc.text(`Thickness: ${(process.thickness / 10).toFixed(1)}cm (${(process.thickness / 25.4).toFixed(2)}in)`);
-      doc.text(`Piece Count: ${process.pieceCount}`);
-      doc.text(`Status: ${process.status}`);
-      if (process.startingHumidity) {
-        doc.text(`Starting Humidity: ${process.startingHumidity.toFixed(1)}%`);
-      }
-      doc.text(`Current Humidity: ${currentHumidity.toFixed(1)}%`);
-      doc.text(`Start Time: ${new Date(process.startTime).toLocaleString()}`);
-      if (process.endTime) {
-        doc.text(`End Time: ${new Date(process.endTime).toLocaleString()}`);
-      }
-      doc.text(`Duration: ${runningHours.toFixed(1)} hours`);
-      doc.moveDown(2);
+            // Statistics and Cost in 2 columns
+            const leftCol = 50;
+            const rightCol = 300;
+            const startY = doc.y;
 
-      // Statistics
-      doc.fontSize(14).fillColor('#dc2626').text('Statistics');
-      doc.moveDown(0.5);
-      doc.fontSize(10).fillColor('#000');
-      doc.text(`Electricity Used: ${electricityUsed.toFixed(2)} Units`);
-      doc.text(`Running Hours: ${runningHours.toFixed(1)} hours`);
-      doc.moveDown(1);
+            // Left column - Statistics
+            doc.fontSize(12).fillColor('#dc2626').text('Statistics', leftCol, startY);
+            doc.fontSize(9).fillColor('#000');
+            doc.text(`Electricity Used: ${electricityUsed.toFixed(2)} Units`, leftCol, doc.y + 5);
+            doc.text(`Running Hours: ${runningHours.toFixed(1)} hours`, leftCol);
 
-      // Cost Breakdown
-      doc.fontSize(14).fillColor('#dc2626').text('Cost Breakdown');
-      doc.moveDown(0.5);
-      doc.fontSize(10).fillColor('#000');
-      doc.text(`Electricity Cost: TZS ${electricityCost.toLocaleString()}`);
-      doc.text(`Depreciation Cost: TZS ${depreciationCost.toLocaleString()}`);
-      doc.moveDown(0.5);
-      doc.fontSize(12).fillColor('#dc2626').text(`TOTAL COST: TZS ${totalCost.toLocaleString()}`);
-      doc.moveDown(2);
+            // Right column - Cost Breakdown
+            doc.fontSize(12).fillColor('#dc2626').text('Cost Breakdown', rightCol, startY);
+            doc.fontSize(9).fillColor('#000');
+            doc.text(`Electricity: TZS ${electricityCost.toLocaleString()}`, rightCol, startY + 17);
+            doc.text(`Depreciation: TZS ${depreciationCost.toLocaleString()}`, rightCol);
+            doc.fontSize(10).fillColor('#dc2626').text(`TOTAL: TZS ${totalCost.toLocaleString()}`, rightCol);
 
-      // Humidity Trend Chart (if there are multiple readings)
-      if (process.readings.length > 1) {
-        doc.fontSize(14).fillColor('#dc2626').text('Humidity Trend');
-        doc.moveDown(0.5);
+            doc.y = Math.max(doc.y, startY + 60);
+            doc.moveDown(1);
 
-        const chartX = 80;
-        const chartY = doc.y;
-        const chartWidth = 400;
-        const chartHeight = 150;
+            // Humidity Trend Chart (if there are multiple readings)
+            if (process.readings.length > 1) {
+              doc.fontSize(12).fillColor('#dc2626').text('Humidity Trend');
+              doc.moveDown(0.3);
 
-        // Get humidity values
-        const humidityValues = process.readings.map(r => r.humidity);
-        const minHumidity = Math.floor(Math.min(...humidityValues) / 5) * 5;
-        const maxHumidity = Math.ceil(Math.max(...humidityValues) / 5) * 5;
-        const humidityRange = maxHumidity - minHumidity || 10;
+              const chartX = 80;
+              const chartY = doc.y;
+              const chartWidth = 400;
+              const chartHeight = 120;
 
-        // Draw axes
-        doc.strokeColor('#64748b').lineWidth(2);
-        doc.moveTo(chartX, chartY).lineTo(chartX, chartY + chartHeight).stroke(); // Y-axis
-        doc.moveTo(chartX, chartY + chartHeight).lineTo(chartX + chartWidth, chartY + chartHeight).stroke(); // X-axis
+              // Get humidity values
+              const humidityValues = process.readings.map(r => r.humidity);
+              const minHumidity = Math.floor(Math.min(...humidityValues) / 5) * 5;
+              const maxHumidity = Math.ceil(Math.max(...humidityValues) / 5) * 5;
+              const humidityRange = maxHumidity - minHumidity || 10;
 
-        // Draw grid lines and Y-axis labels
-        doc.strokeColor('#e2e8f0').lineWidth(0.5);
-        for (let i = 0; i <= 4; i++) {
-          const y = chartY + (i / 4) * chartHeight;
-          const humidity = maxHumidity - (i / 4) * humidityRange;
+              // Draw axes
+              doc.strokeColor('#64748b').lineWidth(2);
+              doc.moveTo(chartX, chartY).lineTo(chartX, chartY + chartHeight).stroke(); // Y-axis
+              doc.moveTo(chartX, chartY + chartHeight).lineTo(chartX + chartWidth, chartY + chartHeight).stroke(); // X-axis
 
-          // Grid line
-          doc.moveTo(chartX, y).lineTo(chartX + chartWidth, y).stroke();
+              // Draw grid lines and Y-axis labels
+              doc.strokeColor('#e2e8f0').lineWidth(0.5);
+              for (let i = 0; i <= 4; i++) {
+                const y = chartY + (i / 4) * chartHeight;
+                const humidity = maxHumidity - (i / 4) * humidityRange;
 
-          // Label
-          doc.fontSize(8).fillColor('#64748b').text(
-            `${humidity.toFixed(0)}%`,
-            chartX - 35,
-            y - 4,
-            { width: 30, align: 'right' }
-          );
-        }
+                // Grid line
+                doc.moveTo(chartX, y).lineTo(chartX + chartWidth, y).stroke();
 
-        // Plot humidity line
-        doc.strokeColor('#dc2626').lineWidth(2);
-        process.readings.forEach((reading, index) => {
-          const x = chartX + (index / Math.max(1, process.readings.length - 1)) * chartWidth;
-          const y = chartY + chartHeight - ((reading.humidity - minHumidity) / humidityRange) * chartHeight;
+                // Label
+                doc.fontSize(7).fillColor('#64748b').text(
+                  `${humidity.toFixed(0)}%`,
+                  chartX - 35,
+                  y - 3,
+                  { width: 30, align: 'right' }
+                );
+              }
 
-          if (index === 0) {
-            doc.moveTo(x, y);
-          } else {
-            doc.lineTo(x, y);
-          }
-        });
-        doc.stroke();
+              // Plot humidity line
+              doc.strokeColor('#dc2626').lineWidth(2);
+              process.readings.forEach((reading, index) => {
+                const x = chartX + (index / Math.max(1, process.readings.length - 1)) * chartWidth;
+                const y = chartY + chartHeight - ((reading.humidity - minHumidity) / humidityRange) * chartHeight;
 
-        // Plot data points
-        doc.fillColor('#dc2626');
-        process.readings.forEach((reading, index) => {
-          const x = chartX + (index / Math.max(1, process.readings.length - 1)) * chartWidth;
-          const y = chartY + chartHeight - ((reading.humidity - minHumidity) / humidityRange) * chartHeight;
-          doc.circle(x, y, 3).fill();
-        });
+                if (index === 0) {
+                  doc.moveTo(x, y);
+                } else {
+                  doc.lineTo(x, y);
+                }
+              });
+              doc.stroke();
 
-        // Axis labels
-        doc.fontSize(10).fillColor('#64748b');
-        // Y-axis label (rotated text not directly supported, so we place it on the left)
-        doc.text('Humidity (%)', 50, chartY + chartHeight / 2 - 5);
-        doc.text(
-          `Reading Progress (${process.readings.length} readings)`,
-          chartX,
-          chartY + chartHeight + 15,
-          { width: chartWidth, align: 'center' }
-        );
+              // Plot data points
+              doc.fillColor('#dc2626');
+              process.readings.forEach((reading, index) => {
+                const x = chartX + (index / Math.max(1, process.readings.length - 1)) * chartWidth;
+                const y = chartY + chartHeight - ((reading.humidity - minHumidity) / humidityRange) * chartHeight;
+                doc.circle(x, y, 2.5).fill();
+              });
 
-        doc.moveDown(6);
-      }
+              // Axis labels
+              doc.fontSize(8).fillColor('#64748b');
+              doc.text('Humidity (%)', 50, chartY + chartHeight / 2 - 5);
+              doc.text(
+                `Reading Progress (${process.readings.length} readings)`,
+                chartX,
+                chartY + chartHeight + 10,
+                { width: chartWidth, align: 'center' }
+              );
 
-      // Notes
-      if (process.notes) {
-        doc.fontSize(14).fillColor('#dc2626').text('Notes');
-        doc.moveDown(0.5);
-        doc.fontSize(10).fillColor('#000').text(process.notes);
-        doc.moveDown(2);
-      }
+              doc.y = chartY + chartHeight + 30;
+            }
 
-      // Page number at bottom
-      doc.fontSize(8).fillColor('#94a3b8');
-      doc.text('Page 1 of 2', 50, doc.page.height - 50, { align: 'right' });
+            // Notes (if exists and fits)
+            if (process.notes && doc.y < 650) {
+              doc.fontSize(12).fillColor('#dc2626').text('Notes');
+              doc.moveDown(0.3);
+              doc.fontSize(9).fillColor('#000').text(process.notes, { width: 500 });
+            }
 
-      // ===== PAGE 2: Readings History =====
-      doc.addPage();
+            // Page number at bottom of page 1
+            doc.fontSize(8).fillColor('#94a3b8');
+            doc.text('Page 1 of 2', 50, doc.page.height - 50, { align: 'right', width: 500 });
 
-      doc.fontSize(16).fillColor('#dc2626').text(`${process.batchNumber} - Readings History`, { align: 'left' });
-      doc.moveDown(2);
-
-      doc.fontSize(14).fillColor('#dc2626').text(`Readings History (${process.readings.length})`);
-      doc.moveDown(0.5);
-
-      if (process.readings.length > 0) {
-        // Table headers
-        doc.fontSize(9).fillColor('#64748b');
-        const tableTop = doc.y;
-        const col1 = 50;
-        const col2 = 200;
-        const col3 = 320;
-        const col4 = 420;
-
-        doc.text('Time', col1, tableTop);
-        doc.text('Electricity (Unit)', col2, tableTop);
-        doc.text('Humidity (%)', col3, tableTop);
-        doc.text('Notes', col4, tableTop);
-
-        doc.moveDown(0.5);
-        doc.strokeColor('#e2e8f0').lineWidth(1);
-        doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
-        doc.moveDown(0.5);
-
-        // Table rows
-        doc.fontSize(8).fillColor('#000');
-        process.readings.forEach((reading, index) => {
-          const y = doc.y;
-          if (y > 700) {
+            // ===== PAGE 2: Readings History =====
             doc.addPage();
 
-            // Add page number for overflow pages
-            const currentPage = doc.bufferedPageRange().count;
-            doc.fontSize(8).fillColor('#94a3b8');
-            doc.text(`Page ${currentPage} of 2+`, 50, doc.page.height - 50, { align: 'right' });
+            doc.fontSize(14).fillColor('#dc2626').text(`${process.batchNumber} - Readings History`, { align: 'left' });
+            doc.moveDown(1);
 
-            doc.y = 50;
-          }
+            doc.fontSize(12).fillColor('#dc2626').text(`Readings History (${process.readings.length})`);
+            doc.moveDown(0.5);
 
-          const readingTime = new Date(reading.readingTime).toLocaleString();
-          doc.text(readingTime, col1, doc.y, { width: 140 });
-          doc.text(reading.electricityMeter.toFixed(2), col2, y);
-          doc.text(reading.humidity.toFixed(1), col3, y);
-          doc.text(reading.notes || '-', col4, y, { width: 130 });
-          doc.moveDown(0.5);
-        });
-      } else {
-        doc.fontSize(10).fillColor('#94a3b8').text('No readings recorded yet.');
-      }
+            if (process.readings.length > 0) {
+              // Table headers
+              doc.fontSize(8).fillColor('#64748b');
+              const tableTop = doc.y;
+              const col1 = 50;
+              const col2 = 200;
+              const col3 = 320;
+              const col4 = 420;
+
+              doc.text('Time', col1, tableTop);
+              doc.text('Electricity (Unit)', col2, tableTop);
+              doc.text('Humidity (%)', col3, tableTop);
+              doc.text('Notes', col4, tableTop);
+
+              doc.moveDown(0.3);
+              doc.strokeColor('#e2e8f0').lineWidth(1);
+              doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+              doc.moveDown(0.3);
+
+              // Table rows
+              doc.fontSize(8).fillColor('#000');
+              process.readings.forEach((reading, index) => {
+                const y = doc.y;
+                if (y > 700) {
+                  doc.addPage();
+
+                  // Add page number for overflow pages
+                  const currentPage = doc.bufferedPageRange().count;
+                  doc.fontSize(8).fillColor('#94a3b8');
+                  doc.text(`Page ${currentPage} of 2+`, 50, doc.page.height - 50, { align: 'right', width: 500 });
+
+                  doc.y = 50;
+                }
+
+                const readingTime = new Date(reading.readingTime).toLocaleString();
+                doc.text(readingTime, col1, doc.y, { width: 140 });
+                doc.text(reading.electricityMeter.toFixed(2), col2, y);
+                doc.text(reading.humidity.toFixed(1), col3, y);
+                doc.text(reading.notes || '-', col4, y, { width: 130 });
+                doc.moveDown(0.4);
+              });
+            } else {
+              doc.fontSize(9).fillColor('#94a3b8').text('No readings recorded yet.');
+            }
 
             // Page number at bottom of page 2
             doc.fontSize(8).fillColor('#94a3b8');
-            doc.text('Page 2 of 2', 50, doc.page.height - 50, { align: 'right' });
+            doc.text('Page 2 of 2', 50, doc.page.height - 50, { align: 'right', width: 500 });
 
             console.log('[PDF] Calling doc.end()');
             doc.end();
