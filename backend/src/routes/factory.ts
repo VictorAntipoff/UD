@@ -1105,16 +1105,25 @@ async function factoryRoutes(fastify: FastifyInstance) {
               doc.y = chartY + chartHeight + 30;
             }
 
-            // Notes (if exists and fits)
-            if (process.notes && doc.y < 650) {
-              doc.fontSize(12).fillColor('#dc2626').text('Notes');
-              doc.moveDown(0.3);
-              doc.fontSize(9).fillColor('#000').text(process.notes, { width: 500 });
+            // Notes (if exists and space available)
+            if (process.notes) {
+              const remainingSpace = 700 - doc.y;
+              if (remainingSpace > 40) {
+                doc.fontSize(12).fillColor('#dc2626').text('Notes');
+                doc.moveDown(0.3);
+                doc.fontSize(9).fillColor('#000').text(process.notes, { width: 500 });
+              }
             }
 
-            // Page number at bottom of page 1
-            doc.fontSize(8).fillColor('#94a3b8');
-            doc.text('Page 1 of 2', 50, doc.page.height - 50, { align: 'right', width: 500 });
+            // Page number at absolute bottom of page 1 (without affecting layout)
+            const page1Y = doc.y;
+            doc.fontSize(8).fillColor('#94a3b8').text(
+              'Page 1 of 2',
+              50,
+              doc.page.height - 50,
+              { align: 'right', width: doc.page.width - 100, lineBreak: false }
+            );
+            doc.y = page1Y; // Reset Y position to not affect next content
 
             // ===== PAGE 2: Readings History =====
             doc.addPage();
@@ -1170,9 +1179,15 @@ async function factoryRoutes(fastify: FastifyInstance) {
               doc.fontSize(9).fillColor('#94a3b8').text('No readings recorded yet.');
             }
 
-            // Page number at bottom of page 2
-            doc.fontSize(8).fillColor('#94a3b8');
-            doc.text('Page 2 of 2', 50, doc.page.height - 50, { align: 'right', width: 500 });
+            // Page number at absolute bottom of page 2 (without affecting layout)
+            const page2Y = doc.y;
+            doc.fontSize(8).fillColor('#94a3b8').text(
+              'Page 2 of 2',
+              50,
+              doc.page.height - 50,
+              { align: 'right', width: doc.page.width - 100, lineBreak: false }
+            );
+            doc.y = page2Y; // Reset Y position
 
             console.log('[PDF] Calling doc.end()');
             doc.end();
