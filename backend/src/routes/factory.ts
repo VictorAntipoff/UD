@@ -904,6 +904,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
   fastify.get('/drying-processes/:id/pdf', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      console.log(`[PDF] Starting PDF generation for process ID: ${id}`);
 
       // Fetch process with all related data
       const process = await prisma.dryingProcess.findUnique({
@@ -951,10 +952,20 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       doc.on('data', (chunk) => chunks.push(chunk));
       doc.on('end', () => {
-        const pdfBuffer = Buffer.concat(chunks);
-        reply.type('application/pdf');
-        reply.header('Content-Disposition', `attachment; filename="UD - Drying Details (${process.batchNumber}).pdf"`);
-        reply.send(pdfBuffer);
+        try {
+          const pdfBuffer = Buffer.concat(chunks);
+          console.log(`[PDF] Generated PDF for ${process.batchNumber}: ${pdfBuffer.length} bytes`);
+          reply.type('application/pdf');
+          reply.header('Content-Disposition', `attachment; filename="UD - Drying Details (${process.batchNumber}).pdf"`);
+          reply.send(pdfBuffer);
+        } catch (error) {
+          console.error('[PDF] Error in end handler:', error);
+          reply.status(500).send({ error: 'Failed to generate PDF buffer' });
+        }
+      });
+      doc.on('error', (error) => {
+        console.error('[PDF] PDFKit error:', error);
+        reply.status(500).send({ error: 'PDF generation failed' });
       });
 
       // ===== PAGE 1: Summary Information =====
