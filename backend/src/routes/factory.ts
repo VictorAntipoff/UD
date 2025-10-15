@@ -212,8 +212,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
       });
 
       return { success: true };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting wood type:', error);
+
+      // Check if it's a foreign key constraint error
+      if (error.code === 'P2003' || error.code === 'P2014') {
+        return reply.status(400).send({
+          error: 'Cannot delete wood type that is being used in calculations, processes, or receipts. Please delete those records first.'
+        });
+      }
+
       return reply.status(500).send({ error: 'Failed to delete wood type' });
     }
   });

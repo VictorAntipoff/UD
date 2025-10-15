@@ -2297,24 +2297,22 @@ export default function DryingProcess() {
         <Divider />
         <DialogActions sx={{ p: 2.5, justifyContent: 'space-between' }}>
           {selectedProcess && (() => {
-            const electricityUsed = selectedProcess.readings.length > 0 && selectedProcess.startingElectricityUnits
-              ? selectedProcess.readings[selectedProcess.readings.length - 1].electricityMeter - selectedProcess.startingElectricityUnits
-              : 0;
+            // Use the same calculation as the UI display
+            const electricityUsed = calculateElectricityUsed(selectedProcess);
+            const electricityCost = Math.abs(electricityUsed) * electricityRatePerKwh;
 
-            const runningHours = selectedProcess.endTime
-              ? (new Date(selectedProcess.endTime).getTime() - new Date(selectedProcess.startTime).getTime()) / (1000 * 60 * 60)
-              : (new Date().getTime() - new Date(selectedProcess.startTime).getTime()) / (1000 * 60 * 60);
+            const startTime = new Date(selectedProcess.startTime).getTime();
+            const endTime = selectedProcess.endTime
+              ? new Date(selectedProcess.endTime).getTime()
+              : Date.now();
+            const runningHours = (endTime - startTime) / (1000 * 60 * 60);
 
             const currentHumidity = selectedProcess.readings.length > 0
               ? selectedProcess.readings[selectedProcess.readings.length - 1].humidity
               : selectedProcess.startingHumidity || 0;
 
-            const ELECTRICITY_PRICE = 400;
-            const ANNUAL_DEPRECIATION = 2000000;
-            const DEPRECIATION_PER_HOUR = ANNUAL_DEPRECIATION / 8760;
-
-            const electricityCost = Math.abs(electricityUsed) * ELECTRICITY_PRICE;
-            const depreciationCost = runningHours * DEPRECIATION_PER_HOUR;
+            const depreciationPerHour = annualDepreciation / 8760;
+            const depreciationCost = runningHours * depreciationPerHour;
 
             return (
               <PDFDownloadLink

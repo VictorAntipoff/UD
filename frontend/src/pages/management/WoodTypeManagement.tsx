@@ -328,9 +328,16 @@ const WoodTypeManagement: FC = () => {
     try {
       await api.delete(`/factory/wood-types/${id}`);
       await fetchWoodTypes();
-    } catch (error) {
+      setError(null);
+    } catch (error: any) {
       console.error('Error deleting wood type:', error);
-      setError('Failed to delete wood type');
+      if (error.response?.status === 400 && error.response?.data?.error) {
+        setError(error.response.data.error);
+      } else if (error.response?.data?.error) {
+        setError(error.response.data.error);
+      } else {
+        setError('Failed to delete wood type. It may be in use by calculations or processes.');
+      }
     }
   };
 
@@ -930,7 +937,7 @@ const WoodTypeManagement: FC = () => {
                   fullWidth
                   select
                   label="Growth Rate"
-                  value={editingWoodType.sustainability.growth_rate || ''}
+                  value={editingWoodType.sustainability?.growth_rate || ''}
                   onChange={(e) => setEditingWoodType(prev => ({
                     ...prev,
                     sustainability: { ...prev.sustainability, growth_rate: e.target.value as any }
