@@ -46,6 +46,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import { DryingProcessReport } from '../../components/reports/DryingProcessReport';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -2294,43 +2296,67 @@ export default function DryingProcess() {
         </DialogContent>
         <Divider />
         <DialogActions sx={{ p: 2.5, justifyContent: 'space-between' }}>
-          {selectedProcess && (
-            <Button
-              startIcon={<PictureAsPdfIcon />}
-              variant="contained"
-              onClick={async () => {
-                try {
-                  const response = await api.get(`/factory/drying-processes/${selectedProcess.id}/pdf`, {
-                    responseType: 'blob'
-                  });
+          {selectedProcess && (() => {
+            const electricityUsed = selectedProcess.readings.length > 0 && selectedProcess.startingElectricityUnits
+              ? selectedProcess.readings[selectedProcess.readings.length - 1].electricityMeter - selectedProcess.startingElectricityUnits
+              : 0;
 
-                  const blob = new Blob([response.data], { type: 'application/pdf' });
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `UD - Drying Details (${selectedProcess.batchNumber}).pdf`;
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  document.body.removeChild(a);
-                } catch (error) {
-                  console.error('Error generating PDF:', error);
-                  alert(`Failed to generate PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            const runningHours = selectedProcess.endTime
+              ? (new Date(selectedProcess.endTime).getTime() - new Date(selectedProcess.startTime).getTime()) / (1000 * 60 * 60)
+              : (new Date().getTime() - new Date(selectedProcess.startTime).getTime()) / (1000 * 60 * 60);
+
+            const currentHumidity = selectedProcess.readings.length > 0
+              ? selectedProcess.readings[selectedProcess.readings.length - 1].humidity
+              : selectedProcess.startingHumidity || 0;
+
+            const ELECTRICITY_PRICE = 400;
+            const ANNUAL_DEPRECIATION = 2000000;
+            const DEPRECIATION_PER_HOUR = ANNUAL_DEPRECIATION / 8760;
+
+            const electricityCost = Math.abs(electricityUsed) * ELECTRICITY_PRICE;
+            const depreciationCost = runningHours * DEPRECIATION_PER_HOUR;
+
+            return (
+              <PDFDownloadLink
+                document={
+                  <DryingProcessReport
+                    process={selectedProcess}
+                    timestamp={new Date().toISOString()}
+                    user={{
+                      email: user?.email || '',
+                      name: user?.name || user?.email || ''
+                    }}
+                    electricityUsed={electricityUsed}
+                    runningHours={runningHours}
+                    currentHumidity={currentHumidity}
+                    electricityCost={electricityCost}
+                    depreciationCost={depreciationCost}
+                  />
                 }
-              }}
-              sx={{
-                backgroundColor: '#dc2626',
-                color: '#fff',
-                textTransform: 'none',
-                fontWeight: 600,
-                '&:hover': {
-                  backgroundColor: '#b91c1c',
-                },
-              }}
-            >
-              Generate PDF
-            </Button>
-          )}
+                fileName={`UD - Drying Details (${selectedProcess.batchNumber}).pdf`}
+                style={{ textDecoration: 'none' }}
+              >
+                {({ loading }) => (
+                  <Button
+                    startIcon={<PictureAsPdfIcon />}
+                    variant="contained"
+                    disabled={loading}
+                    sx={{
+                      backgroundColor: '#dc2626',
+                      color: '#fff',
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      '&:hover': {
+                        backgroundColor: '#b91c1c',
+                      },
+                    }}
+                  >
+                    {loading ? 'Generating PDF...' : 'Generate PDF'}
+                  </Button>
+                )}
+              </PDFDownloadLink>
+            );
+          })()}
           <Button
             onClick={() => setDetailsDialogOpen(false)}
             sx={{
