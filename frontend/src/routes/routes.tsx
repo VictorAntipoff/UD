@@ -18,6 +18,7 @@ import WoodDryingSettings from '../pages/management/WoodDryingSettings';
 import AssetList from '../pages/assets/AssetList';
 import AssetDetail from '../pages/assets/AssetDetail';
 import AssetForm from '../pages/assets/AssetForm';
+import ComingSoon from '../pages/ComingSoon';
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -26,14 +27,14 @@ const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
 export const routes: RouteObject[] = [
   {
     path: '/',
+    element: <ComingSoon />
+  },
+  {
+    path: '/dashboard',
     element: <ProtectedLayout><Layout /></ProtectedLayout>,
     children: [
       {
-        path: '/',
-        element: <Dashboard />
-      },
-      {
-        path: 'dashboard',
+        index: true,
         element: <Dashboard />
       },
       {
