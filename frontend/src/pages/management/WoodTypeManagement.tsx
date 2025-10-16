@@ -330,12 +330,12 @@ const WoodTypeManagement: FC = () => {
       await fetchWoodTypes();
       setError(null);
     } catch (error: any) {
-      console.error('Error deleting wood type:', error);
       if (error.response?.status === 400 && error.response?.data?.error) {
         setError(error.response.data.error);
       } else if (error.response?.data?.error) {
         setError(error.response.data.error);
       } else {
+        console.error('Error deleting wood type:', error);
         setError('Failed to delete wood type. It may be in use by calculations or processes.');
       }
     }
