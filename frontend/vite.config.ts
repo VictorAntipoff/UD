@@ -40,15 +40,37 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       sourcemap: true,
+      // Control modulePreload to prevent unused preloads
+      modulePreload: {
+        polyfill: false,
+      },
       rollupOptions: {
         output: {
-          manualChunks: {
-            'react-vendor': ['react', 'react-dom'],
-            'mui-vendor': ['@mui/material', '@emotion/react', '@emotion/styled']
+          manualChunks: (id) => {
+            // Create vendor chunks only for frequently used libraries
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+                return 'react-vendor';
+              }
+              if (id.includes('@mui') || id.includes('@emotion')) {
+                return 'mui-vendor';
+              }
+              // Put other node_modules in a common vendor chunk
+              return 'vendor';
+            }
           },
           entryFileNames: 'assets/[name]-[hash].js',
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash].[ext]'
+        }
+      },
+      // Optimize chunk size
+      chunkSizeWarningLimit: 1000,
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          drop_console: true,
+          drop_debugger: true
         }
       }
     },
