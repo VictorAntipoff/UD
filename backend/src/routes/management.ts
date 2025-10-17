@@ -1,6 +1,11 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { authenticateToken } from '../middleware/auth.js';
+import {
+  authenticateToken,
+  requireWarehouseManagement,
+  requireStockAdjustment,
+  requireRole
+} from '../middleware/auth.js';
 
 async function managementRoutes(fastify: FastifyInstance) {
   // SECURITY: Protect all management routes with authentication
@@ -297,7 +302,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Approve a wood receipt (change status to CONFIRMED)
-  fastify.post('/wood-receipts/:id/approve', async (request, reply) => {
+  fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
 
@@ -321,7 +326,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Reject a wood receipt (you can customize the rejected status)
-  fastify.post('/wood-receipts/:id/reject', async (request, reply) => {
+  fastify.post('/wood-receipts/:id/reject', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const { notes } = request.body as { notes?: string };
@@ -446,7 +451,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Create a new warehouse
-  fastify.post('/warehouses', async (request, reply) => {
+  fastify.post('/warehouses', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
     try {
       const data = request.body as any;
 
@@ -490,7 +495,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Update a warehouse
-  fastify.put('/warehouses/:id', async (request, reply) => {
+  fastify.put('/warehouses/:id', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const data = request.body as any;
@@ -531,7 +536,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Archive a warehouse (soft delete)
-  fastify.patch('/warehouses/:id/archive', async (request, reply) => {
+  fastify.patch('/warehouses/:id/archive', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
 
@@ -550,7 +555,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Restore an archived warehouse
-  fastify.patch('/warehouses/:id/restore', async (request, reply) => {
+  fastify.patch('/warehouses/:id/restore', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
 
@@ -569,7 +574,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Update assigned users for a warehouse
-  fastify.put('/warehouses/:id/assigned-users', async (request, reply) => {
+  fastify.put('/warehouses/:id/assigned-users', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
       const { userIds } = request.body as { userIds: string[] };
@@ -761,7 +766,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Create or update stock (for initial setup or minimum level updates)
-  fastify.post('/stock', async (request, reply) => {
+  fastify.post('/stock', { onRequest: requireStockAdjustment() }, async (request, reply) => {
     try {
       const data = request.body as any;
 
@@ -825,7 +830,7 @@ async function managementRoutes(fastify: FastifyInstance) {
   });
 
   // Physical stock adjustment
-  fastify.post('/stock/adjust', async (request, reply) => {
+  fastify.post('/stock/adjust', { onRequest: requireStockAdjustment() }, async (request, reply) => {
     try {
       const data = request.body as any;
       const userId = (request as any).user?.userId;

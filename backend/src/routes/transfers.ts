@@ -1,6 +1,34 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { authenticateToken } from '../middleware/auth.js';
+import {
+  authenticateToken,
+  canCreateTransfer,
+  canApproveTransfer,
+  requireTransferApproval
+} from '../middleware/auth.js';
+
+// Helper function to log transfer history
+async function logTransferHistory(
+  transferId: string,
+  transferNumber: string,
+  userId: string,
+  userName: string,
+  userEmail: string,
+  action: string,
+  details?: string
+) {
+  await prisma.transferHistory.create({
+    data: {
+      transferId,
+      transferNumber,
+      userId,
+      userName,
+      userEmail,
+      action,
+      details,
+    },
+  });
+}
 
 async function transferRoutes(fastify: FastifyInstance) {
   // SECURITY: Protect all transfer routes with authentication
@@ -116,6 +144,9 @@ async function transferRoutes(fastify: FastifyInstance) {
               firstName: true,
               lastName: true
             }
+          },
+          history: {
+            orderBy: { timestamp: 'asc' }
           }
         }
       });
@@ -136,6 +167,7 @@ async function transferRoutes(fastify: FastifyInstance) {
     try {
       const data = request.body as any;
       const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
 
       if (!data.fromWarehouseId || !data.toWarehouseId || !data.items || !Array.isArray(data.items) || data.items.length === 0) {
         return reply.status(400).send({
@@ -146,6 +178,15 @@ async function transferRoutes(fastify: FastifyInstance) {
       if (data.fromWarehouseId === data.toWarehouseId) {
         return reply.status(400).send({
           error: 'Cannot transfer to the same warehouse'
+        });
+      }
+
+      // SECURITY: Check if user has permission to create transfer between these warehouses
+      const accessCheck = await canCreateTransfer(userId, data.fromWarehouseId, data.toWarehouseId, userRole);
+      if (!accessCheck.allowed) {
+        return reply.status(403).send({
+          error: 'Insufficient permissions',
+          message: accessCheck.reason
         });
       }
 
@@ -311,6 +352,36 @@ async function transferRoutes(fastify: FastifyInstance) {
           });
         }
 
+        // Log history
+        const user = transfer.createdBy;
+        const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+        await tx.transferHistory.create({
+          data: {
+            transferId: transfer.id,
+            transferNumber: transfer.transferNumber,
+            userId: user.id,
+            userName,
+            userEmail: user.email,
+            action: 'CREATED',
+            details: `Transfer created from ${fromWarehouse.name} to ${toWarehouse.name} with ${transfer.items.length} item(s)`
+          }
+        });
+
+        // Log auto-approval if applicable
+        if (initialStatus === 'APPROVED') {
+          await tx.transferHistory.create({
+            data: {
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              userId: user.id,
+              userName,
+              userEmail: user.email,
+              action: 'APPROVED',
+              details: 'Transfer auto-approved (no approval required)'
+            }
+          });
+        }
+
         return transfer;
       });
 
@@ -326,6 +397,7 @@ async function transferRoutes(fastify: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
       const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
 
       const transfer = await prisma.transfer.findUnique({
         where: { id },
@@ -343,6 +415,15 @@ async function transferRoutes(fastify: FastifyInstance) {
       if (transfer.status !== 'PENDING') {
         return reply.status(400).send({
           error: `Cannot approve transfer with status: ${transfer.status}`
+        });
+      }
+
+      // SECURITY: Check if user has permission to approve transfers for this warehouse
+      const canApprove = await canApproveTransfer(userId, transfer.fromWarehouseId, userRole);
+      if (!canApprove) {
+        return reply.status(403).send({
+          error: 'Insufficient permissions',
+          message: 'You do not have permission to approve transfers for this warehouse'
         });
       }
 
@@ -459,6 +540,21 @@ async function transferRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // Log approval history
+        const approver = updatedTransfer.approvedBy!;
+        const approverName = `${approver.firstName || ''} ${approver.lastName || ''}`.trim() || approver.email;
+        await tx.transferHistory.create({
+          data: {
+            transferId: updatedTransfer.id,
+            transferNumber: updatedTransfer.transferNumber,
+            userId: approver.id,
+            userName: approverName,
+            userEmail: approver.email,
+            action: 'APPROVED',
+            details: 'Transfer approved and moved to IN_TRANSIT status'
+          }
+        });
+
         return updatedTransfer;
       });
 
@@ -532,6 +628,21 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
       });
 
+      // Log rejection history
+      const rejector = updatedTransfer.approvedBy!;
+      const rejectorName = `${rejector.firstName || ''} ${rejector.lastName || ''}`.trim() || rejector.email;
+      await prisma.transferHistory.create({
+        data: {
+          transferId: updatedTransfer.id,
+          transferNumber: updatedTransfer.transferNumber,
+          userId: rejector.id,
+          userName: rejectorName,
+          userEmail: rejector.email,
+          action: 'REJECTED',
+          details: rejectionReason || 'Transfer rejected'
+        }
+      });
+
       return updatedTransfer;
     } catch (error) {
       console.error('Error rejecting transfer:', error);
@@ -543,6 +654,17 @@ async function transferRoutes(fastify: FastifyInstance) {
   fastify.post('/:id/complete', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      const userId = (request as any).user?.userId;
+
+      // Get user info for history logging
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
 
       const transfer = await prisma.transfer.findUnique({
         where: { id },
@@ -601,7 +723,12 @@ async function transferRoutes(fastify: FastifyInstance) {
 
         // Update stock for each item
         for (const item of transfer.items) {
-          const statusField = `status${item.woodStatus.charAt(0) + item.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
+          // Convert wood status to proper camelCase field name
+          // e.g. NOT_DRIED -> statusNotDried, UNDER_DRYING -> statusUnderDrying
+          const statusField = `status${item.woodStatus.split('_').map((word, index) =>
+            index === 0 ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() :
+            word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+          ).join('')}`;
 
           // If source warehouse has stock control, remove from in-transit-out
           if (transfer.fromWarehouse.stockControlEnabled) {
@@ -646,6 +773,20 @@ async function transferRoutes(fastify: FastifyInstance) {
             });
           }
         }
+
+        // Log completion history
+        const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+        await tx.transferHistory.create({
+          data: {
+            transferId: updatedTransfer.id,
+            transferNumber: updatedTransfer.transferNumber,
+            userId: currentUser.id,
+            userName,
+            userEmail: currentUser.email,
+            action: 'COMPLETED',
+            details: `Transfer completed and stock updated at ${transfer.toWarehouse.name}`
+          }
+        });
 
         return updatedTransfer;
       });
@@ -720,6 +861,23 @@ async function transferRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error fetching pending approvals:', error);
       return reply.status(500).send({ error: 'Failed to fetch pending approvals' });
+    }
+  });
+
+  // Get transfer history/audit trail
+  fastify.get('/:id/history', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      const history = await prisma.transferHistory.findMany({
+        where: { transferId: id },
+        orderBy: { timestamp: 'asc' }
+      });
+
+      return history;
+    } catch (error) {
+      console.error('Error fetching transfer history:', error);
+      return reply.status(500).send({ error: 'Failed to fetch transfer history' });
     }
   });
 }

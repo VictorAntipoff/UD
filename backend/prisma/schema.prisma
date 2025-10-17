@@ -91,9 +91,12 @@ model Comment {
 }
 
 enum UserRole {
-  USER
-  ADMIN
-
+  USER                // Regular user - basic access
+  VIEWER             // Read-only access to warehouse data
+  WAREHOUSE_STAFF    // Can create transfers, view stock for assigned warehouses
+  WAREHOUSE_MANAGER  // Can approve transfers, adjust stock for assigned warehouses
+  SUPERVISOR         // Factory operations approval (existing)
+  ADMIN              // Full system access
 }
 
 model Job {
@@ -625,11 +628,12 @@ model Transfer {
   updatedAt         DateTime       @updatedAt
 
   // Relations
-  fromWarehouse     Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
-  toWarehouse       Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
-  createdBy         User           @relation("TransferCreator", fields: [createdById], references: [id])
-  approvedBy        User?          @relation("TransferApprover", fields: [approvedById], references: [id])
-  items             TransferItem[] // Multiple line items per transfer
+  fromWarehouse     Warehouse         @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse       Warehouse         @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  createdBy         User              @relation("TransferCreator", fields: [createdById], references: [id])
+  approvedBy        User?             @relation("TransferApprover", fields: [approvedById], references: [id])
+  items             TransferItem[]    // Multiple line items per transfer
+  history           TransferHistory[] // Audit trail for all actions
 
   @@index([transferNumber])
   @@index([fromWarehouseId])
@@ -656,6 +660,27 @@ model TransferItem {
 
   @@index([transferId])
   @@index([woodTypeId])
+}
+
+model TransferHistory {
+  id              String   @id @default(uuid())
+  transferId      String
+  transferNumber  String   // Denormalized for easy querying
+  userId          String
+  userName        String   // Denormalized - firstName + lastName
+  userEmail       String   // Denormalized for reference
+  action          String   // CREATED, APPROVED, REJECTED, IN_TRANSIT, COMPLETED, CANCELLED
+  details         String?  // Additional details about the action
+  timestamp       DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  // Relations
+  transfer        Transfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+  @@index([transferNumber])
+  @@index([timestamp])
+  @@index([action])
 }
 
 model StockAdjustment {
