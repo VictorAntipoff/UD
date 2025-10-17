@@ -708,3 +708,36 @@ model StockAdjustment {
   @@index([adjustedAt])
   @@index([adjustedById])
 }
+
+// ===== WEBSITE MANAGEMENT MODELS =====
+
+model WebsitePage {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  content     Json     // Stores page content as JSON (title, subtitle, products, etc.)
+  status      String   @default("draft") // draft, published
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdBy   String?
+  updatedBy   String?
+
+  @@index([slug])
+  @@index([status])
+}
+
+model WebsiteFile {
+  id              String   @id @default(uuid())
+  name            String   // Display name
+  originalName    String   // Original uploaded filename
+  fileName        String   // Actual file name on disk (unique)
+  mimeType        String
+  size            Int      // File size in bytes
+  path            String   // Storage path relative to uploads folder
+  url             String   // Public URL to access the file
+  uploadedAt      DateTime @default(now())
+  uploadedBy      String?
+
+  @@index([uploadedAt])
+  @@index([uploadedBy])
+}
