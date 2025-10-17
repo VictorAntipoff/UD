@@ -28,6 +28,8 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import DryIcon from '@mui/icons-material/Dry';
 import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import WarehouseIcon from '@mui/icons-material/Warehouse';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -48,16 +50,16 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   const location = useLocation();
 
   const [factoryOpen, setFactoryOpen] = useState(
-    location.pathname.startsWith('/factory')
+    location.pathname.startsWith('/dashboard/factory')
   );
   const [assetsOpen, setAssetsOpen] = useState(
-    location.pathname.startsWith('/assets')
+    location.pathname.startsWith('/dashboard/assets')
   );
   const [settingsOpen, setSettingsOpen] = useState(
-    location.pathname.startsWith('/settings')
+    location.pathname.startsWith('/dashboard/settings')
   );
   const [managementOpen, setManagementOpen] = useState(
-    location.pathname.startsWith('/management')
+    location.pathname.startsWith('/dashboard/management')
   );
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -211,11 +213,11 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
           {/* Wood Calculator - Standalone */}
           <ListItem
             button
-            onClick={() => handleNavigate('/factory/wood-calculator')}
-            selected={location.pathname === '/factory/wood-calculator'}
+            onClick={() => handleNavigate('/dashboard/factory/wood-calculator')}
+            selected={location.pathname === '/dashboard/factory/wood-calculator'}
             sx={commonButtonStyles}
           >
-            <ListItemIcon sx={{ color: location.pathname === '/factory/wood-calculator' ? colors.primary : colors.grey.main }}>
+            <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-calculator' ? colors.primary : colors.grey.main }}>
               <CalculateIcon />
             </ListItemIcon>
             <ListItemText primary="Wood Calculator" />
@@ -245,10 +247,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/assets')}
-                selected={location.pathname === '/assets'}
+                onClick={() => handleNavigate('/dashboard/assets')}
+                selected={location.pathname === '/dashboard/assets'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/assets' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/assets' ? colors.primary : colors.grey.main }}>
                   <InventoryIcon />
                 </ListItemIcon>
                 <ListItemText primary="Items" />
@@ -280,10 +282,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/factory/receipt-processing')}
-                selected={location.pathname === '/factory/receipt-processing'}
+                onClick={() => handleNavigate('/dashboard/factory/receipt-processing')}
+                selected={location.pathname === '/dashboard/factory/receipt-processing'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/factory/receipt-processing' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/receipt-processing' ? colors.primary : colors.grey.main }}>
                   <InventoryIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Receipt" />
@@ -292,10 +294,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/factory/wood-slicer')}
-                selected={location.pathname === '/factory/wood-slicer'}
+                onClick={() => handleNavigate('/dashboard/factory/wood-slicer')}
+                selected={location.pathname === '/dashboard/factory/wood-slicer'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/factory/wood-slicer' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-slicer' ? colors.primary : colors.grey.main }}>
                   <ContentCutIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Slicing" />
@@ -304,13 +306,37 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/factory/drying-process')}
-                selected={location.pathname === '/factory/drying-process'}
+                onClick={() => handleNavigate('/dashboard/factory/drying-process')}
+                selected={location.pathname === '/dashboard/factory/drying-process'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/factory/drying-process' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/drying-process' ? colors.primary : colors.grey.main }}>
                   <DryIcon />
                 </ListItemIcon>
                 <ListItemText primary="Drying Process" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={submenuStyles}
+                onClick={() => handleNavigate('/dashboard/factory/wood-transfer')}
+                selected={location.pathname === '/dashboard/factory/wood-transfer'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-transfer' ? colors.primary : colors.grey.main }}>
+                  <LocalShippingIcon />
+                </ListItemIcon>
+                <ListItemText primary="Wood Transfer" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={submenuStyles}
+                onClick={() => handleNavigate('/dashboard/factory/inventory')}
+                selected={location.pathname === '/dashboard/factory/inventory'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/inventory' ? colors.primary : colors.grey.main }}>
+                  <InventoryIcon />
+                </ListItemIcon>
+                <ListItemText primary="Inventory Reports" />
               </ListItem>
             </List>
           </Collapse>
@@ -339,10 +365,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/management/wood-types')}
-                selected={location.pathname === '/management/wood-types'}
+                onClick={() => handleNavigate('/dashboard/management/wood-types')}
+                selected={location.pathname === '/dashboard/management/wood-types'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/management/wood-types' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/wood-types' ? colors.primary : colors.grey.main }}>
                   <ForestIcon />
                 </ListItemIcon>
                 <ListItemText primary="Wood Types" />
@@ -351,10 +377,22 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/management/wood-receipt')}
-                selected={location.pathname === '/management/wood-receipt'}
+                onClick={() => handleNavigate('/dashboard/management/warehouses')}
+                selected={location.pathname === '/dashboard/management/warehouses'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/management/wood-receipt' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/warehouses' ? colors.primary : colors.grey.main }}>
+                  <WarehouseIcon />
+                </ListItemIcon>
+                <ListItemText primary="Warehouses" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={submenuStyles}
+                onClick={() => handleNavigate('/dashboard/management/wood-receipt')}
+                selected={location.pathname === '/dashboard/management/wood-receipt'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/wood-receipt' ? colors.primary : colors.grey.main }}>
                   <ReceiptLongIcon />
                 </ListItemIcon>
                 <ListItemText primary="LOT Creation" />
@@ -363,10 +401,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/management/approvals')}
-                selected={location.pathname === '/management/approvals'}
+                onClick={() => handleNavigate('/dashboard/management/approvals')}
+                selected={location.pathname === '/dashboard/management/approvals'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/management/approvals' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/approvals' ? colors.primary : colors.grey.main }}>
                   <Badge badgeContent={pendingCount} color="error" sx={{
                     '& .MuiBadge-badge': {
                       right: -3,
@@ -382,10 +420,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/management/drying-settings')}
-                selected={location.pathname === '/management/drying-settings'}
+                onClick={() => handleNavigate('/dashboard/management/drying-settings')}
+                selected={location.pathname === '/dashboard/management/drying-settings'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/management/drying-settings' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/drying-settings' ? colors.primary : colors.grey.main }}>
                   <LocalFireDepartmentIcon />
                 </ListItemIcon>
                 <ListItemText primary="Drying Settings" />
@@ -417,10 +455,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/settings/user')}
-                selected={location.pathname === '/settings/user'}
+                onClick={() => handleNavigate('/dashboard/settings/user')}
+                selected={location.pathname === '/dashboard/settings/user'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/settings/user' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/user' ? colors.primary : colors.grey.main }}>
                   <PersonIcon />
                 </ListItemIcon>
                 <ListItemText primary="User Settings" />
@@ -429,10 +467,10 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItem
                 button
                 sx={submenuStyles}
-                onClick={() => handleNavigate('/settings/admin')}
-                selected={location.pathname === '/settings/admin'}
+                onClick={() => handleNavigate('/dashboard/settings/admin')}
+                selected={location.pathname === '/dashboard/settings/admin'}
               >
-                <ListItemIcon sx={{ color: location.pathname === '/settings/admin' ? colors.primary : colors.grey.main }}>
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/admin' ? colors.primary : colors.grey.main }}>
                   <AdminPanelSettingsIcon />
                 </ListItemIcon>
                 <ListItemText primary="Admin Settings" />

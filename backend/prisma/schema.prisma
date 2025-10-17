@@ -27,6 +27,10 @@ model User {
   designs               Design[]          @relation("DesignCreator")
   comments              Comment[]         @relation("CommentAuthor")
   calculations          WoodCalculation[]
+  assignedWarehouses    WarehouseUser[]
+  createdTransfers      Transfer[]        @relation("TransferCreator")
+  approvedTransfers     Transfer[]        @relation("TransferApprover")
+  stockAdjustments      StockAdjustment[]
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
 
@@ -139,6 +143,9 @@ model WoodType {
   receipts        WoodReceipt[]
   operations      Operation[]
   dryingProcesses DryingProcess[]
+  stock           Stock[]
+  transferItems   TransferItem[]
+  stockAdjustments StockAdjustment[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -231,20 +238,28 @@ model DryingProcess {
   startingElectricityUnits  Float?            // Initial electricity meter reading (kWh) when starting
   startTime                 DateTime
   endTime                   DateTime?
-  status                    String            @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, CANCELLED
+  status                    String            @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, CANCELLED, DAMAGED
   totalCost                 Float?
   notes                     String?
+
+  // Stock Integration Fields
+  useStock                  Boolean           @default(false) // true if using stock, false if manual entry
+  sourceWarehouseId         String?           // Warehouse stock was taken from
+  stockThickness            String?           // Thickness format from stock (1", 2", Custom)
+
   createdAt                 DateTime          @default(now())
   updatedAt                 DateTime          @updatedAt
 
   // Relations
   woodType          WoodType          @relation(fields: [woodTypeId], references: [id])
+  sourceWarehouse   Warehouse?        @relation(fields: [sourceWarehouseId], references: [id])
   readings          DryingReading[]
 
   @@index([status])
   @@index([woodTypeId])
   @@index([startTime])
   @@index([batchNumber])
+  @@index([sourceWarehouseId])
 }
 
 model DryingReading {
@@ -491,4 +506,180 @@ model DepreciationSchedule {
   @@unique([assetId, monthYear])
   @@index([assetId])
   @@index([monthYear])
+}
+
+// ===== WAREHOUSE & INVENTORY MANAGEMENT MODELS =====
+
+enum WarehouseStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TransferStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  IN_TRANSIT
+  COMPLETED
+}
+
+enum WoodStatus {
+  NOT_DRIED
+  UNDER_DRYING
+  DRIED
+  DAMAGED
+}
+
+enum AdjustmentReason {
+  DAMAGED
+  LOST
+  FOUND_EXTRA
+  COUNTING_ERROR
+  OTHER
+}
+
+model Warehouse {
+  id                  String          @id @default(uuid())
+  code                String          @unique
+  name                String
+  address             String?
+  contactPerson       String?
+  stockControlEnabled Boolean         @default(false)
+  requiresApproval    Boolean         @default(false)
+  status              WarehouseStatus @default(ACTIVE)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  // Relations
+  assignedUsers       WarehouseUser[]
+  stock               Stock[]
+  transfersFrom       Transfer[]      @relation("TransferFrom")
+  transfersTo         Transfer[]      @relation("TransferTo")
+  stockAdjustments    StockAdjustment[]
+  dryingProcesses     DryingProcess[]
+
+  @@index([code])
+  @@index([status])
+}
+
+model WarehouseUser {
+  id          String    @id @default(uuid())
+  warehouseId String
+  userId      String
+  createdAt   DateTime  @default(now())
+
+  // Relations
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, userId])
+  @@index([warehouseId])
+  @@index([userId])
+}
+
+model Stock {
+  id                  String    @id @default(uuid())
+  warehouseId         String
+  woodTypeId          String
+  thickness           String    // "1\"", "2\"", "Custom"
+
+  // Stock quantities by status
+  statusNotDried      Int       @default(0)
+  statusUnderDrying   Int       @default(0)
+  statusDried         Int       @default(0)
+  statusDamaged       Int       @default(0)
+  statusInTransitOut  Int       @default(0)
+  statusInTransitIn   Int       @default(0)
+
+  // Alert threshold
+  minimumStockLevel   Int?
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  // Relations
+  warehouse           Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  woodType            WoodType  @relation(fields: [woodTypeId], references: [id])
+
+  @@unique([warehouseId, woodTypeId, thickness])
+  @@index([warehouseId])
+  @@index([woodTypeId])
+}
+
+model Transfer {
+  id                String         @id @default(uuid())
+  transferNumber    String         @unique
+  fromWarehouseId   String
+  toWarehouseId     String
+  status            TransferStatus @default(PENDING)
+  transferDate      DateTime       @default(now())
+  notes             String?        // General notes for the entire transfer
+
+  // Approval tracking
+  createdById       String
+  approvedById      String?
+  approvedAt        DateTime?
+  completedAt       DateTime?
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // Relations
+  fromWarehouse     Warehouse      @relation("TransferFrom", fields: [fromWarehouseId], references: [id])
+  toWarehouse       Warehouse      @relation("TransferTo", fields: [toWarehouseId], references: [id])
+  createdBy         User           @relation("TransferCreator", fields: [createdById], references: [id])
+  approvedBy        User?          @relation("TransferApprover", fields: [approvedById], references: [id])
+  items             TransferItem[] // Multiple line items per transfer
+
+  @@index([transferNumber])
+  @@index([fromWarehouseId])
+  @@index([toWarehouseId])
+  @@index([status])
+  @@index([transferDate])
+  @@index([createdById])
+}
+
+model TransferItem {
+  id          String     @id @default(uuid())
+  transferId  String
+  woodTypeId  String
+  thickness   String     // "1\"", "2\"", "Custom"
+  quantity    Int
+  woodStatus  WoodStatus @default(NOT_DRIED)
+  remarks     String?    // Specific remarks for this line item
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relations
+  transfer    Transfer   @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  woodType    WoodType   @relation(fields: [woodTypeId], references: [id])
+
+  @@index([transferId])
+  @@index([woodTypeId])
+}
+
+model StockAdjustment {
+  id              String            @id @default(uuid())
+  warehouseId     String
+  woodTypeId      String
+  thickness       String            // "1\"", "2\"", "Custom"
+  woodStatus      WoodStatus
+  quantityBefore  Int
+  quantityAfter   Int
+  quantityChange  Int               // Can be negative
+  reason          AdjustmentReason
+  notes           String?
+  adjustedById    String
+  adjustedAt      DateTime          @default(now())
+  createdAt       DateTime          @default(now())
+
+  // Relations
+  warehouse       Warehouse         @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  woodType        WoodType          @relation(fields: [woodTypeId], references: [id])
+  adjustedBy      User              @relation(fields: [adjustedById], references: [id])
+
+  @@index([warehouseId])
+  @@index([woodTypeId])
+  @@index([adjustedAt])
+  @@index([adjustedById])
 }
