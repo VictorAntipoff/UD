@@ -6,8 +6,11 @@ import {
   DryingProcess,
   ReceiptProcessing
 } from '../pages/factory';
+import WoodTransfer from '../pages/factory/WoodTransfer';
+import InventoryReports from '../pages/factory/InventoryReports';
 import { UserSettings, AdminSettings } from '../pages/settings';
 import WoodTypeManagement from '../pages/management/WoodTypeManagement';
+import WarehouseManagement from '../pages/management/WarehouseManagement';
 import LoginPage from '../pages/auth/LoginPage';
 import UnauthorizedPage from '../pages/auth/UnauthorizedPage';
 import { ProtectedRoute } from '../components/ProtectedRoute';
@@ -53,6 +56,14 @@ export const routes: RouteObject[] = [
             element: <DryingProcess />
           },
           {
+            path: 'wood-transfer',
+            element: <WoodTransfer />
+          },
+          {
+            path: 'inventory',
+            element: <InventoryReports />
+          },
+          {
             path: 'receipt-processing',
             element: <ReceiptProcessing />
           }
@@ -64,6 +75,10 @@ export const routes: RouteObject[] = [
           {
             path: 'wood-types',
             element: <WoodTypeManagement />
+          },
+          {
+            path: 'warehouses',
+            element: <WarehouseManagement />
           },
           {
             path: 'approvals',
