@@ -1,3 +1,10 @@
+-- CreateEnum (if not exists)
+DO $$ BEGIN
+ CREATE TYPE "WoodStatus" AS ENUM ('NOT_DRIED', 'UNDER_DRYING', 'DRIED', 'DAMAGED');
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+
 -- CreateTable
 CREATE TABLE "TransferItem" (
     "id" TEXT NOT NULL,

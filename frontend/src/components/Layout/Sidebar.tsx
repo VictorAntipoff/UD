@@ -30,6 +30,9 @@ import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import LanguageIcon from '@mui/icons-material/Language';
+import ArticleIcon from '@mui/icons-material/Article';
+import FolderIcon from '@mui/icons-material/Folder';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -61,6 +64,9 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   const [managementOpen, setManagementOpen] = useState(
     location.pathname.startsWith('/dashboard/management')
   );
+  const [websiteOpen, setWebsiteOpen] = useState(
+    location.pathname.startsWith('/dashboard/website')
+  );
   const [pendingCount, setPendingCount] = useState(0);
 
   const handleMenuClick = (
@@ -72,6 +78,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
     setAssetsOpen(false);
     setSettingsOpen(false);
     setManagementOpen(false);
+    setWebsiteOpen(false);
 
     // Then open the clicked one if it was closed
     if (!currentState) {
@@ -427,6 +434,53 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                   <LocalFireDepartmentIcon />
                 </ListItemIcon>
                 <ListItemText primary="Drying Settings" />
+              </ListItem>
+            </List>
+          </Collapse>
+
+          {/* Website Section */}
+          <ListItem button onClick={handleMenuClick(setWebsiteOpen, websiteOpen)} sx={sectionHeaderStyles}>
+            <ListItemIcon sx={{
+              color: websiteOpen ? colors.primary : colors.grey.main,
+              transition: 'all 0.3s ease'
+            }}>
+              <LanguageIcon />
+            </ListItemIcon>
+            <ListItemText primary="Website" />
+            <Box sx={{
+              transition: 'transform 0.3s ease',
+              transform: websiteOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+              display: 'flex',
+              alignItems: 'center'
+            }}>
+              <ExpandMore />
+            </Box>
+          </ListItem>
+
+          <Collapse in={websiteOpen} timeout="auto" unmountOnExit>
+            <List component="div" disablePadding>
+              <ListItem
+                button
+                sx={submenuStyles}
+                onClick={() => handleNavigate('/dashboard/website/pages')}
+                selected={location.pathname === '/dashboard/website/pages'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/website/pages' ? colors.primary : colors.grey.main }}>
+                  <ArticleIcon />
+                </ListItemIcon>
+                <ListItemText primary="Pages" />
+              </ListItem>
+
+              <ListItem
+                button
+                sx={submenuStyles}
+                onClick={() => handleNavigate('/dashboard/website/files')}
+                selected={location.pathname === '/dashboard/website/files'}
+              >
+                <ListItemIcon sx={{ color: location.pathname === '/dashboard/website/files' ? colors.primary : colors.grey.main }}>
+                  <FolderIcon />
+                </ListItemIcon>
+                <ListItemText primary="Files" />
               </ListItem>
             </List>
           </Collapse>

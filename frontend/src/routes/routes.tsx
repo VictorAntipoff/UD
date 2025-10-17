@@ -22,6 +22,9 @@ import AssetList from '../pages/assets/AssetList';
 import AssetDetail from '../pages/assets/AssetDetail';
 import AssetForm from '../pages/assets/AssetForm';
 import ComingSoon from '../pages/ComingSoon';
+import Pages from '../pages/website/Pages';
+import PageEditor from '../pages/website/PageEditor';
+import Files from '../pages/website/Files';
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -125,6 +128,28 @@ export const routes: RouteObject[] = [
           {
             path: ':id/edit',
             element: <AssetForm />
+          }
+        ]
+      },
+      {
+        path: 'website',
+        children: [
+          {
+            path: 'pages',
+            children: [
+              {
+                index: true,
+                element: <Pages />
+              },
+              {
+                path: ':pageId',
+                element: <PageEditor />
+              }
+            ]
+          },
+          {
+            path: 'files',
+            element: <Files />
           }
         ]
       }
