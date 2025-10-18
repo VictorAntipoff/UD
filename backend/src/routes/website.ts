@@ -141,6 +141,128 @@ async function websiteRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // ===== FOLDER ROUTES =====
+
+  // Get folders and files in a specific folder (or root if no folderId)
+  fastify.get('/folders', async (request, reply) => {
+    try {
+      const { parentId } = request.query as { parentId?: string };
+
+      const folders = await prisma.websiteFolder.findMany({
+        where: { parentId: parentId || null },
+        orderBy: { name: 'asc' },
+        include: {
+          _count: {
+            select: { files: true, subfolders: true },
+          },
+        },
+      });
+
+      const files = await prisma.websiteFile.findMany({
+        where: { folderId: parentId || null },
+        orderBy: { uploadedAt: 'desc' },
+      });
+
+      reply.send({ folders, files });
+    } catch (error: any) {
+      reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Get folder breadcrumb path
+  fastify.get('/folders/:id/path', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const path = [];
+      let currentFolder = await prisma.websiteFolder.findUnique({
+        where: { id },
+      });
+
+      while (currentFolder) {
+        path.unshift({ id: currentFolder.id, name: currentFolder.name });
+        if (currentFolder.parentId) {
+          currentFolder = await prisma.websiteFolder.findUnique({
+            where: { id: currentFolder.parentId },
+          });
+        } else {
+          currentFolder = null;
+        }
+      }
+
+      reply.send(path);
+    } catch (error: any) {
+      reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Create a new folder
+  fastify.post('/folders', async (request, reply) => {
+    try {
+      const { name, parentId } = request.body as { name: string; parentId?: string };
+      const userId = (request as any).user?.userId;
+
+      const folder = await prisma.websiteFolder.create({
+        data: {
+          name,
+          parentId: parentId || null,
+          createdBy: userId,
+        },
+      });
+
+      reply.status(201).send(folder);
+    } catch (error: any) {
+      reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Rename a folder
+  fastify.put('/folders/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { name } = request.body as { name: string };
+
+      const folder = await prisma.websiteFolder.update({
+        where: { id },
+        data: { name },
+      });
+
+      reply.send(folder);
+    } catch (error: any) {
+      reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Delete a folder (cascade deletes subfolders and files)
+  fastify.delete('/folders/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      // Get all files in this folder and subfolders to delete from disk
+      const files = await prisma.websiteFile.findMany({
+        where: { folderId: id },
+      });
+
+      // Delete files from disk
+      for (const file of files) {
+        const filePath = path.join(UPLOADS_DIR, file.fileName);
+        try {
+          await unlink(filePath);
+        } catch (error) {
+          console.error(`Error deleting file ${file.fileName}:`, error);
+        }
+      }
+
+      // Delete folder (cascade deletes files and subfolders)
+      await prisma.websiteFolder.delete({
+        where: { id },
+      });
+
+      reply.send({ message: 'Folder deleted successfully' });
+    } catch (error: any) {
+      reply.status(500).send({ error: error.message });
+    }
+  });
+
   // ===== FILE ROUTES =====
 
   // Get all files
@@ -162,9 +284,12 @@ async function websiteRoutes(fastify: FastifyInstance) {
       const userId = (request as any).user?.userId;
       const parts = request.parts();
       const uploadedFiles = [];
+      let folderId: string | null = null;
 
       for await (const part of parts) {
-        if (part.type === 'file') {
+        if (part.type === 'field' && part.fieldname === 'folderId') {
+          folderId = part.value as string || null;
+        } else if (part.type === 'file') {
           // Generate unique filename
           const ext = path.extname(part.filename);
           const uniqueName = `${crypto.randomBytes(16).toString('hex')}${ext}`;
@@ -186,6 +311,7 @@ async function websiteRoutes(fastify: FastifyInstance) {
               size: stats.size,
               path: `/uploads/website/${uniqueName}`,
               url: `/uploads/website/${uniqueName}`,
+              folderId: folderId,
               uploadedBy: userId,
             },
           });
