@@ -880,6 +880,227 @@ async function transferRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'Failed to fetch transfer history' });
     }
   });
+
+  // Admin-only: Edit a transfer (even if completed)
+  fastify.put('/:id/admin-edit', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = request.body as any;
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      // SECURITY: Only ADMIN can edit transfers
+      if (userRole !== 'ADMIN') {
+        return reply.status(403).send({
+          error: 'Access denied',
+          message: 'Only administrators can edit transfers'
+        });
+      }
+
+      // Get current user info for history
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      // Get existing transfer with all details
+      const existingTransfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: {
+          fromWarehouse: true,
+          toWarehouse: true,
+          items: {
+            include: {
+              woodType: true
+            }
+          }
+        }
+      });
+
+      if (!existingTransfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      // Track changes for history
+      const changes: string[] = [];
+
+      // Check what changed
+      if (data.transferDate && new Date(data.transferDate).getTime() !== new Date(existingTransfer.transferDate).getTime()) {
+        changes.push(`Transfer date changed from ${new Date(existingTransfer.transferDate).toLocaleDateString()} to ${new Date(data.transferDate).toLocaleDateString()}`);
+      }
+
+      if (data.notes !== undefined && data.notes !== existingTransfer.notes) {
+        changes.push(`Notes updated`);
+      }
+
+      if (data.fromWarehouseId && data.fromWarehouseId !== existingTransfer.fromWarehouseId) {
+        changes.push(`Source warehouse changed`);
+      }
+
+      if (data.toWarehouseId && data.toWarehouseId !== existingTransfer.toWarehouseId) {
+        changes.push(`Destination warehouse changed`);
+      }
+
+      // Update transfer and log history in a transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // Update the transfer
+        const updatedTransfer = await tx.transfer.update({
+          where: { id },
+          data: {
+            transferDate: data.transferDate ? new Date(data.transferDate) : undefined,
+            notes: data.notes !== undefined ? data.notes : undefined,
+            fromWarehouseId: data.fromWarehouseId || undefined,
+            toWarehouseId: data.toWarehouseId || undefined
+          },
+          include: {
+            fromWarehouse: true,
+            toWarehouse: true,
+            items: {
+              include: {
+                woodType: true
+              }
+            },
+            createdBy: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true
+              }
+            },
+            approvedBy: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        });
+
+        // Log the edit in history
+        if (changes.length > 0) {
+          const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+          await tx.transferHistory.create({
+            data: {
+              transferId: updatedTransfer.id,
+              transferNumber: updatedTransfer.transferNumber,
+              userId: currentUser.id,
+              userName,
+              userEmail: currentUser.email,
+              action: 'EDITED',
+              details: `Admin edit: ${changes.join(', ')}`
+            }
+          });
+        }
+
+        return updatedTransfer;
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error editing transfer:', error);
+      return reply.status(500).send({ error: 'Failed to edit transfer' });
+    }
+  });
+
+  // Admin-only: Edit transfer items
+  fastify.put('/:id/items/:itemId', async (request, reply) => {
+    try {
+      const { id, itemId } = request.params as { id: string; itemId: string };
+      const data = request.body as any;
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      // SECURITY: Only ADMIN can edit transfer items
+      if (userRole !== 'ADMIN') {
+        return reply.status(403).send({
+          error: 'Access denied',
+          message: 'Only administrators can edit transfer items'
+        });
+      }
+
+      // Get current user info for history
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      // Get existing item
+      const existingItem = await prisma.transferItem.findUnique({
+        where: { id: itemId },
+        include: {
+          transfer: true,
+          woodType: true
+        }
+      });
+
+      if (!existingItem || existingItem.transferId !== id) {
+        return reply.status(404).send({ error: 'Transfer item not found' });
+      }
+
+      // Track changes
+      const changes: string[] = [];
+      if (data.quantity && data.quantity !== existingItem.quantity) {
+        changes.push(`Quantity changed from ${existingItem.quantity} to ${data.quantity}`);
+      }
+      if (data.thickness && data.thickness !== existingItem.thickness) {
+        changes.push(`Thickness changed from ${existingItem.thickness} to ${data.thickness}`);
+      }
+      if (data.woodStatus && data.woodStatus !== existingItem.woodStatus) {
+        changes.push(`Status changed from ${existingItem.woodStatus} to ${data.woodStatus}`);
+      }
+
+      // Update item and log history
+      const result = await prisma.$transaction(async (tx) => {
+        const updatedItem = await tx.transferItem.update({
+          where: { id: itemId },
+          data: {
+            woodTypeId: data.woodTypeId || undefined,
+            thickness: data.thickness || undefined,
+            quantity: data.quantity || undefined,
+            woodStatus: data.woodStatus || undefined,
+            remarks: data.remarks !== undefined ? data.remarks : undefined
+          },
+          include: {
+            woodType: true
+          }
+        });
+
+        // Log the edit
+        if (changes.length > 0) {
+          const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+          await tx.transferHistory.create({
+            data: {
+              transferId: id,
+              transferNumber: existingItem.transfer.transferNumber,
+              userId: currentUser.id,
+              userName,
+              userEmail: currentUser.email,
+              action: 'ITEM_EDITED',
+              details: `Admin edit (${existingItem.woodType.name}): ${changes.join(', ')}`
+            }
+          });
+        }
+
+        return updatedItem;
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error editing transfer item:', error);
+      return reply.status(500).send({ error: 'Failed to edit transfer item' });
+    }
+  });
 }
 
 export default transferRoutes;

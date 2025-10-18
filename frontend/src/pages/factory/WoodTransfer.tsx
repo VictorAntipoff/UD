@@ -50,6 +50,7 @@ import { format } from 'date-fns';
 import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
 import { WoodTransferReport } from '../../components/reports/WoodTransferReport';
 import { useAuth } from '../../hooks/useAuth';
+import EditIcon from '@mui/icons-material/Edit';
 
 interface Warehouse {
   id: string;
@@ -121,11 +122,16 @@ const WoodTransfer: FC = () => {
   // Dialog states
   const [openDialog, setOpenDialog] = useState(false);
   const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
+  const [openEditDialog, setOpenEditDialog] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [formData, setFormData] = useState({
     fromWarehouseId: '',
     toWarehouseId: '',
     transferDate: new Date().toISOString().split('T')[0], // Default to today
+    notes: ''
+  });
+  const [editFormData, setEditFormData] = useState({
+    transferDate: '',
     notes: ''
   });
 
@@ -178,10 +184,12 @@ const WoodTransfer: FC = () => {
   };
 
   const handleOpenDialog = () => {
+    // Only reset form fields, but keep transferDate from the current state
+    // This preserves the user-selected date
     setFormData({
+      ...formData, // Keep existing formData (especially transferDate)
       fromWarehouseId: '',
       toWarehouseId: '',
-      transferDate: new Date().toISOString().split('T')[0],
       notes: ''
     });
     setLineItems([
@@ -287,6 +295,33 @@ const WoodTransfer: FC = () => {
       fetchTransfers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to complete transfer');
+    }
+  };
+
+  const handleOpenEdit = (transfer: Transfer) => {
+    setSelectedTransfer(transfer);
+    setEditFormData({
+      transferDate: transfer.transferDate.split('T')[0],
+      notes: transfer.notes || ''
+    });
+    setOpenEditDialog(true);
+  };
+
+  const handleCloseEdit = () => {
+    setOpenEditDialog(false);
+    setSelectedTransfer(null);
+  };
+
+  const handleSubmitEdit = async () => {
+    if (!selectedTransfer) return;
+
+    try {
+      await api.put(`/transfers/${selectedTransfer.id}/admin-edit`, editFormData);
+      setSuccess('Transfer updated successfully');
+      handleCloseEdit();
+      fetchTransfers();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update transfer');
     }
   };
 
@@ -649,6 +684,18 @@ const WoodTransfer: FC = () => {
                         onClick={() => handleComplete(transfer.id)}
                       >
                         Mark Received
+                      </Button>
+                    )}
+                    {/* Admin-only: Edit button for completed transfers */}
+                    {user?.role === 'ADMIN' && transfer.status === 'COMPLETED' && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="warning"
+                        startIcon={<EditIcon />}
+                        onClick={() => handleOpenEdit(transfer)}
+                      >
+                        Edit
                       </Button>
                     )}
                           </Box>
@@ -1120,6 +1167,94 @@ const WoodTransfer: FC = () => {
             )}
             <Button onClick={handleCloseDetails} variant="contained">
               Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Admin Edit Transfer Dialog */}
+        <Dialog
+          open={openEditDialog}
+          onClose={handleCloseEdit}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box display="flex" alignItems="center" gap={1}>
+              <EditIcon color="warning" />
+              <Typography variant="h6" fontWeight="bold">
+                Edit Transfer (Admin)
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            {selectedTransfer && (
+              <Stack spacing={3} sx={{ mt: 2 }}>
+                <Alert severity="warning">
+                  You are editing a completed transfer. All changes will be logged in the transfer history.
+                </Alert>
+
+                <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f1f5f9', border: '1px solid #e2e8f0' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Transfer Number
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium">
+                    {selectedTransfer.transferNumber}
+                  </Typography>
+                </Paper>
+
+                <TextField
+                  label="Transfer Date"
+                  type="date"
+                  value={editFormData.transferDate}
+                  onChange={(e) => setEditFormData({ ...editFormData, transferDate: e.target.value })}
+                  fullWidth
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <CalendarTodayIcon color="action" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                <TextField
+                  label="Notes"
+                  value={editFormData.notes}
+                  onChange={(e) => setEditFormData({ ...editFormData, notes: e.target.value })}
+                  fullWidth
+                  multiline
+                  rows={4}
+                  placeholder="Add or update notes..."
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <NotesIcon color="action" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                <Alert severity="info">
+                  <strong>Note:</strong> Warehouse and item details cannot be changed after completion. Contact system administrator if stock adjustments are needed.
+                </Alert>
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={handleCloseEdit} size="large">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitEdit}
+              variant="contained"
+              color="warning"
+              size="large"
+              startIcon={<EditIcon />}
+            >
+              Save Changes
             </Button>
           </DialogActions>
         </Dialog>

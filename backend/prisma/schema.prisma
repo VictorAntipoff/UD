@@ -726,18 +726,36 @@ model WebsitePage {
   @@index([status])
 }
 
+model WebsiteFolder {
+  id              String            @id @default(uuid())
+  name            String
+  parentId        String?           // Null for root folders
+  parent          WebsiteFolder?    @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  subfolders      WebsiteFolder[]   @relation("FolderHierarchy")
+  files           WebsiteFile[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  createdBy       String?
+
+  @@index([parentId])
+  @@index([createdBy])
+}
+
 model WebsiteFile {
-  id              String   @id @default(uuid())
-  name            String   // Display name
-  originalName    String   // Original uploaded filename
-  fileName        String   // Actual file name on disk (unique)
+  id              String          @id @default(uuid())
+  name            String          // Display name
+  originalName    String          // Original uploaded filename
+  fileName        String          // Actual file name on disk (unique)
   mimeType        String
-  size            Int      // File size in bytes
-  path            String   // Storage path relative to uploads folder
-  url             String   // Public URL to access the file
-  uploadedAt      DateTime @default(now())
+  size            Int             // File size in bytes
+  path            String          // Storage path relative to uploads folder
+  url             String          // Public URL to access the file
+  folderId        String?         // Null for root level files
+  folder          WebsiteFolder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  uploadedAt      DateTime        @default(now())
   uploadedBy      String?
 
   @@index([uploadedAt])
   @@index([uploadedBy])
+  @@index([folderId])
 }
