@@ -241,22 +241,14 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Generate transfer number (format: TRF-YYYYMMDD-XXXX)
-      const today = new Date();
-      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
-      const count = await prisma.transfer.count({
-        where: {
-          transferNumber: {
-            startsWith: `TRF-${dateStr}`
-          }
-        }
-      });
-      const transferNumber = `TRF-${dateStr}-${String(count + 1).padStart(4, '0')}`;
+      // Generate transfer number (format: UD-TRF-00001)
+      const count = await prisma.transfer.count();
+      const transferNumber = `UD-TRF-${String(count + 1).padStart(5, '0')}`;
 
       // Determine initial status based on whether approval is required
       const initialStatus = fromWarehouse.requiresApproval ? 'PENDING' : 'APPROVED';
 
-      // Create transfer in a transaction
+      // Create transfer in a transaction with increased timeout
       const result = await prisma.$transaction(async (tx) => {
         // Create the transfer
         const transfer = await tx.transfer.create({
@@ -383,6 +375,9 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
 
         return transfer;
+      }, {
+        maxWait: 10000, // 10 seconds max wait to get a connection
+        timeout: 15000, // 15 seconds transaction timeout
       });
 
       return result;

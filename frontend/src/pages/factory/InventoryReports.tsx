@@ -94,6 +94,22 @@ interface LowStockAlert {
   statusDried: number;
 }
 
+interface Transfer {
+  id: string;
+  transferNumber: string;
+  fromWarehouse: Warehouse;
+  toWarehouse: Warehouse;
+  status: string;
+  transferDate: string;
+  items: Array<{
+    id: string;
+    woodType: WoodType;
+    thickness: string;
+    quantity: number;
+    woodStatus: string;
+  }>;
+}
+
 interface StockAdjustment {
   id: string;
   warehouse: Warehouse;
@@ -125,11 +141,13 @@ const InventoryReports: FC = () => {
   const [consolidatedStock, setConsolidatedStock] = useState<ConsolidatedStock | null>(null);
   const [lowStockAlerts, setLowStockAlerts] = useState<LowStockAlert[]>([]);
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
+  const [inTransitTransfers, setInTransitTransfers] = useState<Transfer[]>([]);
 
   useEffect(() => {
     fetchWarehouses();
     fetchLowStockAlerts();
     fetchAdjustments();
+    fetchInTransitTransfers();
   }, []);
 
   useEffect(() => {
@@ -194,6 +212,18 @@ const InventoryReports: FC = () => {
       setAdjustments(response.data);
     } catch (err) {
       console.error('Failed to fetch adjustments:', err);
+    }
+  };
+
+  const fetchInTransitTransfers = async () => {
+    try {
+      const response = await api.get('/transfers');
+      const inTransit = response.data.filter((transfer: Transfer) =>
+        transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT'
+      );
+      setInTransitTransfers(inTransit);
+    } catch (err) {
+      console.error('Failed to fetch in-transit transfers:', err);
     }
   };
 
@@ -368,7 +398,7 @@ const InventoryReports: FC = () => {
                   </AccordionSummary>
                   <AccordionDetails>
                     <Grid container spacing={2} sx={{ mb: 2 }}>
-                      <Grid item xs={3}>
+                      <Grid item xs={2.4}>
                         <Card variant="outlined">
                           <CardContent>
                             <Typography variant="caption" color="text.secondary">
@@ -378,7 +408,7 @@ const InventoryReports: FC = () => {
                           </CardContent>
                         </Card>
                       </Grid>
-                      <Grid item xs={3}>
+                      <Grid item xs={2.4}>
                         <Card variant="outlined">
                           <CardContent>
                             <Typography variant="caption" color="text.secondary">
@@ -388,7 +418,7 @@ const InventoryReports: FC = () => {
                           </CardContent>
                         </Card>
                       </Grid>
-                      <Grid item xs={3}>
+                      <Grid item xs={2.4}>
                         <Card variant="outlined">
                           <CardContent>
                             <Typography variant="caption" color="text.secondary">
@@ -398,13 +428,25 @@ const InventoryReports: FC = () => {
                           </CardContent>
                         </Card>
                       </Grid>
-                      <Grid item xs={3}>
+                      <Grid item xs={2.4}>
                         <Card variant="outlined">
                           <CardContent>
                             <Typography variant="caption" color="text.secondary">
                               Damaged
                             </Typography>
                             <Typography variant="h6">{item.totalDamaged}</Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={2.4}>
+                        <Card variant="outlined" sx={{ bgcolor: '#e0f2fe' }}>
+                          <CardContent>
+                            <Typography variant="caption" color="text.secondary">
+                              In Transit
+                            </Typography>
+                            <Typography variant="h6" color="primary">
+                              {item.totalInTransit || 0}
+                            </Typography>
                           </CardContent>
                         </Card>
                       </Grid>
@@ -444,6 +486,62 @@ const InventoryReports: FC = () => {
                   </AccordionDetails>
                 </Accordion>
               ))
+            )}
+
+            {/* In Transit Transfers Section */}
+            {inTransitTransfers.length > 0 && (
+              <Box sx={{ mt: 4 }}>
+                <Paper sx={{ p: 2, bgcolor: '#e0f2fe', border: '1px solid #0284c7' }}>
+                  <Box display="flex" alignItems="center" gap={1} mb={2}>
+                    <WarningIcon color="info" />
+                    <Typography variant="h6" fontWeight="bold">
+                      Pending Arrivals ({inTransitTransfers.length} transfers)
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" mb={2}>
+                    The following transfers are in transit and not yet completed at the destination warehouse.
+                  </Typography>
+                  {inTransitTransfers.map((transfer) => (
+                    <Box key={transfer.id} sx={{ mb: 2 }}>
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                        <Typography variant="subtitle2" fontWeight="bold">
+                          {transfer.transferNumber}
+                        </Typography>
+                        <Chip
+                          label={transfer.status}
+                          size="small"
+                          color="primary"
+                        />
+                      </Box>
+                      <Typography variant="caption" color="text.secondary" display="block" mb={1}>
+                        {transfer.fromWarehouse.name} → {transfer.toWarehouse.name} • {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
+                      </Typography>
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell><strong>Wood Type</strong></TableCell>
+                              <TableCell><strong>Thickness</strong></TableCell>
+                              <TableCell align="right"><strong>Quantity</strong></TableCell>
+                              <TableCell><strong>Status</strong></TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {transfer.items.map((item) => (
+                              <TableRow key={item.id}>
+                                <TableCell>{item.woodType.name}</TableCell>
+                                <TableCell>{item.thickness}</TableCell>
+                                <TableCell align="right"><strong>{item.quantity} pcs</strong></TableCell>
+                                <TableCell>{getStatusLabel(item.woodStatus)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </Box>
+                  ))}
+                </Paper>
+              </Box>
             )}
           </Box>
         )}

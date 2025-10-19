@@ -358,6 +358,11 @@ const WoodTransfer: FC = () => {
     return name || user.email;
   };
 
+  // Calculate counts for each tab
+  const pendingCount = transfers.filter(t => t.status === 'PENDING').length;
+  const inTransitCount = transfers.filter(t => t.status === 'APPROVED' || t.status === 'IN_TRANSIT').length;
+  const completedCount = transfers.filter(t => t.status === 'COMPLETED').length;
+
   const filteredTransfers = transfers.filter(transfer => {
     if (tabValue === 0) return transfer.status === 'PENDING';
     if (tabValue === 1) return transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT';
@@ -408,7 +413,7 @@ const WoodTransfer: FC = () => {
         {/* Filter Chips */}
         <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
           <Chip
-            label="Pending Approval"
+            label={`Pending Approval (${pendingCount})`}
             onClick={() => setTabValue(0)}
             color={tabValue === 0 ? 'primary' : 'default'}
             variant={tabValue === 0 ? 'filled' : 'outlined'}
@@ -419,7 +424,7 @@ const WoodTransfer: FC = () => {
             }}
           />
           <Chip
-            label="In Transit"
+            label={`In Transit (${inTransitCount})`}
             onClick={() => setTabValue(1)}
             color={tabValue === 1 ? 'warning' : 'default'}
             variant={tabValue === 1 ? 'filled' : 'outlined'}

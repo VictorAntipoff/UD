@@ -223,6 +223,17 @@ const styles = StyleSheet.create({
   colRemarks: {
     width: '20%'
   },
+  inTransitBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 3,
+    backgroundColor: '#dbeafe'
+  },
+  inTransitBadgeText: {
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1e40af'
+  },
 });
 
 const getStatusLabel = (status: string) => {
@@ -233,6 +244,8 @@ const getStatusLabel = (status: string) => {
       return 'Approved';
     case 'REJECTED':
       return 'Rejected';
+    case 'IN_TRANSIT':
+      return 'In Transit';
     case 'COMPLETED':
       return 'Completed';
     default:
@@ -248,6 +261,8 @@ const getStatusColor = (status: string) => {
       return { backgroundColor: '#d1fae5', color: '#065f46' };
     case 'REJECTED':
       return { backgroundColor: '#fee2e2', color: '#991b1b' };
+    case 'IN_TRANSIT':
+      return { backgroundColor: '#e0e7ff', color: '#3730a3' };
     case 'COMPLETED':
       return { backgroundColor: '#dbeafe', color: '#1e40af' };
     default:
@@ -316,10 +331,17 @@ export const WoodTransferReport: React.FC<WoodTransferReportProps> = ({
                 })}
               </Text>
             </View>
-            <View style={[styles.statusBadge, { backgroundColor: statusStyle.backgroundColor }]}>
-              <Text style={[styles.statusText, { color: statusStyle.color }]}>
-                {getStatusLabel(transfer.status)}
-              </Text>
+            <View style={{ flexDirection: 'row', gap: 5 }}>
+              <View style={[styles.statusBadge, { backgroundColor: statusStyle.backgroundColor }]}>
+                <Text style={[styles.statusText, { color: statusStyle.color }]}>
+                  {getStatusLabel(transfer.status)}
+                </Text>
+              </View>
+              {(transfer.status === 'IN_TRANSIT' || transfer.status === 'APPROVED') && (
+                <View style={styles.inTransitBadge}>
+                  <Text style={styles.inTransitBadgeText}>In Transit</Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
