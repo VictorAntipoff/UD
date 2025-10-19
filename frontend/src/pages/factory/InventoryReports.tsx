@@ -35,7 +35,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import api from '../../lib/api';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 interface Warehouse {
   code: string;
@@ -287,7 +287,7 @@ const InventoryReports: FC = () => {
           getAvailableStock(stock).toString()
         ]);
 
-        (doc as any).autoTable({
+        autoTable(doc, {
           startY,
           head: [['Wood Type', 'Thickness', 'Not Dried', 'Under Drying', 'Dried', 'Damaged', 'In Transit', 'Total', 'Available']],
           body: tableData,
