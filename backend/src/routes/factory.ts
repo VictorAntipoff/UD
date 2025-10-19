@@ -733,23 +733,47 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const count = await prisma.dryingProcess.count();
       const batchNumber = `UD-DRY-${String(count + 1).padStart(5, '0')}`;
 
-      const process = await prisma.dryingProcess.create({
-        data: {
-          batchNumber,
-          woodTypeId: data.woodTypeId,
-          thickness: data.thickness,
-          thicknessUnit: data.thicknessUnit || 'mm',
-          pieceCount: data.pieceCount,
-          startingHumidity: data.startingHumidity,
-          startingElectricityUnits: data.startingElectricityUnits,
-          startTime: new Date(data.startTime),
-          notes: data.notes || '',
-          status: 'IN_PROGRESS'
-        },
-        include: {
-          woodType: true,
-          readings: true
+      // Use transaction if updating stock
+      const process = await prisma.$transaction(async (tx) => {
+        // Create the drying process
+        const createdProcess = await tx.dryingProcess.create({
+          data: {
+            batchNumber,
+            woodTypeId: data.woodTypeId,
+            thickness: data.thickness,
+            thicknessUnit: data.thicknessUnit || 'mm',
+            pieceCount: data.pieceCount,
+            startingHumidity: data.startingHumidity,
+            startingElectricityUnits: data.startingElectricityUnits,
+            startTime: new Date(data.startTime),
+            notes: data.notes || '',
+            status: 'IN_PROGRESS',
+            useStock: data.useStock || false,
+            sourceWarehouseId: data.warehouseId || null,
+            stockThickness: data.stockThickness || null
+          },
+          include: {
+            woodType: true,
+            readings: true
+          }
+        });
+
+        // If using stock, update the warehouse stock
+        if (data.useStock && data.warehouseId && data.stockThickness) {
+          await tx.stock.updateMany({
+            where: {
+              warehouseId: data.warehouseId,
+              woodTypeId: data.woodTypeId,
+              thickness: data.stockThickness
+            },
+            data: {
+              statusNotDried: { decrement: data.pieceCount },
+              statusUnderDrying: { increment: data.pieceCount }
+            }
+          });
         }
+
+        return createdProcess;
       });
 
       return process;
@@ -810,27 +834,55 @@ async function factoryRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const process = await prisma.dryingProcess.update({
-        where: { id },
-        data: {
-          ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
-          ...(data.thickness !== undefined && { thickness: data.thickness }),
-          ...(data.thicknessUnit && { thicknessUnit: data.thicknessUnit }),
-          ...(data.pieceCount !== undefined && { pieceCount: data.pieceCount }),
-          ...(data.startingHumidity !== undefined && { startingHumidity: data.startingHumidity }),
-          ...(data.startingElectricityUnits !== undefined && { startingElectricityUnits: data.startingElectricityUnits }),
-          ...(data.startTime && { startTime: new Date(data.startTime) }),
-          ...(data.status && { status: data.status }),
-          ...(data.endTime && { endTime: new Date(data.endTime) }),
-          ...(calculatedCost !== undefined && { totalCost: calculatedCost }),
-          ...(data.notes !== undefined && { notes: data.notes })
-        },
-        include: {
-          woodType: true,
-          readings: {
-            orderBy: { readingTime: 'asc' }
+      // Use transaction to update stock when completing
+      const process = await prisma.$transaction(async (tx) => {
+        // Get current process to check if it's being completed
+        const currentProcess = await tx.dryingProcess.findUnique({
+          where: { id }
+        });
+
+        const updatedProcess = await tx.dryingProcess.update({
+          where: { id },
+          data: {
+            ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
+            ...(data.thickness !== undefined && { thickness: data.thickness }),
+            ...(data.thicknessUnit && { thicknessUnit: data.thicknessUnit }),
+            ...(data.pieceCount !== undefined && { pieceCount: data.pieceCount }),
+            ...(data.startingHumidity !== undefined && { startingHumidity: data.startingHumidity }),
+            ...(data.startingElectricityUnits !== undefined && { startingElectricityUnits: data.startingElectricityUnits }),
+            ...(data.startTime && { startTime: new Date(data.startTime) }),
+            ...(data.status && { status: data.status }),
+            ...(data.endTime && { endTime: new Date(data.endTime) }),
+            ...(calculatedCost !== undefined && { totalCost: calculatedCost }),
+            ...(data.notes !== undefined && { notes: data.notes })
+          },
+          include: {
+            woodType: true,
+            readings: {
+              orderBy: { readingTime: 'asc' }
+            }
           }
+        });
+
+        // If completing the process and it uses stock, update warehouse stock
+        if (data.status === 'COMPLETED' &&
+            currentProcess?.useStock &&
+            currentProcess?.sourceWarehouseId &&
+            currentProcess?.stockThickness) {
+          await tx.stock.updateMany({
+            where: {
+              warehouseId: currentProcess.sourceWarehouseId,
+              woodTypeId: currentProcess.woodTypeId,
+              thickness: currentProcess.stockThickness
+            },
+            data: {
+              statusUnderDrying: { decrement: currentProcess.pieceCount },
+              statusDried: { increment: currentProcess.pieceCount }
+            }
+          });
         }
+
+        return updatedProcess;
       });
 
       return process;
