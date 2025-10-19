@@ -887,6 +887,52 @@ export default function DryingProcess() {
                           {process.woodType.name} • {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
                           {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
                         </Typography>
+                        {/* Electricity summary */}
+                        {process.readings && process.readings.length > 0 && (() => {
+                          const lastReading = process.readings[process.readings.length - 1];
+                          const prevReading = process.readings.length > 1
+                            ? process.readings[process.readings.length - 2].electricityMeter
+                            : process.startingElectricityUnits || 0;
+                          const diff = lastReading.electricityMeter - prevReading;
+                          const usage = Math.abs(diff < 0 ? diff : -diff);
+                          const hasRecharge = diff > 100;
+
+                          return (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                              <ElectricBoltIcon sx={{ fontSize: 16, color: '#f59e0b' }} />
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.875rem' }}>
+                                {lastReading.electricityMeter.toFixed(2)}
+                              </Typography>
+                              {usage > 0 && (
+                                <Chip
+                                  label={`-${usage.toFixed(2)}`}
+                                  size="small"
+                                  sx={{
+                                    height: 20,
+                                    fontSize: '0.7rem',
+                                    backgroundColor: '#dcfce7',
+                                    color: '#16a34a',
+                                    fontWeight: 600
+                                  }}
+                                />
+                              )}
+                              {hasRecharge && (
+                                <Chip
+                                  icon={<ElectricBoltIcon sx={{ fontSize: 12, color: '#f59e0b !important' }} />}
+                                  label="Recharged"
+                                  size="small"
+                                  sx={{
+                                    height: 20,
+                                    fontSize: '0.7rem',
+                                    backgroundColor: '#fef3c7',
+                                    color: '#f59e0b',
+                                    fontWeight: 600
+                                  }}
+                                />
+                              )}
+                            </Box>
+                          );
+                        })()}
                       </Box>
                       <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
                         {process.status === 'IN_PROGRESS' && (
