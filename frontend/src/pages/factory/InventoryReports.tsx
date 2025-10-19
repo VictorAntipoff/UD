@@ -250,28 +250,65 @@ const InventoryReports: FC = () => {
   };
 
   const exportToPDF = () => {
-    const doc = new jsPDF();
+    // Create PDF in landscape orientation
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'mm',
+      format: 'a4'
+    });
+
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
 
-    // Header
-    doc.setFontSize(18);
-    doc.setTextColor(220, 38, 38); // Red color matching app theme
-    doc.text('UD - Inventory Report', pageWidth / 2, 15, { align: 'center' });
+    // Add logo
+    const logo = new Image();
+    logo.src = '/src/assets/images/logo.png';
+    doc.addImage(logo, 'PNG', 14, 10, 25, 8);
 
-    doc.setFontSize(10);
-    doc.setTextColor(100);
-    doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth / 2, 22, { align: 'center' });
+    // Header - Company name and title
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(44, 62, 80); // Dark blue-gray
+    doc.text('U Design', 42, 16);
 
-    let startY = 30;
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(220, 38, 38); // Red
+    doc.text('Inventory Report', 42, 22);
+
+    // Timestamp and version in top right
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // Gray
+    doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth - 14, 14, { align: 'right' });
+    doc.text('v3.9', pageWidth - 14, 18, { align: 'right' });
+
+    // Gray line under header
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(14, 26, pageWidth - 14, 26);
+
+    let startY = 35;
 
     if (tabValue === 0) {
-      // By Warehouse Report
+      // By Warehouse Report - Info box
       const warehouse = warehouses.find(w => w.id === selectedWarehouse);
       if (warehouse) {
-        doc.setFontSize(12);
-        doc.setTextColor(0);
-        doc.text(`Warehouse: ${warehouse.name} (${warehouse.code})`, 14, startY);
-        startY += 10;
+        // Info box background
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.roundedRect(14, startY, pageWidth - 28, 15, 2, 2, 'FD');
+
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text('Warehouse:', 18, startY + 6);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(44, 62, 80);
+        doc.text(`${warehouse.name} (${warehouse.code})`, 18, startY + 11);
+
+        startY += 20;
       }
 
       if (warehouseStock.length > 0) {
@@ -291,35 +328,77 @@ const InventoryReports: FC = () => {
           startY,
           head: [['Wood Type', 'Thickness', 'Not Dried', 'Under Drying', 'Dried', 'Damaged', 'In Transit', 'Total', 'Available']],
           body: tableData,
-          theme: 'striped',
-          headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
-          styles: { fontSize: 9, cellPadding: 3 },
+          theme: 'plain',
+          headStyles: {
+            fillColor: [248, 250, 252],
+            textColor: [30, 41, 59],
+            fontStyle: 'bold',
+            fontSize: 9,
+            halign: 'left',
+            cellPadding: { top: 3, right: 4, bottom: 3, left: 4 },
+            lineWidth: 0.1,
+            lineColor: [226, 232, 240]
+          },
+          bodyStyles: {
+            fontSize: 8,
+            cellPadding: { top: 3, right: 4, bottom: 3, left: 4 },
+            textColor: [44, 62, 80]
+          },
+          alternateRowStyles: {
+            fillColor: [250, 250, 250]
+          },
           columnStyles: {
-            0: { cellWidth: 25 },
-            1: { cellWidth: 20 },
-            2: { cellWidth: 18, halign: 'right' },
-            3: { cellWidth: 18, halign: 'right' },
-            4: { cellWidth: 18, halign: 'right' },
-            5: { cellWidth: 18, halign: 'right' },
-            6: { cellWidth: 18, halign: 'right' },
-            7: { cellWidth: 18, halign: 'right' },
-            8: { cellWidth: 18, halign: 'right' }
-          }
+            0: { cellWidth: 35, fontStyle: 'bold', textColor: [30, 41, 59] },
+            1: { cellWidth: 25, halign: 'center' },
+            2: { cellWidth: 25, halign: 'right' },
+            3: { cellWidth: 28, halign: 'right' },
+            4: { cellWidth: 25, halign: 'right' },
+            5: { cellWidth: 25, halign: 'right' },
+            6: { cellWidth: 25, halign: 'right' },
+            7: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
+            8: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
+          },
+          margin: { left: 14, right: 14 },
+          tableLineColor: [226, 232, 240],
+          tableLineWidth: 0.1
         });
       }
     }
 
-    // Footer
+    // Footer with line and metadata
     const pageCount = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150);
+
+      const footerY = pageHeight - 15;
+
+      // Footer line
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(14, footerY, pageWidth - 14, footerY);
+
+      // Footer text
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('helvetica', 'normal');
+
+      // Left: Company name
+      doc.text('U Design - Wood Management System', 14, footerY + 5);
+
+      // Center: Page number
       doc.text(
         `Page ${i} of ${pageCount}`,
         pageWidth / 2,
-        doc.internal.pageSize.getHeight() - 10,
+        footerY + 5,
         { align: 'center' }
+      );
+
+      // Right: Timestamp
+      doc.text(
+        format(new Date(), 'dd/MM/yyyy HH:mm'),
+        pageWidth - 14,
+        footerY + 5,
+        { align: 'right' }
       );
     }
 
