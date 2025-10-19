@@ -729,17 +729,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return reply.status(400).send({ error: 'Missing required fields' });
       }
 
-      // Generate unique batch number
-      const now = new Date();
-      const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
-      const count = await prisma.dryingProcess.count({
-        where: {
-          batchNumber: {
-            startsWith: `DRY-${dateStr}`
-          }
-        }
-      });
-      const batchNumber = `DRY-${dateStr}-${String(count + 1).padStart(3, '0')}`;
+      // Generate unique batch number (format: UD-DRY-00001)
+      const count = await prisma.dryingProcess.count();
+      const batchNumber = `UD-DRY-${String(count + 1).padStart(5, '0')}`;
 
       const process = await prisma.dryingProcess.create({
         data: {
