@@ -260,35 +260,30 @@ const InventoryReports: FC = () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
-    // Add logo
+    // Add logo - proper aspect ratio (logo is roughly 3.5:1)
     const logo = new Image();
     logo.src = '/src/assets/images/logo.png';
-    doc.addImage(logo, 'PNG', 14, 10, 25, 8);
+    doc.addImage(logo, 'PNG', 14, 8, 30, 8.5);
 
-    // Header - Company name and title
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(44, 62, 80); // Dark blue-gray
-    doc.text('U Design', 42, 16);
-
-    doc.setFontSize(12);
+    // Centered title "Inventory Report"
+    doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(220, 38, 38); // Red
-    doc.text('Inventory Report', 42, 22);
+    doc.text('Inventory Report', pageWidth / 2, 14, { align: 'center' });
 
     // Timestamp and version in top right
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 116, 139); // Gray
-    doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth - 14, 14, { align: 'right' });
-    doc.text('v3.9', pageWidth - 14, 18, { align: 'right' });
+    doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth - 14, 11, { align: 'right' });
+    doc.text('v3.9', pageWidth - 14, 15, { align: 'right' });
 
     // Gray line under header
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(14, 26, pageWidth - 14, 26);
+    doc.line(14, 22, pageWidth - 14, 22);
 
-    let startY = 35;
+    let startY = 30;
 
     if (tabValue === 0) {
       // By Warehouse Report - Info box
@@ -358,48 +353,46 @@ const InventoryReports: FC = () => {
             7: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
             8: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
           },
-          margin: { left: 14, right: 14 },
+          margin: { left: 14, right: 14, bottom: 20 },
           tableLineColor: [226, 232, 240],
-          tableLineWidth: 0.1
+          tableLineWidth: 0.1,
+          didDrawPage: (data: any) => {
+            // Footer on each page
+            const footerY = pageHeight - 15;
+
+            // Footer line
+            doc.setDrawColor(226, 232, 240);
+            doc.setLineWidth(0.5);
+            doc.line(14, footerY, pageWidth - 14, footerY);
+
+            // Footer text
+            doc.setFontSize(7);
+            doc.setTextColor(100, 116, 139);
+            doc.setFont('helvetica', 'normal');
+
+            // Left: Company name
+            doc.text('U Design - Wood Management System', 14, footerY + 5);
+
+            // Center: Page number
+            const pageNum = (doc as any).internal.getCurrentPageInfo().pageNumber;
+            const totalPages = (doc as any).internal.getNumberOfPages();
+            doc.text(
+              `Page ${pageNum} of ${totalPages}`,
+              pageWidth / 2,
+              footerY + 5,
+              { align: 'center' }
+            );
+
+            // Right: Timestamp
+            doc.text(
+              format(new Date(), 'dd/MM/yyyy HH:mm'),
+              pageWidth - 14,
+              footerY + 5,
+              { align: 'right' }
+            );
+          }
         });
       }
-    }
-
-    // Footer with line and metadata
-    const pageCount = (doc as any).internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-
-      const footerY = pageHeight - 15;
-
-      // Footer line
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.5);
-      doc.line(14, footerY, pageWidth - 14, footerY);
-
-      // Footer text
-      doc.setFontSize(7);
-      doc.setTextColor(100, 116, 139);
-      doc.setFont('helvetica', 'normal');
-
-      // Left: Company name
-      doc.text('U Design - Wood Management System', 14, footerY + 5);
-
-      // Center: Page number
-      doc.text(
-        `Page ${i} of ${pageCount}`,
-        pageWidth / 2,
-        footerY + 5,
-        { align: 'center' }
-      );
-
-      // Right: Timestamp
-      doc.text(
-        format(new Date(), 'dd/MM/yyyy HH:mm'),
-        pageWidth - 14,
-        footerY + 5,
-        { align: 'right' }
-      );
     }
 
     const fileName = tabValue === 0
