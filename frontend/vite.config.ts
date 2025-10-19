@@ -9,7 +9,14 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   
   return {
-    plugins: [react()],
+    plugins: [
+      react({
+        jsxImportSource: '@emotion/react',
+        babel: {
+          plugins: ['@emotion/babel-plugin'],
+        },
+      }),
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
@@ -51,10 +58,11 @@ export default defineConfig(({ mode }) => {
           manualChunks: (id) => {
             // Create vendor chunks only for frequently used libraries
             if (id.includes('node_modules')) {
-              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router')) {
+              // Keep Emotion packages together with React to avoid initialization issues
+              if (id.includes('react') || id.includes('react-dom') || id.includes('react-router') || id.includes('@emotion')) {
                 return 'react-vendor';
               }
-              if (id.includes('@mui') || id.includes('@emotion')) {
+              if (id.includes('@mui')) {
                 return 'mui-vendor';
               }
               // Put other node_modules in a common vendor chunk
