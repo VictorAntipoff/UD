@@ -722,6 +722,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
         startingElectricityUnits?: number;
         startTime: string;
         notes?: string;
+        useStock?: boolean;
+        warehouseId?: string;
+        stockThickness?: string;
       };
 
       // Validate required fields
