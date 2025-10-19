@@ -326,6 +326,18 @@ export default function DryingProcess() {
         return;
       }
 
+      // Validate quantity doesn't exceed available not dried stock
+      const requestedQuantity = parseInt(newProcess.pieceCount);
+      if (requestedQuantity > selectedStock.statusNotDried) {
+        alert(`Cannot dry ${requestedQuantity} pieces. Only ${selectedStock.statusNotDried} not dried pieces available.`);
+        return;
+      }
+
+      if (requestedQuantity <= 0) {
+        alert('Please enter a valid number of pieces (minimum 1)');
+        return;
+      }
+
       // Convert thickness string (e.g., "2\"") to mm
       let thicknessInMm: number;
       if (selectedStock.thickness.includes('"')) {
@@ -1633,21 +1645,20 @@ export default function DryingProcess() {
             <TextField
               select
               fullWidth
-              label="Thickness & Available Stock"
+              label="Thickness & Available Stock (Not Dried)"
               value={newProcess.thickness}
               onChange={(e) => setNewProcess({ ...newProcess, thickness: e.target.value })}
               size="small"
               sx={textFieldSx}
               disabled={!newProcess.woodTypeId}
-              helperText={!newProcess.woodTypeId ? 'Select wood type first' : ''}
+              helperText={!newProcess.woodTypeId ? 'Select wood type first' : 'Only not dried pieces can be used for drying'}
             >
               {availableStock
-                .filter(s => s.woodTypeId === newProcess.woodTypeId)
+                .filter(s => s.woodTypeId === newProcess.woodTypeId && s.statusNotDried > 0)
                 .map((stock) => {
-                  const totalAvailable = stock.statusNotDried + stock.statusDried;
                   return (
                     <MenuItem key={stock.id} value={stock.thickness}>
-                      {stock.thickness} - Available: {totalAvailable} pcs (Not Dried: {stock.statusNotDried}, Dried: {stock.statusDried})
+                      {stock.thickness} - Available: {stock.statusNotDried} pcs (Not Dried)
                     </MenuItem>
                   );
                 })}
@@ -1661,6 +1672,16 @@ export default function DryingProcess() {
               onChange={(e) => setNewProcess({ ...newProcess, pieceCount: e.target.value })}
               size="small"
               sx={textFieldSx}
+              disabled={!newProcess.thickness}
+              helperText={
+                newProcess.thickness
+                  ? `Max available: ${availableStock.find(s => s.woodTypeId === newProcess.woodTypeId && s.thickness === newProcess.thickness)?.statusNotDried || 0} pcs`
+                  : 'Select thickness first'
+              }
+              inputProps={{
+                max: availableStock.find(s => s.woodTypeId === newProcess.woodTypeId && s.thickness === newProcess.thickness)?.statusNotDried || 0,
+                min: 1
+              }}
             />
 
             <TextField
