@@ -18,12 +18,13 @@ export default defineConfig(({ mode }) => {
       dedupe: ['@emotion/react', '@emotion/styled', 'react', 'react-dom'],
     },
     optimizeDeps: {
-      include: ['@emotion/react', '@emotion/styled', '@mui/material'],
+      include: ['react', 'react-dom', '@emotion/react', '@emotion/styled', '@mui/material'],
       esbuildOptions: {
         define: {
           global: 'globalThis',
         },
       },
+      force: true,
     },
     server: {
       port: 3020,
