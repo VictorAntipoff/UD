@@ -560,12 +560,38 @@ export default function DryingProcess() {
 
   // AI estimation algorithm - predicts completion time based on humidity trend
   const estimateCompletion = (process: DryingProcess) => {
-    if (!process.readings || process.readings.length < 2) {
-      return null;
-    }
-
     const TARGET_HUMIDITY = 12; // Target humidity percentage
-    const readings = process.readings;
+    const readings = process.readings || [];
+
+    // Handle case with no readings or only 1 reading - show basic chart
+    if (readings.length < 2) {
+      const dataPoints = [
+        {
+          time: new Date(process.startTime).getTime(),
+          humidity: process.startingHumidity || 42,
+          label: 'Initial'
+        },
+        ...(readings.length === 1 ? [{
+          time: new Date(readings[0].readingTime).getTime(),
+          humidity: readings[0].humidity,
+          label: readings[0].readingTime.split('T')[0]
+        }] : [])
+      ];
+
+      return {
+        estimatedDays: null,
+        estimatedDate: null,
+        chartData: dataPoints.map((p, i) => ({
+          index: i,
+          actual: p.humidity,
+          predicted: null,
+          label: p.label
+        })),
+        currentRate: null,
+        targetHumidity: TARGET_HUMIDITY,
+        message: readings.length === 0 ? 'No readings yet - add readings to see estimation' : 'Need at least 2 readings to calculate trend'
+      };
+    }
 
     // Get humidity values with timestamps
     const dataPoints = [
@@ -1291,7 +1317,7 @@ export default function DryingProcess() {
                     </Box>
 
                   {/* AI Completion Estimation */}
-                  {process.status === 'IN_PROGRESS' && process.readings && process.readings.length >= 2 && (
+                  {process.status === 'IN_PROGRESS' && (
                     <Box sx={{ px: 3, pb: 3 }}>
                       {(() => {
                         const estimation = estimateCompletion(process);
@@ -1379,7 +1405,7 @@ export default function DryingProcess() {
                                             Drying Rate
                                           </Typography>
                                           <Typography variant="h6" sx={{ fontWeight: 700, color: '#16a34a', fontSize: '1rem' }}>
-                                            {estimation.currentRate}% per reading
+                                            {estimation.currentRate ? `${estimation.currentRate}% per reading` : 'N/A'}
                                           </Typography>
                                           <Typography variant="caption" sx={{ color: '#64748b' }}>
                                             Humidity decrease
@@ -2232,11 +2258,13 @@ export default function DryingProcess() {
                       ? selectedProcess.readings[selectedProcess.readings.length - 1].humidity
                       : 0;
 
-                    // Calculate running hours for depreciation
+                    // Calculate running hours for depreciation - use last reading time if available
                     const startTime = new Date(selectedProcess.startTime).getTime();
                     const endTime = selectedProcess.endTime
                       ? new Date(selectedProcess.endTime).getTime()
-                      : Date.now();
+                      : selectedProcess.readings.length > 0
+                        ? new Date(selectedProcess.readings[selectedProcess.readings.length - 1].readingTime).getTime()
+                        : Date.now();
                     const runningHours = (endTime - startTime) / (1000 * 60 * 60); // Convert ms to hours
 
                     // Calculate depreciation cost based on actual settings
@@ -2380,7 +2408,9 @@ export default function DryingProcess() {
             const startTime = new Date(selectedProcess.startTime).getTime();
             const endTime = selectedProcess.endTime
               ? new Date(selectedProcess.endTime).getTime()
-              : Date.now();
+              : selectedProcess.readings.length > 0
+                ? new Date(selectedProcess.readings[selectedProcess.readings.length - 1].readingTime).getTime()
+                : Date.now();
             const runningHours = (endTime - startTime) / (1000 * 60 * 60);
 
             const currentHumidity = selectedProcess.readings.length > 0
