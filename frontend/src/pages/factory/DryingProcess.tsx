@@ -1141,14 +1141,16 @@ export default function DryingProcess() {
                                           {reading.electricityMeter.toFixed(2)}
                                         </Typography>
                                         {(() => {
-                                          let prevReading = 0;
+                                          // Get previous reading to calculate usage
+                                          let prevReading = null;
                                           if (index > 0) {
                                             prevReading = process.readings[index - 1].electricityMeter;
                                           } else if (process.startingElectricityUnits) {
                                             prevReading = process.startingElectricityUnits;
                                           }
 
-                                          if (prevReading > 0) {
+                                          // Only show usage if we have a previous reading to compare
+                                          if (prevReading !== null && prevReading > 0) {
                                             const diff = reading.electricityMeter - prevReading;
 
                                             // If large positive jump (>100), it's a recharge
@@ -1198,26 +1200,24 @@ export default function DryingProcess() {
                                               );
                                             }
 
-                                            // Normal usage: meter goes down, so diff is negative
-                                            // Show the absolute value with a minus sign
-                                            if (diff < 0) {
-                                              const usage = Math.abs(diff);
-                                              return (
-                                                <Chip
-                                                  label={`-${usage.toFixed(2)}`}
-                                                  size="small"
-                                                  sx={{
-                                                    height: 18,
-                                                    fontSize: '0.65rem',
-                                                    backgroundColor: '#dcfce7',
-                                                    color: '#16a34a',
-                                                    fontWeight: 600,
-                                                    ml: 0.5
-                                                  }}
-                                                />
-                                              );
-                                            }
-                                            return null;
+                                            // Normal usage: show the difference
+                                            // If diff < 0, meter went down (consumption)
+                                            // If diff > 0 but < 100, unusual but show it anyway
+                                            const usage = Math.abs(diff);
+                                            return (
+                                              <Chip
+                                                label={`-${usage.toFixed(2)}`}
+                                                size="small"
+                                                sx={{
+                                                  height: 18,
+                                                  fontSize: '0.65rem',
+                                                  backgroundColor: '#dcfce7',
+                                                  color: '#16a34a',
+                                                  fontWeight: 600,
+                                                  ml: 0.5
+                                                }}
+                                              />
+                                            );
                                           }
                                           return null;
                                         })()}
