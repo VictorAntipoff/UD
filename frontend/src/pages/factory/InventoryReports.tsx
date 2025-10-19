@@ -22,15 +22,20 @@ import {
   TextField,
   Accordion,
   AccordionSummary,
-  AccordionDetails
+  AccordionDetails,
+  Button,
+  Stack
 } from '@mui/material';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import WarningIcon from '@mui/icons-material/Warning';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import api from '../../lib/api';
 import { format } from 'date-fns';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 interface Warehouse {
   code: string;
@@ -244,6 +249,87 @@ const InventoryReports: FC = () => {
     return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   };
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+
+    // Header
+    doc.setFontSize(18);
+    doc.setTextColor(220, 38, 38); // Red color matching app theme
+    doc.text('UD - Inventory Report', pageWidth / 2, 15, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth / 2, 22, { align: 'center' });
+
+    let startY = 30;
+
+    if (tabValue === 0) {
+      // By Warehouse Report
+      const warehouse = warehouses.find(w => w.id === selectedWarehouse);
+      if (warehouse) {
+        doc.setFontSize(12);
+        doc.setTextColor(0);
+        doc.text(`Warehouse: ${warehouse.name} (${warehouse.code})`, 14, startY);
+        startY += 10;
+      }
+
+      if (warehouseStock.length > 0) {
+        const tableData = warehouseStock.map(stock => [
+          stock.woodType.name,
+          stock.thickness,
+          stock.statusNotDried.toString(),
+          stock.statusUnderDrying.toString(),
+          stock.statusDried.toString(),
+          stock.statusDamaged.toString(),
+          (stock.statusInTransitOut + stock.statusInTransitIn).toString(),
+          getTotalStock(stock).toString(),
+          getAvailableStock(stock).toString()
+        ]);
+
+        (doc as any).autoTable({
+          startY,
+          head: [['Wood Type', 'Thickness', 'Not Dried', 'Under Drying', 'Dried', 'Damaged', 'In Transit', 'Total', 'Available']],
+          body: tableData,
+          theme: 'striped',
+          headStyles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' },
+          styles: { fontSize: 9, cellPadding: 3 },
+          columnStyles: {
+            0: { cellWidth: 25 },
+            1: { cellWidth: 20 },
+            2: { cellWidth: 18, halign: 'right' },
+            3: { cellWidth: 18, halign: 'right' },
+            4: { cellWidth: 18, halign: 'right' },
+            5: { cellWidth: 18, halign: 'right' },
+            6: { cellWidth: 18, halign: 'right' },
+            7: { cellWidth: 18, halign: 'right' },
+            8: { cellWidth: 18, halign: 'right' }
+          }
+        });
+      }
+    }
+
+    // Footer
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150);
+      doc.text(
+        `Page ${i} of ${pageCount}`,
+        pageWidth / 2,
+        doc.internal.pageSize.getHeight() - 10,
+        { align: 'center' }
+      );
+    }
+
+    const fileName = tabValue === 0
+      ? `UD - Inventory Report (${warehouses.find(w => w.id === selectedWarehouse)?.code || 'Warehouse'}).pdf`
+      : 'UD - Inventory Report.pdf';
+
+    doc.save(fileName);
+  };
+
   if (loading && tabValue < 2) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -258,11 +344,31 @@ const InventoryReports: FC = () => {
         {/* Header */}
         <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
           <Box display="flex" alignItems="center" gap={2}>
-            <InventoryIcon sx={{ fontSize: 40, color: 'primary.main' }} />
-            <Typography variant="h4" component="h1" fontWeight="bold">
+            <InventoryIcon sx={{ fontSize: 40, color: '#dc2626' }} />
+            <Typography variant="h4" component="h1" fontWeight={700} sx={{ color: '#1e293b' }}>
               Inventory Reports
             </Typography>
           </Box>
+          {tabValue === 0 && warehouseStock.length > 0 && (
+            <Button
+              variant="contained"
+              startIcon={<PictureAsPdfIcon />}
+              onClick={exportToPDF}
+              sx={{
+                backgroundColor: '#dc2626',
+                color: '#fff',
+                textTransform: 'none',
+                fontWeight: 600,
+                px: 3,
+                '&:hover': {
+                  backgroundColor: '#b91c1c',
+                },
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              Export PDF
+            </Button>
+          )}
         </Box>
 
         {/* Alerts */}
@@ -292,33 +398,64 @@ const InventoryReports: FC = () => {
         {/* Tab 0: By Warehouse */}
         {tabValue === 0 && (
           <Box>
-            <TextField
-              select
-              label="Select Warehouse"
-              value={selectedWarehouse}
-              onChange={(e) => setSelectedWarehouse(e.target.value)}
-              sx={{ mb: 3, minWidth: 300 }}
+            <Paper
+              sx={{
+                p: 2,
+                mb: 3,
+                borderRadius: 2,
+                backgroundColor: '#f8fafc',
+                border: '1px solid #e2e8f0'
+              }}
             >
-              {warehouses.map((w) => (
-                <MenuItem key={w.id} value={w.id}>
-                  {w.name} ({w.code})
-                </MenuItem>
-              ))}
-            </TextField>
+              <TextField
+                select
+                label="Select Warehouse"
+                value={selectedWarehouse}
+                onChange={(e) => setSelectedWarehouse(e.target.value)}
+                sx={{
+                  minWidth: 300,
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: '#fff',
+                    '&:hover fieldset': {
+                      borderColor: '#dc2626',
+                    },
+                    '&.Mui-focused fieldset': {
+                      borderColor: '#dc2626',
+                    }
+                  },
+                  '& .MuiInputLabel-root.Mui-focused': {
+                    color: '#dc2626'
+                  }
+                }}
+              >
+                {warehouses.map((w) => (
+                  <MenuItem key={w.id} value={w.id}>
+                    {w.name} ({w.code})
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Paper>
 
-            <TableContainer component={Paper}>
+            <TableContainer
+              component={Paper}
+              sx={{
+                borderRadius: 2,
+                overflow: 'hidden',
+                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+              }}
+            >
               <Table>
                 <TableHead>
-                  <TableRow>
-                    <TableCell><strong>Wood Type</strong></TableCell>
-                    <TableCell><strong>Thickness</strong></TableCell>
-                    <TableCell align="right"><strong>Not Dried</strong></TableCell>
-                    <TableCell align="right"><strong>Under Drying</strong></TableCell>
-                    <TableCell align="right"><strong>Dried</strong></TableCell>
-                    <TableCell align="right"><strong>Damaged</strong></TableCell>
-                    <TableCell align="right"><strong>In Transit</strong></TableCell>
-                    <TableCell align="right"><strong>Total</strong></TableCell>
-                    <TableCell align="right"><strong>Available</strong></TableCell>
+                  <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                    <TableCell sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Wood Type</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Thickness</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Not Dried</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Under Drying</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Dried</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Damaged</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>In Transit</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Total</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>Available</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -332,29 +469,61 @@ const InventoryReports: FC = () => {
                     </TableRow>
                   ) : (
                     warehouseStock.map((stock) => (
-                      <TableRow key={stock.id} hover>
-                        <TableCell>{stock.woodType.name}</TableCell>
-                        <TableCell>{stock.thickness}</TableCell>
-                        <TableCell align="right">{stock.statusNotDried}</TableCell>
-                        <TableCell align="right">{stock.statusUnderDrying}</TableCell>
-                        <TableCell align="right">{stock.statusDried}</TableCell>
-                        <TableCell align="right">{stock.statusDamaged}</TableCell>
-                        <TableCell align="right">
+                      <TableRow
+                        key={stock.id}
+                        sx={{
+                          '&:hover': {
+                            backgroundColor: '#f8fafc',
+                          },
+                          '&:nth-of-type(even)': {
+                            backgroundColor: '#fafafa',
+                          }
+                        }}
+                      >
+                        <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>
+                          {stock.woodType.name}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                          {stock.thickness}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                          {stock.statusNotDried}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                          {stock.statusUnderDrying}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                          {stock.statusDried}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                          {stock.statusDamaged}
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
                           {stock.statusInTransitOut + stock.statusInTransitIn}
                           {(stock.statusInTransitOut > 0 || stock.statusInTransitIn > 0) && (
-                            <Typography variant="caption" display="block" color="text.secondary">
+                            <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                               Out: {stock.statusInTransitOut} | In: {stock.statusInTransitIn}
                             </Typography>
                           )}
                         </TableCell>
                         <TableCell align="right">
-                          <strong>{getTotalStock(stock)}</strong>
+                          <Typography sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>
+                            {getTotalStock(stock)}
+                          </Typography>
                         </TableCell>
                         <TableCell align="right">
                           <Chip
                             label={getAvailableStock(stock)}
                             size="small"
-                            color="success"
+                            sx={{
+                              backgroundColor: '#dcfce7',
+                              color: '#16a34a',
+                              fontWeight: 700,
+                              fontSize: '0.75rem',
+                              height: 24,
+                              minWidth: 40,
+                              borderRadius: '12px'
+                            }}
                           />
                         </TableCell>
                       </TableRow>
