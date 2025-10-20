@@ -22,6 +22,7 @@ model User {
   failedLoginAttempts   Int               @default(0)
   accountLockedAt       DateTime?
   lastFailedLoginAt     DateTime?
+  permissions           Json?
   projects              Project[]         @relation("ProjectOwner")
   factories             Factory[]
   designs               Design[]          @relation("DesignCreator")

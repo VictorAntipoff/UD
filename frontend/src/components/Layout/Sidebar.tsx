@@ -37,6 +37,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
 import api from '../../lib/api';
+import { useAuth } from '../../contexts/AuthContext';
 
 const TRANSITION_DURATION = 250;
 
@@ -51,6 +52,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const { hasPermission } = useAuth();
 
   const [factoryOpen, setFactoryOpen] = useState(
     location.pathname.startsWith('/dashboard/factory')
@@ -205,332 +207,384 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
       }}>
         <List>
           {/* Dashboard */}
-          <ListItem
-            button
-            onClick={() => handleNavigate('/dashboard')}
-            selected={location.pathname === '/dashboard'}
-            sx={commonButtonStyles}
-          >
-            <ListItemIcon sx={{ color: location.pathname === '/dashboard' ? colors.primary : colors.grey.main }}>
-              <DashboardIcon />
-            </ListItemIcon>
-            <ListItemText primary="Dashboard" />
-          </ListItem>
+          {hasPermission('dashboard') && (
+            <ListItem
+              button
+              onClick={() => handleNavigate('/dashboard')}
+              selected={location.pathname === '/dashboard'}
+              sx={commonButtonStyles}
+            >
+              <ListItemIcon sx={{ color: location.pathname === '/dashboard' ? colors.primary : colors.grey.main }}>
+                <DashboardIcon />
+              </ListItemIcon>
+              <ListItemText primary="Dashboard" />
+            </ListItem>
+          )}
 
           {/* Wood Calculator - Standalone */}
-          <ListItem
-            button
-            onClick={() => handleNavigate('/dashboard/factory/wood-calculator')}
-            selected={location.pathname === '/dashboard/factory/wood-calculator'}
-            sx={commonButtonStyles}
-          >
-            <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-calculator' ? colors.primary : colors.grey.main }}>
-              <CalculateIcon />
-            </ListItemIcon>
-            <ListItemText primary="Wood Calculator" />
-          </ListItem>
+          {hasPermission('wood-calculator') && (
+            <ListItem
+              button
+              onClick={() => handleNavigate('/dashboard/factory/wood-calculator')}
+              selected={location.pathname === '/dashboard/factory/wood-calculator'}
+              sx={commonButtonStyles}
+            >
+              <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-calculator' ? colors.primary : colors.grey.main }}>
+                <CalculateIcon />
+              </ListItemIcon>
+              <ListItemText primary="Wood Calculator" />
+            </ListItem>
+          )}
 
           {/* Assets Section */}
-          <ListItem button onClick={handleMenuClick(setAssetsOpen, assetsOpen)} sx={sectionHeaderStyles}>
-            <ListItemIcon sx={{
-              color: assetsOpen ? colors.primary : colors.grey.main,
-              transition: 'all 0.3s ease'
-            }}>
-              <BusinessCenterIcon />
-            </ListItemIcon>
-            <ListItemText primary="Assets" />
-            <Box sx={{
-              transition: 'transform 0.3s ease',
-              transform: assetsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
-              <ExpandMore />
-            </Box>
-          </ListItem>
-
-          <Collapse in={assetsOpen} timeout="auto" unmountOnExit>
-            <List component="div" disablePadding>
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/assets')}
-                selected={location.pathname === '/dashboard/assets'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/assets' ? colors.primary : colors.grey.main }}>
-                  <InventoryIcon />
+          {hasPermission('assets-items') && (
+            <>
+              <ListItem button onClick={handleMenuClick(setAssetsOpen, assetsOpen)} sx={sectionHeaderStyles}>
+                <ListItemIcon sx={{
+                  color: assetsOpen ? colors.primary : colors.grey.main,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <BusinessCenterIcon />
                 </ListItemIcon>
-                <ListItemText primary="Items" />
+                <ListItemText primary="Assets" />
+                <Box sx={{
+                  transition: 'transform 0.3s ease',
+                  transform: assetsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <ExpandMore />
+                </Box>
               </ListItem>
-            </List>
-          </Collapse>
+
+              <Collapse in={assetsOpen} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding>
+                  <ListItem
+                    button
+                    sx={submenuStyles}
+                    onClick={() => handleNavigate('/dashboard/assets')}
+                    selected={location.pathname === '/dashboard/assets'}
+                  >
+                    <ListItemIcon sx={{ color: location.pathname === '/dashboard/assets' ? colors.primary : colors.grey.main }}>
+                      <InventoryIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Items" />
+                  </ListItem>
+                </List>
+              </Collapse>
+            </>
+          )}
 
           {/* Factory Section */}
-          <ListItem button onClick={handleMenuClick(setFactoryOpen, factoryOpen)} sx={sectionHeaderStyles}>
-            <ListItemIcon sx={{
-              color: factoryOpen ? colors.primary : colors.grey.main,
-              transition: 'all 0.3s ease'
-            }}>
-              <FactoryIcon />
-            </ListItemIcon>
-            <ListItemText primary="Factory" />
-            <Box sx={{
-              transition: 'transform 0.3s ease',
-              transform: factoryOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
-              <ExpandMore />
-            </Box>
-          </ListItem>
+          {(hasPermission('wood-receipt') || hasPermission('wood-slicing') || hasPermission('drying-process') || hasPermission('wood-transfer') || hasPermission('inventory-reports')) && (
+            <>
+              <ListItem button onClick={handleMenuClick(setFactoryOpen, factoryOpen)} sx={sectionHeaderStyles}>
+                <ListItemIcon sx={{
+                  color: factoryOpen ? colors.primary : colors.grey.main,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <FactoryIcon />
+                </ListItemIcon>
+                <ListItemText primary="Factory" />
+                <Box sx={{
+                  transition: 'transform 0.3s ease',
+                  transform: factoryOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <ExpandMore />
+                </Box>
+              </ListItem>
 
-          <Collapse in={factoryOpen} timeout="auto" unmountOnExit>
+              <Collapse in={factoryOpen} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/factory/receipt-processing')}
-                selected={location.pathname === '/dashboard/factory/receipt-processing'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/receipt-processing' ? colors.primary : colors.grey.main }}>
-                  <InventoryIcon />
-                </ListItemIcon>
-                <ListItemText primary="Wood Receipt" />
-              </ListItem>
+              {hasPermission('wood-receipt') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/factory/receipt-processing')}
+                  selected={location.pathname === '/dashboard/factory/receipt-processing'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/receipt-processing' ? colors.primary : colors.grey.main }}>
+                    <InventoryIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Wood Receipt" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/factory/wood-slicer')}
-                selected={location.pathname === '/dashboard/factory/wood-slicer'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-slicer' ? colors.primary : colors.grey.main }}>
-                  <ContentCutIcon />
-                </ListItemIcon>
-                <ListItemText primary="Wood Slicing" />
-              </ListItem>
+              {hasPermission('wood-slicing') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/factory/wood-slicer')}
+                  selected={location.pathname === '/dashboard/factory/wood-slicer'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-slicer' ? colors.primary : colors.grey.main }}>
+                    <ContentCutIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Wood Slicing" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/factory/drying-process')}
-                selected={location.pathname === '/dashboard/factory/drying-process'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/drying-process' ? colors.primary : colors.grey.main }}>
-                  <DryIcon />
-                </ListItemIcon>
-                <ListItemText primary="Drying Process" />
-              </ListItem>
+              {hasPermission('drying-process') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/factory/drying-process')}
+                  selected={location.pathname === '/dashboard/factory/drying-process'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/drying-process' ? colors.primary : colors.grey.main }}>
+                    <DryIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Drying Process" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/factory/wood-transfer')}
-                selected={location.pathname === '/dashboard/factory/wood-transfer'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-transfer' ? colors.primary : colors.grey.main }}>
-                  <LocalShippingIcon />
-                </ListItemIcon>
-                <ListItemText primary="Wood Transfer" />
-              </ListItem>
+              {hasPermission('wood-transfer') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/factory/wood-transfer')}
+                  selected={location.pathname === '/dashboard/factory/wood-transfer'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/wood-transfer' ? colors.primary : colors.grey.main }}>
+                    <LocalShippingIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Wood Transfer" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/factory/inventory')}
-                selected={location.pathname === '/dashboard/factory/inventory'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/inventory' ? colors.primary : colors.grey.main }}>
-                  <InventoryIcon />
-                </ListItemIcon>
-                <ListItemText primary="Inventory Reports" />
-              </ListItem>
+              {hasPermission('inventory-reports') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/factory/inventory')}
+                  selected={location.pathname === '/dashboard/factory/inventory'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/factory/inventory' ? colors.primary : colors.grey.main }}>
+                    <InventoryIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Inventory Reports" />
+                </ListItem>
+              )}
             </List>
           </Collapse>
+            </>
+          )}
 
           {/* Management Section */}
-          <ListItem button onClick={handleMenuClick(setManagementOpen, managementOpen)} sx={sectionHeaderStyles}>
-            <ListItemIcon sx={{
-              color: managementOpen ? colors.primary : colors.grey.main,
-              transition: 'all 0.3s ease'
-            }}>
-              <ManageAccountsIcon />
-            </ListItemIcon>
-            <ListItemText primary="Management" />
-            <Box sx={{
-              transition: 'transform 0.3s ease',
-              transform: managementOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
-              <ExpandMore />
-            </Box>
-          </ListItem>
+          {(hasPermission('wood-types') || hasPermission('warehouses') || hasPermission('lot-creation') || hasPermission('approvals') || hasPermission('drying-settings')) && (
+            <>
+              <ListItem button onClick={handleMenuClick(setManagementOpen, managementOpen)} sx={sectionHeaderStyles}>
+                <ListItemIcon sx={{
+                  color: managementOpen ? colors.primary : colors.grey.main,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <ManageAccountsIcon />
+                </ListItemIcon>
+                <ListItemText primary="Management" />
+                <Box sx={{
+                  transition: 'transform 0.3s ease',
+                  transform: managementOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <ExpandMore />
+                </Box>
+              </ListItem>
 
-          <Collapse in={managementOpen} timeout="auto" unmountOnExit>
+              <Collapse in={managementOpen} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/management/wood-types')}
-                selected={location.pathname === '/dashboard/management/wood-types'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/wood-types' ? colors.primary : colors.grey.main }}>
-                  <ForestIcon />
-                </ListItemIcon>
-                <ListItemText primary="Wood Types" />
-              </ListItem>
+              {hasPermission('wood-types') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/wood-types')}
+                  selected={location.pathname === '/dashboard/management/wood-types'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/wood-types' ? colors.primary : colors.grey.main }}>
+                    <ForestIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Wood Types" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/management/warehouses')}
-                selected={location.pathname === '/dashboard/management/warehouses'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/warehouses' ? colors.primary : colors.grey.main }}>
-                  <WarehouseIcon />
-                </ListItemIcon>
-                <ListItemText primary="Warehouses" />
-              </ListItem>
+              {hasPermission('warehouses') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/warehouses')}
+                  selected={location.pathname === '/dashboard/management/warehouses'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/warehouses' ? colors.primary : colors.grey.main }}>
+                    <WarehouseIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Warehouses" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/management/wood-receipt')}
-                selected={location.pathname === '/dashboard/management/wood-receipt'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/wood-receipt' ? colors.primary : colors.grey.main }}>
-                  <ReceiptLongIcon />
-                </ListItemIcon>
-                <ListItemText primary="LOT Creation" />
-              </ListItem>
+              {hasPermission('lot-creation') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/wood-receipt')}
+                  selected={location.pathname === '/dashboard/management/wood-receipt'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/wood-receipt' ? colors.primary : colors.grey.main }}>
+                    <ReceiptLongIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="LOT Creation" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/management/approvals')}
-                selected={location.pathname === '/dashboard/management/approvals'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/approvals' ? colors.primary : colors.grey.main }}>
-                  <Badge badgeContent={pendingCount} color="error" sx={{
-                    '& .MuiBadge-badge': {
-                      right: -3,
-                      top: 3,
-                    }
-                  }}>
-                    <AssignmentTurnedInIcon />
-                  </Badge>
-                </ListItemIcon>
-                <ListItemText primary="Approvals" />
-              </ListItem>
+              {hasPermission('approvals') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/approvals')}
+                  selected={location.pathname === '/dashboard/management/approvals'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/approvals' ? colors.primary : colors.grey.main }}>
+                    <Badge badgeContent={pendingCount} color="error" sx={{
+                      '& .MuiBadge-badge': {
+                        right: -3,
+                        top: 3,
+                      }
+                    }}>
+                      <AssignmentTurnedInIcon />
+                    </Badge>
+                  </ListItemIcon>
+                  <ListItemText primary="Approvals" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/management/drying-settings')}
-                selected={location.pathname === '/dashboard/management/drying-settings'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/drying-settings' ? colors.primary : colors.grey.main }}>
-                  <LocalFireDepartmentIcon />
-                </ListItemIcon>
-                <ListItemText primary="Drying Settings" />
-              </ListItem>
+              {hasPermission('drying-settings') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/drying-settings')}
+                  selected={location.pathname === '/dashboard/management/drying-settings'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/drying-settings' ? colors.primary : colors.grey.main }}>
+                    <LocalFireDepartmentIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Drying Settings" />
+                </ListItem>
+              )}
             </List>
           </Collapse>
+            </>
+          )}
 
           {/* Website Section */}
-          <ListItem button onClick={handleMenuClick(setWebsiteOpen, websiteOpen)} sx={sectionHeaderStyles}>
-            <ListItemIcon sx={{
-              color: websiteOpen ? colors.primary : colors.grey.main,
-              transition: 'all 0.3s ease'
-            }}>
-              <LanguageIcon />
-            </ListItemIcon>
-            <ListItemText primary="Website" />
-            <Box sx={{
-              transition: 'transform 0.3s ease',
-              transform: websiteOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
-              <ExpandMore />
-            </Box>
-          </ListItem>
-
-          <Collapse in={websiteOpen} timeout="auto" unmountOnExit>
-            <List component="div" disablePadding>
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/website/pages')}
-                selected={location.pathname === '/dashboard/website/pages'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/website/pages' ? colors.primary : colors.grey.main }}>
-                  <ArticleIcon />
+          {(hasPermission('website-pages') || hasPermission('website-files')) && (
+            <>
+              <ListItem button onClick={handleMenuClick(setWebsiteOpen, websiteOpen)} sx={sectionHeaderStyles}>
+                <ListItemIcon sx={{
+                  color: websiteOpen ? colors.primary : colors.grey.main,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <LanguageIcon />
                 </ListItemIcon>
-                <ListItemText primary="Pages" />
+                <ListItemText primary="Website" />
+                <Box sx={{
+                  transition: 'transform 0.3s ease',
+                  transform: websiteOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <ExpandMore />
+                </Box>
               </ListItem>
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/website/files')}
-                selected={location.pathname === '/dashboard/website/files'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/website/files' ? colors.primary : colors.grey.main }}>
-                  <FolderIcon />
-                </ListItemIcon>
-                <ListItemText primary="Files" />
-              </ListItem>
-            </List>
-          </Collapse>
+              <Collapse in={websiteOpen} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding>
+                  {hasPermission('website-pages') && (
+                    <ListItem
+                      button
+                      sx={submenuStyles}
+                      onClick={() => handleNavigate('/dashboard/website/pages')}
+                      selected={location.pathname === '/dashboard/website/pages'}
+                    >
+                      <ListItemIcon sx={{ color: location.pathname === '/dashboard/website/pages' ? colors.primary : colors.grey.main }}>
+                        <ArticleIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Pages" />
+                    </ListItem>
+                  )}
+
+                  {hasPermission('website-files') && (
+                    <ListItem
+                      button
+                      sx={submenuStyles}
+                      onClick={() => handleNavigate('/dashboard/website/files')}
+                      selected={location.pathname === '/dashboard/website/files'}
+                    >
+                      <ListItemIcon sx={{ color: location.pathname === '/dashboard/website/files' ? colors.primary : colors.grey.main }}>
+                        <FolderIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Files" />
+                    </ListItem>
+                  )}
+                </List>
+              </Collapse>
+            </>
+          )}
 
           {/* Settings Section */}
-          <ListItem button onClick={handleMenuClick(setSettingsOpen, settingsOpen)} sx={sectionHeaderStyles}>
-            <ListItemIcon sx={{
-              color: settingsOpen ? colors.primary : colors.grey.main,
-              transition: 'all 0.3s ease'
-            }}>
-              <SettingsIcon />
-            </ListItemIcon>
-            <ListItemText primary="Settings" />
-            <Box sx={{
-              transition: 'transform 0.3s ease',
-              transform: settingsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-              display: 'flex',
-              alignItems: 'center'
-            }}>
-              <ExpandMore />
-            </Box>
-          </ListItem>
+          {(hasPermission('user-settings') || hasPermission('admin-settings')) && (
+            <>
+              <ListItem button onClick={handleMenuClick(setSettingsOpen, settingsOpen)} sx={sectionHeaderStyles}>
+                <ListItemIcon sx={{
+                  color: settingsOpen ? colors.primary : colors.grey.main,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <SettingsIcon />
+                </ListItemIcon>
+                <ListItemText primary="Settings" />
+                <Box sx={{
+                  transition: 'transform 0.3s ease',
+                  transform: settingsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <ExpandMore />
+                </Box>
+              </ListItem>
 
-          <Collapse in={settingsOpen} timeout="auto" unmountOnExit>
+              <Collapse in={settingsOpen} timeout="auto" unmountOnExit>
             <List component="div" disablePadding>
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/settings/user')}
-                selected={location.pathname === '/dashboard/settings/user'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/user' ? colors.primary : colors.grey.main }}>
-                  <PersonIcon />
-                </ListItemIcon>
-                <ListItemText primary="User Settings" />
-              </ListItem>
+              {hasPermission('user-settings') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/settings/user')}
+                  selected={location.pathname === '/dashboard/settings/user'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/user' ? colors.primary : colors.grey.main }}>
+                    <PersonIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="User Settings" />
+                </ListItem>
+              )}
 
-              <ListItem
-                button
-                sx={submenuStyles}
-                onClick={() => handleNavigate('/dashboard/settings/admin')}
-                selected={location.pathname === '/dashboard/settings/admin'}
-              >
-                <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/admin' ? colors.primary : colors.grey.main }}>
-                  <AdminPanelSettingsIcon />
-                </ListItemIcon>
-                <ListItemText primary="Admin Settings" />
-              </ListItem>
+              {hasPermission('admin-settings') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/settings/admin')}
+                  selected={location.pathname === '/dashboard/settings/admin'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/admin' ? colors.primary : colors.grey.main }}>
+                    <AdminPanelSettingsIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Admin Settings" />
+                </ListItem>
+              )}
             </List>
           </Collapse>
+            </>
+          )}
         </List>
       </Box>
     </Drawer>

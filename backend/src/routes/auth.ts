@@ -160,7 +160,8 @@ async function authRoutes(fastify: FastifyInstance) {
           role: true,
           firstName: true,
           lastName: true,
-          isActive: true
+          isActive: true,
+          permissions: true
         }
       });
 

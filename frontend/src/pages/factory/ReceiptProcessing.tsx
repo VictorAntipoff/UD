@@ -782,6 +782,9 @@ const ReceiptProcessing = () => {
   const [lotToDelete, setLotToDelete] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [measurementUnit, setMeasurementUnit] = useState<'imperial' | 'metric'>('imperial'); // imperial = inch/ft, metric = cm
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [completedReceipts, setCompletedReceipts] = useState<WoodReceipt[]>([]);
+  const [isReadOnly, setIsReadOnly] = useState(false);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -1223,6 +1226,73 @@ const ReceiptProcessing = () => {
     }
   };
 
+  const fetchCompletedReceipts = async () => {
+    try {
+      const response = await api.get('/management/wood-receipts');
+      console.log('All receipts:', response.data);
+      console.log('Receipt statuses:', response.data.map((r: any) => ({ lot: r.lotNumber, status: r.status })));
+      const completed = response.data.filter((receipt: WoodReceipt) =>
+        ['COMPLETED', 'CANCELLED'].includes(receipt.status)
+      );
+      console.log('Completed receipts:', completed);
+      setCompletedReceipts(completed);
+    } catch (error) {
+      console.error('Error fetching completed receipts:', error);
+    }
+  };
+
+  const handleViewHistory = async () => {
+    await fetchCompletedReceipts();
+    setHistoryDialogOpen(true);
+  };
+
+  const handleViewCompletedReceipt = async (receipt: WoodReceipt) => {
+    setIsReadOnly(true);
+    const woodTypeObj = (receipt as any).woodType || receipt.wood_type;
+    const lotNumber = receipt.lotNumber || receipt.lot_number;
+
+    setFormData({
+      receiptNumber: lotNumber || '',
+      woodType: woodTypeObj?.id || (receipt as any).woodTypeId || receipt.wood_type_id || '',
+      woodTypeName: woodTypeObj?.name || '',
+      quantity: String(receipt.quantity || ''),
+      supplier: receipt.supplier || '',
+      date: receipt.createdAt?.split('T')[0] || '',
+      status: receipt.status,
+      purchaseOrder: receipt.purchaseOrder || '',
+    });
+
+    // Load measurements for this receipt using LOT number
+    try {
+      const draftResponse = await api.get(`/factory/drafts?receipt_id=${lotNumber}`);
+      if (draftResponse.data && draftResponse.data.length > 0) {
+        const draft = draftResponse.data[0];
+        if (draft.measurements) {
+          const processedMeasurements = draft.measurements.map((m: any) => ({
+            id: m.id || Math.random(),
+            thickness: parseFloat(m.thickness) || 0,
+            width: parseFloat(m.width) || 0,
+            length: parseFloat(m.length) || 0,
+            m3: parseFloat(m.m3) || 0,
+            lastModifiedBy: m.lastModifiedBy || 'Unknown',
+            lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
+          }));
+          setMeasurements(processedMeasurements);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading measurements:', error);
+    }
+
+    setHistoryDialogOpen(false);
+  };
+
+  const handleCloseReadOnly = () => {
+    setIsReadOnly(false);
+    setFormData(initialFormState);
+    setMeasurements([]);
+  };
+
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
@@ -1368,6 +1438,32 @@ const ReceiptProcessing = () => {
             borderColor: 'rgba(0, 0, 0, 0.12)',
           }}
         >
+          {/* Read-Only Banner */}
+          {isReadOnly && (
+            <Alert
+              severity="info"
+              sx={{
+                mb: 3,
+                borderRadius: 2,
+                fontSize: '0.875rem',
+              }}
+              action={
+                <Button
+                  size="small"
+                  onClick={handleCloseReadOnly}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.813rem',
+                  }}
+                >
+                  Close
+                </Button>
+              }
+            >
+              <strong>Viewing Completed Receipt:</strong> This receipt is in read-only mode. All fields are disabled.
+            </Alert>
+          )}
+
           <form onSubmit={handleSubmit}>
             <Grid container spacing={3}>
               {/* LOT Selection Section */}
@@ -1380,9 +1476,28 @@ const ReceiptProcessing = () => {
                     borderRadius: 2,
                   }}
                 >
-                  <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: 'rgba(0, 0, 0, 0.87)', mb: 2 }}>
-                    LOT Selection
-                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: 'rgba(0, 0, 0, 0.87)' }}>
+                      LOT Selection
+                    </Typography>
+                    {!isReadOnly && (
+                      <Button
+                        size="small"
+                        startIcon={<HistoryIcon />}
+                        onClick={handleViewHistory}
+                        sx={{
+                          textTransform: 'none',
+                          color: '#dc2626',
+                          fontSize: '0.813rem',
+                          '&:hover': {
+                            backgroundColor: alpha('#dc2626', 0.08),
+                          }
+                        }}
+                      >
+                        View History
+                      </Button>
+                    )}
+                  </Box>
                   <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
                     <FormControl fullWidth required sx={textFieldSx}>
                       <InputLabel>LOT Number</InputLabel>
@@ -1390,13 +1505,19 @@ const ReceiptProcessing = () => {
                         value={formData.receiptNumber}
                         label="LOT Number"
                         onChange={handleLotNumberChange}
+                        disabled={isReadOnly}
                       >
-                        {receipts.length === 0 ? (
+                        {isReadOnly && formData.receiptNumber && (
+                          <MenuItem value={formData.receiptNumber}>
+                            {formData.receiptNumber} - {formData.woodTypeName} - {formData.supplier} (Read-Only)
+                          </MenuItem>
+                        )}
+                        {!isReadOnly && receipts.length === 0 ? (
                           <MenuItem value="" disabled>
                             No receipts available
                           </MenuItem>
                         ) : (
-                          receipts
+                          !isReadOnly && receipts
                             .filter(receipt => !['COMPLETED', 'CANCELLED'].includes(receipt.status))
                             .map((receipt) => {
                               return (
@@ -1733,25 +1854,27 @@ const ReceiptProcessing = () => {
                             >
                               Add
                             </Button>
-                            <Button
-                              fullWidth
-                              variant="outlined"
-                              onClick={handleSaveDraft}
-                              disabled={isSaving || !formData.receiptNumber}
-                              startIcon={isSaving ? <CircularProgress size={16} /> : <SaveIcon />}
-                              sx={{
-                                height: '40px',
-                                fontSize: '0.8125rem',
-                                borderColor: '#dc2626',
-                                color: '#dc2626',
-                                '&:hover': {
-                                  borderColor: '#b91c1c',
-                                  backgroundColor: alpha('#dc2626', 0.04),
-                                }
-                              }}
-                            >
-                              {isSaving ? 'Saving...' : 'Save'}
-                            </Button>
+                            {!isReadOnly && (
+                              <Button
+                                fullWidth
+                                variant="outlined"
+                                onClick={handleSaveDraft}
+                                disabled={isSaving || !formData.receiptNumber}
+                                startIcon={isSaving ? <CircularProgress size={16} /> : <SaveIcon />}
+                                sx={{
+                                  height: '40px',
+                                  fontSize: '0.8125rem',
+                                  borderColor: '#dc2626',
+                                  color: '#dc2626',
+                                  '&:hover': {
+                                    borderColor: '#b91c1c',
+                                    backgroundColor: alpha('#dc2626', 0.04),
+                                  }
+                                }}
+                              >
+                                {isSaving ? 'Saving...' : 'Save'}
+                              </Button>
+                            )}
                             <BlobProvider
                               document={<ReceiptPDF
                                 formData={formData}
@@ -1797,7 +1920,7 @@ const ReceiptProcessing = () => {
                               fullWidth
                               variant="contained"
                               type="submit"
-                              disabled={!formData.receiptNumber || formData.status !== 'PENDING'}
+                              disabled={!formData.receiptNumber || formData.status !== 'PENDING' || isReadOnly}
                               sx={{
                                 height: '40px',
                                 fontSize: '0.8125rem',
@@ -1873,6 +1996,7 @@ const ReceiptProcessing = () => {
                                       'data-field': `thickness-${row.id}`
                                     }}
                                     error={row.thickness < 0.5 || row.thickness > 18}
+                                    disabled={isReadOnly}
                                   />
                                 </TableCell>
                                 <TableCell>
@@ -1892,6 +2016,7 @@ const ReceiptProcessing = () => {
                                       'data-field': `width-${row.id}`
                                     }}
                                     error={row.width < 0.5 || row.width > 18}
+                                    disabled={isReadOnly}
                                   />
                                 </TableCell>
                                 <TableCell>
@@ -1911,25 +2036,29 @@ const ReceiptProcessing = () => {
                                       'data-field': `length-${row.id}`
                                     }}
                                     error={row.length < 0.5 || row.length > 18}
+                                    disabled={isReadOnly}
                                   />
                                 </TableCell>
                                 <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.875rem', px: { xs: 1, sm: 2 } }}>
                                   {row.m3.toFixed(4)}
                                 </TableCell>
                                 <TableCell align="center" sx={{ px: { xs: 0.5, sm: 2 } }}>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => handleDeleteRow(row.id)}
-                                    sx={{
-                                      color: '#dc2626',
-                                      '&:hover': {
-                                        backgroundColor: alpha('#dc2626', 0.1),
-                                      }
-                                    }}
-                                    title="Delete Row"
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
+                                  {!isReadOnly && (
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDeleteRow(row.id)}
+                                      sx={{
+                                        color: '#dc2626',
+                                        '&:hover': {
+                                          backgroundColor: alpha('#dc2626', 0.1),
+                                        }
+                                      }}
+                                      title="Delete Row"
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  )}
+                                  {!isReadOnly && (
                                   <IconButton
                                     size="small"
                                     onClick={() => {
@@ -1951,6 +2080,7 @@ const ReceiptProcessing = () => {
                                   >
                                     <AddIcon fontSize="small" />
                                   </IconButton>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1959,22 +2089,24 @@ const ReceiptProcessing = () => {
                       </TableContainer>
 
                       {/* Add Sleeper button */}
-                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                        <Button
-                          startIcon={<AddIcon />}
-                          onClick={handleAddRow}
-                          sx={{
-                            color: '#dc2626',
-                            fontWeight: 600,
-                            fontSize: '0.875rem',
-                            '&:hover': {
-                              bgcolor: alpha('#dc2626', 0.04),
-                            },
-                          }}
-                        >
-                          Add Sleeper
-                        </Button>
-                      </Box>
+                      {!isReadOnly && (
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                          <Button
+                            startIcon={<AddIcon />}
+                            onClick={handleAddRow}
+                            sx={{
+                              color: '#dc2626',
+                              fontWeight: 600,
+                              fontSize: '0.875rem',
+                              '&:hover': {
+                                bgcolor: alpha('#dc2626', 0.04),
+                              },
+                            }}
+                          >
+                            Add Sleeper
+                          </Button>
+                        </Box>
+                      )}
                     </>
                   )}
                 </Box>
@@ -2024,22 +2156,24 @@ const ReceiptProcessing = () => {
                     justifyContent: 'flex-end',
                     gap: 2,
                   }}>
-                    <Button
-                      variant="outlined"
-                      onClick={handleSaveDraft}
-                      disabled={isSaving || !formData.receiptNumber}
-                      startIcon={isSaving ? <CircularProgress size={20} /> : <SaveIcon />}
-                      sx={{
-                        borderColor: '#dc2626',
-                        color: '#dc2626',
-                        '&:hover': {
-                          borderColor: '#b91c1c',
-                          backgroundColor: alpha('#dc2626', 0.04),
-                        }
-                      }}
-                    >
-                      {isSaving ? 'Saving...' : 'Save Draft'}
-                    </Button>
+                    {!isReadOnly && (
+                      <Button
+                        variant="outlined"
+                        onClick={handleSaveDraft}
+                        disabled={isSaving || !formData.receiptNumber}
+                        startIcon={isSaving ? <CircularProgress size={20} /> : <SaveIcon />}
+                        sx={{
+                          borderColor: '#dc2626',
+                          color: '#dc2626',
+                          '&:hover': {
+                            borderColor: '#b91c1c',
+                            backgroundColor: alpha('#dc2626', 0.04),
+                          }
+                        }}
+                      >
+                        {isSaving ? 'Saving...' : 'Save Draft'}
+                      </Button>
+                    )}
                     <BlobProvider
                       document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} />}
                     >
@@ -2305,6 +2439,101 @@ const ReceiptProcessing = () => {
             Receipt processing started successfully!
           </Alert>
         </Snackbar>
+
+        {/* History Dialog */}
+        <Dialog
+          open={historyDialogOpen}
+          onClose={() => setHistoryDialogOpen(false)}
+          maxWidth="lg"
+          fullWidth
+          PaperProps={{
+            sx: {
+              borderRadius: 3,
+            }
+          }}
+        >
+          <DialogTitle sx={{ fontSize: '1.125rem', fontWeight: 600, borderBottom: '1px solid rgba(0, 0, 0, 0.12)' }}>
+            Completed Receipts History
+          </DialogTitle>
+          <DialogContent sx={{ p: 3 }}>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>LOT Number</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>Wood Type</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>Supplier</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>Date</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>Status</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>Volume (m³)</TableCell>
+                    <TableCell sx={{ fontWeight: 600, fontSize: '0.813rem' }}>Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {completedReceipts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4, fontSize: '0.875rem', color: 'rgba(0, 0, 0, 0.6)' }}>
+                        No completed receipts found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    completedReceipts.map((receipt) => (
+                      <TableRow key={receipt.id} hover>
+                        <TableCell sx={{ fontSize: '0.875rem' }}>{receipt.lotNumber}</TableCell>
+                        <TableCell sx={{ fontSize: '0.875rem' }}>
+                          {(receipt as any).woodType?.name || receipt.wood_type?.name || 'N/A'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.875rem' }}>{receipt.supplier}</TableCell>
+                        <TableCell sx={{ fontSize: '0.875rem' }}>
+                          {receipt.createdAt ? new Date(receipt.createdAt).toLocaleDateString() : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={receipt.status}
+                            size="small"
+                            sx={{
+                              bgcolor: receipt.status === 'COMPLETED' ? alpha('#10b981', 0.1) : alpha('#ef4444', 0.1),
+                              color: receipt.status === 'COMPLETED' ? '#059669' : '#dc2626',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.875rem' }}>
+                          {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(3) : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="small"
+                            onClick={() => handleViewCompletedReceipt(receipt)}
+                            sx={{
+                              textTransform: 'none',
+                              fontSize: '0.813rem',
+                              color: '#dc2626',
+                            }}
+                          >
+                            View
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </DialogContent>
+          <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(0, 0, 0, 0.12)' }}>
+            <Button
+              onClick={() => setHistoryDialogOpen(false)}
+              sx={{
+                color: 'rgba(0, 0, 0, 0.6)',
+                fontSize: '0.875rem',
+              }}
+            >
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         {/* Delete Confirmation Dialog */}
         <Dialog

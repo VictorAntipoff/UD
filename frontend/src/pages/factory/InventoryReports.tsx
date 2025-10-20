@@ -147,12 +147,14 @@ const InventoryReports: FC = () => {
   const [lowStockAlerts, setLowStockAlerts] = useState<LowStockAlert[]>([]);
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [inTransitTransfers, setInTransitTransfers] = useState<Transfer[]>([]);
+  const [dryingProcesses, setDryingProcesses] = useState<any[]>([]);
 
   useEffect(() => {
     fetchWarehouses();
     fetchLowStockAlerts();
     fetchAdjustments();
     fetchInTransitTransfers();
+    fetchDryingProcesses();
   }, []);
 
   useEffect(() => {
@@ -230,6 +232,62 @@ const InventoryReports: FC = () => {
     } catch (err) {
       console.error('Failed to fetch in-transit transfers:', err);
     }
+  };
+
+  const fetchDryingProcesses = async () => {
+    try {
+      const response = await api.get('/factory/drying-processes');
+      setDryingProcesses(response.data || []);
+    } catch (err) {
+      console.error('Failed to fetch drying processes:', err);
+    }
+  };
+
+  const getEstimatedCompletion = (warehouseId: string, woodTypeId: string, thickness: string) => {
+    const process = dryingProcesses.find(p =>
+      p.status === 'IN_PROGRESS' &&
+      p.sourceWarehouseId === warehouseId &&
+      p.woodTypeId === woodTypeId &&
+      p.stockThickness === thickness &&
+      p.readings && p.readings.length >= 2
+    );
+
+    if (!process) return null;
+
+    const TARGET_HUMIDITY = 12;
+    const readings = process.readings;
+
+    // Calculate linear regression for humidity decline
+    const dataPoints = [
+      { time: new Date(process.startTime).getTime(), humidity: process.startingHumidity || readings[0].humidity },
+      ...readings.map((r: any) => ({ time: new Date(r.readingTime).getTime(), humidity: r.humidity }))
+    ];
+
+    const n = dataPoints.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+
+    dataPoints.forEach((point, i) => {
+      sumX += i;
+      sumY += point.humidity;
+      sumXY += i * point.humidity;
+      sumX2 += i * i;
+    });
+
+    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+
+    // If humidity not decreasing, can't estimate
+    if (slope >= 0) return null;
+
+    const currentHumidity = readings[readings.length - 1].humidity;
+    if (currentHumidity <= TARGET_HUMIDITY) return null;
+
+    // Calculate estimated completion
+    const stepsToTarget = Math.ceil((currentHumidity - TARGET_HUMIDITY) / Math.abs(slope));
+    const lastReadingTime = new Date(readings[readings.length - 1].readingTime).getTime();
+    const avgTimeBetweenReadings = (lastReadingTime - new Date(process.startTime).getTime()) / readings.length;
+    const estimatedCompletionTime = lastReadingTime + (stepsToTarget * avgTimeBetweenReadings);
+
+    return new Date(estimatedCompletionTime);
   };
 
   const getTotalStock = (stock: Stock) => {
@@ -343,15 +401,15 @@ const InventoryReports: FC = () => {
             fillColor: [250, 250, 250]
           },
           columnStyles: {
-            0: { cellWidth: 35, fontStyle: 'bold', textColor: [30, 41, 59] },
-            1: { cellWidth: 25, halign: 'center' },
-            2: { cellWidth: 25, halign: 'right' },
-            3: { cellWidth: 28, halign: 'right' },
-            4: { cellWidth: 25, halign: 'right' },
-            5: { cellWidth: 25, halign: 'right' },
-            6: { cellWidth: 25, halign: 'right' },
-            7: { cellWidth: 25, halign: 'right', fontStyle: 'bold' },
-            8: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
+            0: { cellWidth: 30, fontStyle: 'bold', textColor: [30, 41, 59] },
+            1: { cellWidth: 22, halign: 'center' },
+            2: { cellWidth: 22, halign: 'right' },
+            3: { cellWidth: 25, halign: 'right' },
+            4: { cellWidth: 22, halign: 'right', fontStyle: 'bold', textColor: [220, 38, 38] },
+            5: { cellWidth: 22, halign: 'right' },
+            6: { cellWidth: 22, halign: 'right' },
+            7: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+            8: { cellWidth: 22, halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
           },
           margin: { left: 14, right: 14, bottom: 20 },
           tableLineColor: [226, 232, 240],
@@ -561,10 +619,23 @@ const InventoryReports: FC = () => {
                         <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
                           {stock.statusNotDried}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
-                          {stock.statusUnderDrying}
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b', verticalAlign: 'middle' }}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                            <Box>{stock.statusUnderDrying}</Box>
+                            {stock.statusUnderDrying > 0 && (() => {
+                              const estimatedDate = getEstimatedCompletion(stock.warehouseId, stock.woodType.id, stock.thickness);
+                              if (estimatedDate) {
+                                return (
+                                  <Typography variant="caption" display="block" sx={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                                    Est: {format(estimatedDate, 'MMM d, yyyy, h:mm a')}
+                                  </Typography>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </Box>
                         </TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 700 }}>
                           {stock.statusDried}
                         </TableCell>
                         <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>

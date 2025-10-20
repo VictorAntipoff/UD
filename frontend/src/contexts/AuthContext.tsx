@@ -8,6 +8,14 @@ interface User {
   role: string;
   firstName?: string;
   lastName?: string;
+  permissions?: Record<string, {
+    access: boolean;
+    read: boolean;
+    create: boolean;
+    edit: boolean;
+    delete: boolean;
+    amount: boolean;
+  }>;
 }
 
 interface AuthContextType {
@@ -16,6 +24,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  hasPermission: (page: string, action?: string) => boolean;
 }
 
 // Export the AuthContext
@@ -97,8 +106,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const hasPermission = (page: string, action: string = 'access'): boolean => {
+    // Admin always has full access
+    if (user?.role === 'ADMIN') {
+      return true;
+    }
+
+    // If no user, no permissions
+    if (!user) {
+      return false;
+    }
+
+    // If user has no permissions set, deny access
+    if (!user.permissions) {
+      return false;
+    }
+
+    // Check specific permission
+    const pagePermissions = user.permissions[page];
+    if (!pagePermissions) {
+      return false;
+    }
+
+    // Check the specific action
+    return pagePermissions[action as keyof typeof pagePermissions] === true;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, logout, hasPermission }}>
       {children}
     </AuthContext.Provider>
   );

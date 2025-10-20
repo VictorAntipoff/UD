@@ -83,7 +83,6 @@ const LoginPage = () => {
       // Always remove any previously stored password (security cleanup)
       localStorage.removeItem('rememberedPassword');
 
-      enqueueSnackbar('Login successful!', { variant: 'success' });
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
       // Extract error message from response

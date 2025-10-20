@@ -6,10 +6,11 @@ import { CircularProgress, Box } from '@mui/material';
 interface ProtectedRouteProps {
   children: ReactNode;
   requiredRole?: string;
+  requiredPermission?: string;
 }
 
-export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) => {
-  const { isAuthenticated, isLoading, user } = useAuth();
+export const ProtectedRoute = ({ children, requiredRole, requiredPermission }: ProtectedRouteProps) => {
+  const { isAuthenticated, isLoading, user, hasPermission } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -25,6 +26,11 @@ export const ProtectedRoute = ({ children, requiredRole }: ProtectedRouteProps) 
   }
 
   if (requiredRole && user?.role !== requiredRole) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  // Check permission if requiredPermission is specified
+  if (requiredPermission && !hasPermission(requiredPermission)) {
     return <Navigate to="/unauthorized" replace />;
   }
 
