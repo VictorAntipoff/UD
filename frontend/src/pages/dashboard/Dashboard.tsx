@@ -149,7 +149,7 @@ const Dashboard = () => {
       label: 'Slicing in Progress',
       color: '#8b5cf6',
       subtext: 'Currently Processing',
-      path: '/factory/wood-slicer',
+      path: '/dashboard/factory/wood-slicer',
       gradient: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)'
     }
   ];
@@ -529,7 +529,7 @@ const Dashboard = () => {
             </Typography>
           </Box>
           <Typography
-            onClick={() => navigate('/factory/drying-process')}
+            onClick={() => navigate('/dashboard/factory/drying-process')}
             sx={{
               color: '#dc2626',
               fontSize: '0.75rem',
@@ -561,7 +561,7 @@ const Dashboard = () => {
               <Paper
                 key={process.id}
                 elevation={0}
-                onClick={() => navigate('/factory/drying-process')}
+                onClick={() => navigate('/dashboard/factory/drying-process')}
                 sx={{
                   p: 1.5,
                   border: '1px solid #e2e8f0',
