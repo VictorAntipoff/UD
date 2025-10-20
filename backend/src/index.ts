@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import { config } from 'dotenv';
 import { expand } from 'dotenv-expand';
 import { PrismaClient } from '@prisma/client';
@@ -45,6 +47,32 @@ const __dirname = path.dirname(__filename);
 
 // Register CORS
 const setupServer = async () => {
+  // Register security headers (Helmet)
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+      },
+    },
+  });
+
+  // Register rate limiting
+  await app.register(rateLimit, {
+    max: 100, // Max 100 requests
+    timeWindow: '15 minutes', // Per 15 minutes
+    errorResponseBuilder: function (request, context) {
+      return {
+        code: 429,
+        error: 'Too Many Requests',
+        message: `You have exceeded the ${context.max} requests in ${context.after} limit. Please try again later.`,
+        expiresIn: context.ttl
+      }
+    }
+  });
+
   await app.register(cors, {
     origin: (origin, cb) => {
       const allowedOrigins = [

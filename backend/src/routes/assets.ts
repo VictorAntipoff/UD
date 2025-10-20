@@ -1,9 +1,12 @@
 import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import { authenticateToken } from '../middleware/auth.js';
 
 const prisma = new PrismaClient();
 
 export default async function assetRoutes(fastify: FastifyInstance) {
+  // Protect all asset routes with authentication
+  fastify.addHook('onRequest', authenticateToken);
 
   // ===== ASSET CATEGORY ROUTES =====
 
