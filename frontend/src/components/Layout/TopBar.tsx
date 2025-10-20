@@ -33,6 +33,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import api from '../../lib/api';
+import NotificationBell from '../NotificationBell';
 
 interface TopBarProps {
   onSidebarToggle: () => void;
@@ -198,6 +199,9 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
 
         {/* Right section */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* Transfer Notifications */}
+          <NotificationBell />
+
           {/* Notifications */}
           <Tooltip title="Notifications">
             <IconButton

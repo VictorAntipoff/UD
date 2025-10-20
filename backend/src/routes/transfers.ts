@@ -374,6 +374,30 @@ async function transferRoutes(fastify: FastifyInstance) {
           });
         }
 
+        // Create notifications for all admins
+        const admins = await tx.user.findMany({
+          where: {
+            role: 'ADMIN',
+            isActive: true
+          },
+          select: {
+            id: true
+          }
+        });
+
+        // Send notification to each admin
+        for (const admin of admins) {
+          await tx.notification.create({
+            data: {
+              userId: admin.id,
+              type: 'TRANSFER_CREATED',
+              title: 'New Transfer Created',
+              message: `${userName} created transfer ${transfer.transferNumber} from ${fromWarehouse.name} to ${toWarehouse.name}`,
+              linkUrl: `/dashboard/factory/wood-transfer?transfer=${transfer.id}`
+            }
+          });
+        }
+
         return transfer;
       }, {
         maxWait: 10000, // 10 seconds max wait to get a connection

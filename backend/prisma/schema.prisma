@@ -710,6 +710,24 @@ model StockAdjustment {
   @@index([adjustedById])
 }
 
+// ===== NOTIFICATION SYSTEM =====
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String    // User who should receive the notification
+  type        String    // TRANSFER_CREATED, TRANSFER_APPROVED, TRANSFER_REJECTED, etc.
+  title       String
+  message     String
+  linkUrl     String?   // Optional URL to navigate to when clicking notification
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
 // ===== WEBSITE MANAGEMENT MODELS =====
 
 model WebsitePage {

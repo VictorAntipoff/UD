@@ -369,6 +369,7 @@ const setupServer = async () => {
   const assetRoutes = (await import('./routes/assets.js')).default;
   const transferRoutes = (await import('./routes/transfers.js')).default;
   const websiteRoutes = (await import('./routes/website.js')).default;
+  const notificationRoutes = (await import('./routes/notifications.js')).default;
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(projectRoutes, { prefix: '/api/projects' });
@@ -380,6 +381,7 @@ const setupServer = async () => {
   await app.register(assetRoutes, { prefix: '/api/assets' });
   await app.register(transferRoutes, { prefix: '/api/transfers' });
   await app.register(websiteRoutes, { prefix: '/api/website' });
+  await app.register(notificationRoutes, { prefix: '/api/notifications' });
 
   // Register static file serving
   await app.register(fastifyStatic, {
