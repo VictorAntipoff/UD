@@ -52,7 +52,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
 
   const [factoryOpen, setFactoryOpen] = useState(
     location.pathname.startsWith('/dashboard/factory')
@@ -153,11 +153,13 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   };
 
   useEffect(() => {
-    fetchPendingCount();
-    // Poll every 5 minutes for updates
-    const interval = setInterval(fetchPendingCount, 300000);
-    return () => clearInterval(interval);
-  }, []);
+    if (user) {
+      fetchPendingCount();
+      // Poll every 5 minutes for updates
+      const interval = setInterval(fetchPendingCount, 300000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
 
   const fetchPendingCount = async () => {
     try {

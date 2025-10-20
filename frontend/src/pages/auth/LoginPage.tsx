@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, TextField, Box, Typography, Container, Paper, Fade, IconButton, InputAdornment, Checkbox, FormControlLabel } from '@mui/material';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
@@ -64,7 +64,16 @@ const LoginPage = () => {
     return localStorage.getItem('rememberedEmail') !== null;
   });
   const [error, setError] = useState('');
-  const { login, isLoading } = useAuth();
+  const [shouldNavigate, setShouldNavigate] = useState(false);
+  const { login, isLoading, isAuthenticated, user } = useAuth();
+
+  // Navigate after successful login and user data is available
+  useEffect(() => {
+    if (shouldNavigate && isAuthenticated && user) {
+      navigate('/dashboard', { replace: true });
+      setShouldNavigate(false);
+    }
+  }, [shouldNavigate, isAuthenticated, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,7 +92,8 @@ const LoginPage = () => {
       // Always remove any previously stored password (security cleanup)
       localStorage.removeItem('rememberedPassword');
 
-      navigate('/dashboard', { replace: true });
+      // Set flag to trigger navigation after user state is updated
+      setShouldNavigate(true);
     } catch (err: any) {
       // Extract error message from response
       const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message;

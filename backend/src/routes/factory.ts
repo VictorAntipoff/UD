@@ -727,6 +727,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
         stockThickness?: string;
       };
 
+      // Get authenticated user info
+      const user = (request as any).user;
+      const userName = user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.email;
+
       // Validate required fields
       if (!data.woodTypeId || !data.thickness || !data.pieceCount || !data.startTime) {
         return reply.status(400).send({ error: 'Missing required fields' });
@@ -753,7 +759,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
             status: 'IN_PROGRESS',
             useStock: data.useStock || false,
             sourceWarehouseId: data.warehouseId || null,
-            stockThickness: data.stockThickness || null
+            stockThickness: data.stockThickness || null,
+            createdById: user.userId,
+            createdByName: userName
           },
           include: {
             woodType: true,
@@ -923,6 +931,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
         lukuSms?: string;
       };
 
+      // Get authenticated user info
+      const user = (request as any).user;
+      const userName = user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.email;
+
       // Validate required fields
       if (data.electricityMeter === undefined || data.humidity === undefined) {
         return reply.status(400).send({ error: 'Missing required fields' });
@@ -944,7 +958,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
           humidity: data.humidity,
           readingTime: data.readingTime ? new Date(data.readingTime) : new Date(),
           notes: data.notes || '',
-          lukuSms: data.lukuSms || null
+          lukuSms: data.lukuSms || null,
+          createdById: user.userId,
+          createdByName: userName,
+          updatedById: user.userId,
+          updatedByName: userName
         }
       });
 

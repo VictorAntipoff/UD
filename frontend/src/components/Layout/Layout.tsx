@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
 import { Outlet } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 const DRAWER_WIDTH = 240;
 const TRANSITION_DURATION = 250;
@@ -11,6 +12,7 @@ const Layout = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const { user } = useAuth();
 
   // Auto-close sidebar on mobile when screen size changes
   useEffect(() => {
@@ -34,6 +36,7 @@ const Layout = () => {
         sidebarOpen={sidebarOpen}
       />
       <Sidebar
+        key={user?.id || 'no-user'}
         width={DRAWER_WIDTH}
         open={sidebarOpen}
         onClose={handleSidebarClose}

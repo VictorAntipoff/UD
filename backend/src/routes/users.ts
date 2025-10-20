@@ -104,6 +104,66 @@ async function usersRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Update own profile (any authenticated user)
+  fastify.put('/profile', async (request, reply) => {
+    try {
+      const updateData = request.body as any;
+      const requestUser = (request as any).user;
+
+      // Prepare update data (only allow certain fields)
+      const data: any = {};
+      if (updateData.firstName !== undefined) data.firstName = updateData.firstName;
+      if (updateData.lastName !== undefined) data.lastName = updateData.lastName;
+
+      // Update password if provided and current password is correct
+      if (updateData.newPassword && updateData.currentPassword) {
+        const user = await prisma.user.findUnique({
+          where: { id: requestUser.userId }
+        });
+
+        if (!user) {
+          return reply.status(404).send({ error: 'User not found' });
+        }
+
+        // Verify current password
+        const bcrypt = await import('bcryptjs');
+        const validPassword = await bcrypt.compare(updateData.currentPassword, user.password);
+
+        if (!validPassword) {
+          return reply.status(400).send({ error: 'Current password is incorrect' });
+        }
+
+        // Hash new password
+        data.password = await bcrypt.hash(updateData.newPassword, 10);
+      }
+
+      const user = await prisma.user.update({
+        where: { id: requestUser.userId },
+        data,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          permissions: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      });
+
+      return {
+        success: true,
+        message: 'Profile updated successfully',
+        user
+      };
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      return reply.status(500).send({ error: 'Failed to update profile' });
+    }
+  });
+
   // SECURITY: Update user (Admin only)
   fastify.put('/:userId', async (request, reply) => {
     try {

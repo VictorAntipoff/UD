@@ -10,9 +10,7 @@ import {
   Avatar,
   IconButton,
   Divider,
-  Stack,
-  Alert,
-  Snackbar
+  Stack
 } from '@mui/material';
 import { useState, useEffect } from 'react';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -22,7 +20,6 @@ import PersonIcon from '@mui/icons-material/Person';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import { useAuth } from '../../hooks/useAuth';
 import { styled, alpha } from '@mui/material/styles';
-import api from '../../services/api';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
   minHeight: '100vh',
@@ -79,16 +76,12 @@ export default function UserSettings() {
     twoFactorAuth: false
   });
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [notification, setNotification] = useState({ open: false, message: '', type: 'success' as 'success' | 'error' });
 
   useEffect(() => {
-    if (user) {
+    if (user?.email) {
       setUserSettings(prev => ({
         ...prev,
-        email: user.email || '',
-        firstName: user.firstName || '',
-        lastName: user.lastName || ''
+        email: user.email
       }));
     }
   }, [user]);
@@ -101,56 +94,9 @@ export default function UserSettings() {
     });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-
-    try {
-      // Validate password fields if changing password
-      if (userSettings.newPassword) {
-        if (!userSettings.currentPassword) {
-          setNotification({ open: true, message: 'Please enter your current password', type: 'error' });
-          setSaving(false);
-          return;
-        }
-        if (userSettings.newPassword !== userSettings.confirmPassword) {
-          setNotification({ open: true, message: 'New passwords do not match', type: 'error' });
-          setSaving(false);
-          return;
-        }
-        if (userSettings.newPassword.length < 8) {
-          setNotification({ open: true, message: 'Password must be at least 8 characters', type: 'error' });
-          setSaving(false);
-          return;
-        }
-      }
-
-      const response = await api.put('/api/users/profile', {
-        firstName: userSettings.firstName,
-        lastName: userSettings.lastName,
-        currentPassword: userSettings.currentPassword || undefined,
-        newPassword: userSettings.newPassword || undefined
-      });
-
-      setNotification({ open: true, message: 'Profile updated successfully!', type: 'success' });
-
-      // Clear password fields
-      setUserSettings(prev => ({
-        ...prev,
-        currentPassword: '',
-        newPassword: '',
-        confirmPassword: ''
-      }));
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      setNotification({
-        open: true,
-        message: error.response?.data?.error || 'Failed to update profile',
-        type: 'error'
-      });
-    } finally {
-      setSaving(false);
-    }
+    console.log('User settings updated:', userSettings);
   };
 
   const handleAvatarChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,17 +114,6 @@ export default function UserSettings() {
 
   return (
     <StyledContainer maxWidth="xl">
-      <Snackbar
-        open={notification.open}
-        autoHideDuration={6000}
-        onClose={() => setNotification({ ...notification, open: false })}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert onClose={() => setNotification({ ...notification, open: false })} severity={notification.type} sx={{ width: '100%' }}>
-          {notification.message}
-        </Alert>
-      </Snackbar>
-
       {/* Header */}
       <Paper
         elevation={0}
@@ -232,7 +167,6 @@ export default function UserSettings() {
           <Button
             variant="contained"
             onClick={handleSubmit}
-            disabled={saving}
             sx={{
               backgroundColor: 'white',
               color: '#dc2626',
@@ -251,7 +185,7 @@ export default function UserSettings() {
               transition: 'all 0.2s ease',
             }}
           >
-            {saving ? 'Saving...' : 'Save Changes'}
+            Save Changes
           </Button>
         </Box>
       </Paper>

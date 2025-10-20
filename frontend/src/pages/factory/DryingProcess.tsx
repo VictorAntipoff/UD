@@ -136,6 +136,10 @@ interface DryingReading {
   electricityMeter: number;
   humidity: number;
   notes?: string;
+  createdById?: string;
+  createdByName?: string;
+  updatedById?: string;
+  updatedByName?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -155,6 +159,8 @@ interface DryingProcess {
   status: string;
   totalCost?: number;
   notes?: string;
+  createdById?: string;
+  createdByName?: string;
   readings: DryingReading[];
   createdAt: string;
   updatedAt: string;
@@ -2253,8 +2259,45 @@ export default function DryingProcess() {
                   )}
                 </Box>
 
+                {/* Creator & Timestamp Info */}
+                {(selectedProcess.createdByName || selectedProcess.createdAt) && (
+                  <Box sx={{
+                    mt: 2,
+                    p: 1.5,
+                    backgroundColor: '#f1f5f9',
+                    borderRadius: 2,
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {selectedProcess.createdByName && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                            Created by:
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                            {selectedProcess.createdByName}
+                          </Typography>
+                        </Box>
+                      )}
+                      {selectedProcess.createdAt && (
+                        <>
+                          <Typography variant="body2" sx={{ color: '#cbd5e1' }}>•</Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                              Created on:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                              {new Date(selectedProcess.createdAt).toLocaleString()}
+                            </Typography>
+                          </Box>
+                        </>
+                      )}
+                    </Box>
+                  </Box>
+                )}
+
                 {/* Stats Cards */}
-                <Grid container spacing={2}>
+                <Grid container spacing={2} sx={{ mt: 1 }}>
                   {(() => {
                     const electricityUsed = calculateElectricityUsed(selectedProcess);
                     const electricityCost = Math.abs(electricityUsed) * electricityRatePerKwh; // Use actual rate from latest recharge
@@ -2366,6 +2409,7 @@ export default function DryingProcess() {
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Time</TableCell>
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Electricity (Unit)</TableCell>
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Humidity (%)</TableCell>
+                        <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Recorded By</TableCell>
                         <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Notes</TableCell>
                       </TableRow>
                     </TableHead>
@@ -2382,13 +2426,25 @@ export default function DryingProcess() {
                             {reading.humidity.toFixed(1)}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.75rem' }}>
+                            <Box>
+                              <Typography variant="body2" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1e293b' }}>
+                                {reading.createdByName || 'Unknown'}
+                              </Typography>
+                              {reading.createdAt && (
+                                <Typography variant="caption" sx={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                                  {new Date(reading.createdAt).toLocaleString()}
+                                </Typography>
+                              )}
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.75rem' }}>
                             {reading.notes || '-'}
                           </TableCell>
                         </TableRow>
                       ))}
                       {selectedProcess.readings.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
+                          <TableCell colSpan={5} align="center" sx={{ py: 3 }}>
                             <Typography variant="body2" sx={{ color: '#94a3b8' }}>
                               No readings yet
                             </Typography>

@@ -251,6 +251,10 @@ model DryingProcess {
   sourceWarehouseId         String?           // Warehouse stock was taken from
   stockThickness            String?           // Thickness format from stock (1", 2", Custom)
 
+  // User tracking for audit trail
+  createdById               String?           // User ID who created the drying process
+  createdByName             String?           // User name for easy reference
+
   createdAt                 DateTime          @default(now())
   updatedAt                 DateTime          @updatedAt
 
@@ -264,6 +268,7 @@ model DryingProcess {
   @@index([startTime])
   @@index([batchNumber])
   @@index([sourceWarehouseId])
+  @@index([createdById])
 }
 
 model DryingReading {
@@ -274,6 +279,13 @@ model DryingReading {
   humidity          Float          // Humidity percentage
   notes             String?
   lukuSms           String?        // Original Luku SMS text for reference
+
+  // User tracking for audit trail
+  createdById       String?        // User ID who created/saved the reading
+  createdByName     String?        // User name for easy reference
+  updatedById       String?        // User ID who last updated the reading
+  updatedByName     String?        // User name for easy reference
+
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
@@ -282,6 +294,7 @@ model DryingReading {
 
   @@index([dryingProcessId])
   @@index([readingTime])
+  @@index([createdById])
 }
 
 model ReceiptDraft {
