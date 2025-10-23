@@ -4,6 +4,7 @@ import PhoneIcon from '@mui/icons-material/Phone';
 import EmailIcon from '@mui/icons-material/Email';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { useSnackbar } from 'notistack';
 import axios from 'axios';
 
 // Create a simple axios instance for public API calls
@@ -122,6 +123,7 @@ const DiagonalDivider = styled('div')({
 });
 
 const ComingSoon = () => {
+  const { enqueueSnackbar } = useSnackbar();
   const isMobile = useMediaQuery('(max-width:1024px)');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [email, setEmail] = useState('');
@@ -213,12 +215,18 @@ const ComingSoon = () => {
     e.preventDefault();
     setStatus('loading');
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      await publicApi.post('/crm/newsletter/subscribe', { email });
       setStatus('success');
       setEmail('');
+      enqueueSnackbar('Thank you! You have been added to our mailing list.', { variant: 'success' });
       setTimeout(() => setStatus('idle'), 3000);
-    }, 1000);
+    } catch (error) {
+      console.error('Newsletter subscription error:', error);
+      setStatus('error');
+      enqueueSnackbar('Failed to subscribe. Please try again.', { variant: 'error' });
+      setTimeout(() => setStatus('idle'), 3000);
+    }
   };
 
   // Show nothing while loading to prevent flicker
@@ -341,6 +349,11 @@ const ComingSoon = () => {
               {status === 'success' && (
                 <Typography sx={{ mt: 2, color: '#10b981', fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
                   Thank you! You've been added to our mailing list.
+                </Typography>
+              )}
+              {status === 'error' && (
+                <Typography sx={{ mt: 2, color: '#ef4444', fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+                  Failed to subscribe. Please try again.
                 </Typography>
               )}
             </Box>

@@ -792,3 +792,17 @@ model WebsiteFile {
   @@index([uploadedBy])
   @@index([folderId])
 }
+
+// CRM - Newsletter Subscribers (mailing list from Coming Soon page)
+model NewsletterSubscriber {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  source        String    @default("coming-soon") // Where they subscribed from
+  status        String    @default("active") // active, unsubscribed
+  subscribedAt  DateTime  @default(now())
+  unsubscribedAt DateTime?
+
+  @@index([email])
+  @@index([status])
+  @@index([subscribedAt])
+}

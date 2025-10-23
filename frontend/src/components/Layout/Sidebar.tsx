@@ -33,6 +33,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import LanguageIcon from '@mui/icons-material/Language';
 import ArticleIcon from '@mui/icons-material/Article';
 import FolderIcon from '@mui/icons-material/Folder';
+import GroupsIcon from '@mui/icons-material/Groups';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -69,6 +70,9 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   const [websiteOpen, setWebsiteOpen] = useState(
     location.pathname.startsWith('/dashboard/website')
   );
+  const [crmOpen, setCrmOpen] = useState(
+    location.pathname.startsWith('/dashboard/crm')
+  );
   const [pendingCount, setPendingCount] = useState(0);
 
   const handleMenuClick = (
@@ -81,6 +85,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
     setSettingsOpen(false);
     setManagementOpen(false);
     setWebsiteOpen(false);
+    setCrmOpen(false);
 
     // Then open the clicked one if it was closed
     if (!currentState) {
@@ -528,6 +533,45 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                       <ListItemText primary="Files" />
                     </ListItem>
                   )}
+                </List>
+              </Collapse>
+            </>
+          )}
+
+          {/* CRM Section */}
+          {hasPermission('admin-settings') && (
+            <>
+              <ListItem button onClick={handleMenuClick(setCrmOpen, crmOpen)} sx={sectionHeaderStyles}>
+                <ListItemIcon sx={{
+                  color: crmOpen ? colors.primary : colors.grey.main,
+                  transition: 'all 0.3s ease'
+                }}>
+                  <GroupsIcon />
+                </ListItemIcon>
+                <ListItemText primary="CRM" />
+                <Box sx={{
+                  transition: 'transform 0.3s ease',
+                  transform: crmOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <ExpandMore />
+                </Box>
+              </ListItem>
+
+              <Collapse in={crmOpen} timeout="auto" unmountOnExit>
+                <List component="div" disablePadding>
+                  <ListItem
+                    button
+                    sx={submenuStyles}
+                    onClick={() => handleNavigate('/dashboard/crm/clients')}
+                    selected={location.pathname === '/dashboard/crm/clients'}
+                  >
+                    <ListItemIcon sx={{ color: location.pathname === '/dashboard/crm/clients' ? colors.primary : colors.grey.main }}>
+                      <GroupsIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Clients" />
+                  </ListItem>
                 </List>
               </Collapse>
             </>

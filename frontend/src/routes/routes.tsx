@@ -25,6 +25,7 @@ import ComingSoon from '../pages/ComingSoon';
 import Pages from '../pages/website/Pages';
 import PageEditor from '../pages/website/PageEditor';
 import Files from '../pages/website/Files';
+import Clients from '../pages/crm/Clients';
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -150,6 +151,15 @@ export const routes: RouteObject[] = [
           {
             path: 'files',
             element: <Files />
+          }
+        ]
+      },
+      {
+        path: 'crm',
+        children: [
+          {
+            path: 'clients',
+            element: <Clients />
           }
         ]
       }
