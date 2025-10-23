@@ -227,6 +227,12 @@ export default function AdminSettings() {
       ]
     },
     {
+      category: 'CRM',
+      items: [
+        { key: 'crm-clients', label: 'Clients', hasActions: true },
+      ]
+    },
+    {
       category: 'Administration',
       items: [
         { key: 'user-settings', label: 'User Settings', hasActions: true },

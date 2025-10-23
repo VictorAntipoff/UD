@@ -539,7 +539,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
           )}
 
           {/* CRM Section */}
-          {hasPermission('admin-settings') && (
+          {hasPermission('crm-clients') && (
             <>
               <ListItem button onClick={handleMenuClick(setCrmOpen, crmOpen)} sx={sectionHeaderStyles}>
                 <ListItemIcon sx={{
