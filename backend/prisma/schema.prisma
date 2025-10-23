@@ -739,6 +739,7 @@ model Notification {
   @@index([userId])
   @@index([isRead])
   @@index([createdAt])
+  @@index([userId, isRead]) // Composite index for faster unread count queries
 }
 
 // ===== WEBSITE MANAGEMENT MODELS =====

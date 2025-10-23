@@ -319,6 +319,8 @@ export default function AdminSettings() {
         const usersData = response.data.map((user: any) => ({
           id: user.id,
           username: user.firstName || user.email.split('@')[0],
+          firstName: user.firstName,
+          lastName: user.lastName,
           email: user.email,
           role: user.role,
           status: user.isActive ? 'active' : 'inactive',
@@ -365,6 +367,8 @@ export default function AdminSettings() {
       const usersData = usersResponse.data.map((user: any) => ({
         id: user.id,
         username: user.firstName || user.email.split('@')[0],
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         role: user.role,
         status: user.isActive ? 'active' : 'inactive',
@@ -610,6 +614,8 @@ export default function AdminSettings() {
     setEditUserDialog({ open: true, user });
     setEditedUser({
       username: user.username,
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
       email: user.email,
       role: user.role,
       password: '',
@@ -621,7 +627,7 @@ export default function AdminSettings() {
 
   const handleCloseEditDialog = () => {
     setEditUserDialog({ open: false, user: null });
-    setEditedUser({ username: '', email: '', role: '', password: '', permissions: {} });
+    setEditedUser({ username: '', firstName: '', lastName: '', email: '', role: '', password: '', permissions: {} });
   };
 
   const handlePermissionChange = (menuKey: string, permissionType: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -689,8 +695,8 @@ export default function AdminSettings() {
       // Save to backend
       const payload = {
         email: editedUser.email,
-        firstName: editedUser.username?.split(' ')[0],
-        lastName: editedUser.username?.split(' ').slice(1).join(' ') || null,
+        firstName: editedUser.firstName || null,
+        lastName: editedUser.lastName || null,
         role: editedUser.role,
         password: editedUser.password || undefined,
         permissions: editedUser.permissions
@@ -710,6 +716,8 @@ export default function AdminSettings() {
       const usersData = response.data.map((user: any) => ({
         id: user.id,
         username: user.firstName || user.email.split('@')[0],
+        firstName: user.firstName,
+        lastName: user.lastName,
         email: user.email,
         role: user.role,
         status: user.isActive ? 'active' : 'inactive',
@@ -1685,6 +1693,22 @@ export default function AdminSettings() {
               label="Username"
               value={editedUser.username}
               onChange={handleEditedUserChange('username')}
+              size="small"
+              sx={textFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="First Name"
+              value={editedUser.firstName || ''}
+              onChange={handleEditedUserChange('firstName')}
+              size="small"
+              sx={textFieldSx}
+            />
+            <TextField
+              fullWidth
+              label="Last Name"
+              value={editedUser.lastName || ''}
+              onChange={handleEditedUserChange('lastName')}
               size="small"
               sx={textFieldSx}
             />

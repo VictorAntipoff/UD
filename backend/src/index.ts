@@ -61,7 +61,7 @@ const setupServer = async () => {
 
   // Register rate limiting
   await app.register(rateLimit, {
-    max: 100, // Max 100 requests
+    max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Max 100 requests in production, 1000 in development
     timeWindow: '15 minutes', // Per 15 minutes
     errorResponseBuilder: function (request, context) {
       return {
@@ -411,7 +411,7 @@ const setupServer = async () => {
   await app.register(websiteRoutes, { prefix: '/api/website' });
   await app.register(notificationRoutes, { prefix: '/api/notifications' });
 
-  // Register static file serving
+  // Register static file serving for public files
   await app.register(fastifyStatic, {
     root: path.join(__dirname, '../public'),
     prefix: '/',
@@ -421,6 +421,25 @@ const setupServer = async () => {
         res.setHeader('Content-Type', 'image/x-icon');
         res.setHeader('Cache-Control', 'public, max-age=31536000');
       }
+    }
+  });
+
+  // Register static file serving for uploads
+  await app.register(fastifyStatic, {
+    root: path.join(__dirname, '../uploads'),
+    prefix: '/uploads/',
+    decorateReply: false,
+    setHeaders: (res, filePath) => {
+      // Set proper content type for images
+      if (filePath.endsWith('.png')) {
+        res.setHeader('Content-Type', 'image/png');
+      } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+        res.setHeader('Content-Type', 'image/jpeg');
+      } else if (filePath.endsWith('.svg')) {
+        res.setHeader('Content-Type', 'image/svg+xml');
+      }
+      // Allow caching for uploaded files
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
     }
   });
 

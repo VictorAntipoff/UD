@@ -40,6 +40,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import ImageIcon from '@mui/icons-material/Image';
+import CloseIcon from '@mui/icons-material/Close';
 import api from '../../lib/api';
 
 interface Folder {
@@ -76,6 +77,25 @@ const Files = () => {
   const [uploading, setUploading] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
+  // Helper function to get full URL for file
+  const getFileUrl = (url: string) => {
+    // If URL is already a full URL (starts with http:// or https://), use it directly
+    // This handles Cloudinary URLs
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+
+    // For relative URLs (legacy local files)
+    if (import.meta.env.DEV) {
+      // Development: use proxy
+      return url;
+    } else {
+      // Production: use full backend URL
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3010';
+      return `${baseUrl}${url}`;
+    }
+  };
+
   // Folder creation
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -88,6 +108,9 @@ const Files = () => {
   // Delete confirmation
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ type: 'file' | 'folder'; id: string } | null>(null);
+
+  // File preview
+  const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
 
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -386,9 +409,20 @@ const Files = () => {
                     <CardMedia
                       component="img"
                       height="160"
-                      image={file.url}
+                      image={getFileUrl(file.url)}
                       alt={file.name}
-                      sx={{ objectFit: 'cover', borderRadius: 1, mb: 1, border: '1px solid #e2e8f0' }}
+                      onClick={() => setPreviewFile(file)}
+                      sx={{
+                        objectFit: 'cover',
+                        borderRadius: 1,
+                        mb: 1,
+                        border: '1px solid #e2e8f0',
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s',
+                        '&:hover': {
+                          transform: 'scale(1.02)'
+                        }
+                      }}
                     />
                   ) : (
                     <Box
@@ -510,10 +544,19 @@ const Files = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                       {file.mimeType.startsWith('image/') ? (
                         <Avatar
-                          src={file.url}
+                          src={getFileUrl(file.url)}
                           alt={file.name}
                           variant="rounded"
-                          sx={{ width: 40, height: 40 }}
+                          onClick={() => setPreviewFile(file)}
+                          sx={{
+                            width: 40,
+                            height: 40,
+                            cursor: 'pointer',
+                            transition: 'transform 0.2s',
+                            '&:hover': {
+                              transform: 'scale(1.1)'
+                            }
+                          }}
                         />
                       ) : (
                         <Avatar variant="rounded" sx={{ width: 40, height: 40, bgcolor: 'grey.200' }}>
@@ -628,6 +671,67 @@ const Files = () => {
             Delete
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* File Preview Dialog */}
+      <Dialog
+        open={!!previewFile}
+        onClose={() => setPreviewFile(null)}
+        maxWidth="lg"
+        fullWidth
+      >
+        {previewFile && (
+          <>
+            <DialogTitle>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6">{previewFile.originalName}</Typography>
+                <IconButton onClick={() => setPreviewFile(null)}>
+                  <CloseIcon />
+                </IconButton>
+              </Box>
+            </DialogTitle>
+            <DialogContent sx={{ textAlign: 'center', p: 2 }}>
+              {previewFile.mimeType.startsWith('image/') ? (
+                <Box
+                  component="img"
+                  src={getFileUrl(previewFile.url)}
+                  alt={previewFile.name}
+                  sx={{
+                    maxWidth: '100%',
+                    maxHeight: '70vh',
+                    objectFit: 'contain',
+                    borderRadius: 1
+                  }}
+                />
+              ) : (
+                <Box sx={{ p: 4 }}>
+                  <InsertDriveFileIcon sx={{ fontSize: 64, color: '#94a3b8', mb: 2 }} />
+                  <Typography>Preview not available for this file type</Typography>
+                </Box>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button
+                startIcon={<ContentCopyIcon />}
+                onClick={() => {
+                  handleCopyUrl(previewFile.url);
+                  setPreviewFile(null);
+                }}
+              >
+                Copy URL
+              </Button>
+              <Button
+                component="a"
+                href={getFileUrl(previewFile.url)}
+                download={previewFile.originalName}
+                target="_blank"
+              >
+                Download
+              </Button>
+              <Button onClick={() => setPreviewFile(null)}>Close</Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
 
       {/* Snackbar */}

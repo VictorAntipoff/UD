@@ -9,7 +9,7 @@
     "npm": ">=9.0.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --strictPort",
     "start": "vite --port 3020 --strictPort",
     "clean": "rm -rf node_modules package-lock.json dist",
     "build": "vite build",
@@ -65,7 +65,8 @@
     "terser": "^5.44.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.2",
-    "vite": "^5.1.6"
+    "vite": "^5.1.6",
+    "vite-plugin-pwa": "^1.1.0"
   },
   "eslintConfig": {
     "rules": {

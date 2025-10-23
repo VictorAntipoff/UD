@@ -1354,6 +1354,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
         lukuSms?: string;
       };
 
+      // Get authenticated user info
+      const user = (request as any).user;
+      const userName = user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.email;
+
       const reading = await prisma.dryingReading.update({
         where: { id },
         data: {
@@ -1361,7 +1367,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
           ...(data.humidity !== undefined && { humidity: data.humidity }),
           ...(data.readingTime !== undefined && { readingTime: new Date(data.readingTime) }),
           ...(data.notes !== undefined && { notes: data.notes }),
-          ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms })
+          ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms }),
+          updatedById: user.userId,
+          updatedByName: userName
         }
       });
 

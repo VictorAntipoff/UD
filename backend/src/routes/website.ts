@@ -8,6 +8,7 @@ import { mkdir, stat, unlink } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { uploadToCloudinary, deleteFromCloudinary, extractPublicId } from '../lib/cloudinary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,8 +36,35 @@ async function websiteRoutes(fastify: FastifyInstance) {
   // Ensure uploads directory exists
   await ensureUploadsDir();
 
-  // SECURITY: Protect all website management routes with authentication
-  fastify.addHook('onRequest', authenticateToken);
+  // SECURITY: Protect all website management routes with authentication (except public routes)
+  fastify.addHook('onRequest', async (request, reply) => {
+    // Skip authentication for public routes
+    const urlPath = request.url.split('?')[0]; // Remove query params
+    if (urlPath.includes('/public/')) {
+      return;
+    }
+    // Apply authentication to all other routes
+    await authenticateToken(request, reply);
+  });
+
+  // ===== PUBLIC ROUTES (NO AUTH REQUIRED) =====
+
+  // Public endpoint to get the coming soon page content
+  fastify.get('/public/coming-soon', async (request, reply) => {
+    try {
+      const page = await prisma.websitePage.findUnique({
+        where: { slug: 'coming-soon' },
+      });
+
+      if (!page || page.status !== 'published') {
+        return reply.status(404).send({ error: 'Page not found or not published' });
+      }
+
+      reply.send(page);
+    } catch (error: any) {
+      reply.status(500).send({ error: error.message });
+    }
+  });
 
   // ===== PAGE ROUTES =====
 
@@ -237,18 +265,17 @@ async function websiteRoutes(fastify: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
 
-      // Get all files in this folder and subfolders to delete from disk
+      // Get all files in this folder to delete from Cloudinary
       const files = await prisma.websiteFile.findMany({
         where: { folderId: id },
       });
 
-      // Delete files from disk
+      // Delete files from Cloudinary
       for (const file of files) {
-        const filePath = path.join(UPLOADS_DIR, file.fileName);
         try {
-          await unlink(filePath);
+          await deleteFromCloudinary(file.fileName, 'image');
         } catch (error) {
-          console.error(`Error deleting file ${file.fileName}:`, error);
+          console.error(`Error deleting file ${file.fileName} from Cloudinary:`, error);
         }
       }
 
@@ -259,6 +286,7 @@ async function websiteRoutes(fastify: FastifyInstance) {
 
       reply.send({ message: 'Folder deleted successfully' });
     } catch (error: any) {
+      console.error('Folder deletion error:', error);
       reply.status(500).send({ error: error.message });
     }
   });
@@ -290,27 +318,26 @@ async function websiteRoutes(fastify: FastifyInstance) {
         if (part.type === 'field' && part.fieldname === 'folderId') {
           folderId = part.value as string || null;
         } else if (part.type === 'file') {
-          // Generate unique filename
           const ext = path.extname(part.filename);
-          const uniqueName = `${crypto.randomBytes(16).toString('hex')}${ext}`;
-          const filePath = path.join(UPLOADS_DIR, uniqueName);
+          const uniqueName = `${crypto.randomBytes(16).toString('hex')}`;
 
-          // Save file to disk
-          await pipeline(part.file, createWriteStream(filePath));
+          // Upload to Cloudinary
+          const cloudinaryResult = await uploadToCloudinary(part.file, {
+            folder: 'udesign/website',
+            public_id: uniqueName,
+            resource_type: 'auto',
+          });
 
-          // Get file stats
-          const stats = await stat(filePath);
-
-          // Save file metadata to database
+          // Save file metadata to database with Cloudinary URL
           const file = await prisma.websiteFile.create({
             data: {
               name: part.filename.replace(ext, ''), // Display name without extension
               originalName: part.filename,
-              fileName: uniqueName,
+              fileName: cloudinaryResult.public_id, // Store Cloudinary public_id
               mimeType: part.mimetype,
-              size: stats.size,
-              path: `/uploads/website/${uniqueName}`,
-              url: `/uploads/website/${uniqueName}`,
+              size: cloudinaryResult.bytes,
+              path: cloudinaryResult.secure_url, // Cloudinary HTTPS URL
+              url: cloudinaryResult.secure_url, // Cloudinary HTTPS URL
               folderId: folderId,
               uploadedBy: userId,
             },
@@ -322,6 +349,7 @@ async function websiteRoutes(fastify: FastifyInstance) {
 
       reply.status(201).send(uploadedFiles);
     } catch (error: any) {
+      console.error('File upload error:', error);
       reply.status(500).send({ error: error.message });
     }
   });
@@ -340,13 +368,13 @@ async function websiteRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'File not found' });
       }
 
-      // Delete file from disk
-      const filePath = path.join(UPLOADS_DIR, file.fileName);
+      // Delete file from Cloudinary
       try {
-        await unlink(filePath);
+        // fileName stores the Cloudinary public_id (e.g., "udesign/website/abc123")
+        await deleteFromCloudinary(file.fileName, 'image');
       } catch (error) {
-        console.error('Error deleting file from disk:', error);
-        // Continue even if file deletion fails
+        console.error('Error deleting file from Cloudinary:', error);
+        // Continue even if Cloudinary deletion fails
       }
 
       // Delete file record from database
@@ -356,6 +384,7 @@ async function websiteRoutes(fastify: FastifyInstance) {
 
       reply.send({ message: 'File deleted successfully' });
     } catch (error: any) {
+      console.error('File deletion error:', error);
       reply.status(500).send({ error: error.message });
     }
   });

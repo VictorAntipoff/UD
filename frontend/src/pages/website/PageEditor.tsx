@@ -9,24 +9,35 @@ import {
   Alert,
   CircularProgress,
   Divider,
+  IconButton,
+  Card,
+  CardMedia,
+  CardActions,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import PreviewIcon from '@mui/icons-material/Preview';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import api from '../../lib/api';
 
+interface CarouselImage {
+  src: string;
+  alt: string;
+  title?: string;
+  description?: string;
+}
+
 interface PageContent {
-  title: string;
+  mainTitle: string;
+  highlightedWord: string;
   subtitle: string;
-  description: string;
-  products: Array<{
-    name: string;
-    icon: string;
-    description: string;
-  }>;
-  footerText: string;
+  phone: string;
+  email: string;
+  carouselImages: CarouselImage[];
+  logoUrl: string;
 }
 
 const PageEditor = () => {
@@ -38,16 +49,44 @@ const PageEditor = () => {
   const [pageName, setPageName] = useState('');
 
   const [content, setContent] = useState<PageContent>({
-    title: 'Welcome to UDesign',
-    subtitle: 'Premium Hardwood & Custom Furniture Manufacturer',
-    description: 'We specialize in crafting exceptional furniture and supplying premium hardwood products. From solid timber and engineered wood to decorative veneers and custom furniture pieces, we bring quality craftsmanship and natural beauty to every project.',
-    products: [
-      { name: 'Premium Hardwood', icon: '🌳', description: 'Solid hardwood timber for construction and craftsmanship' },
-      { name: 'Custom Furniture', icon: '🪑', description: 'Bespoke furniture pieces crafted to your specifications' },
-      { name: 'Fabricated Wood', icon: '🔨', description: 'Engineered wood products for commercial applications' },
-      { name: 'Wood Veneer', icon: '📐', description: 'High-quality decorative veneers in various finishes' },
+    mainTitle: 'Crafting Visions in Wood',
+    highlightedWord: 'Bold',
+    subtitle: 'Our website is under construction, but our passion for creating extraordinary wood furniture never stops.',
+    phone: '+255 743 777333',
+    email: 'info@udesign.co.tz',
+    logoUrl: '/logo.png',
+    carouselImages: [
+      {
+        src: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?q=80&w=800&h=800&auto=format&fit=crop',
+        alt: 'Handcrafted Solid Oak Dining Table',
+        title: 'Solid Oak Dining Table',
+        description: 'Handcrafted from premium oak with natural finish',
+      },
+      {
+        src: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?q=80&w=800&h=800&auto=format&fit=crop',
+        alt: 'Custom Walnut Bookshelf',
+        title: 'Walnut Bookshelf',
+        description: 'Custom design with adjustable shelves',
+      },
+      {
+        src: 'https://images.unsplash.com/photo-1556228453-efd6c1ff04f6?q=80&w=800&h=800&auto=format&fit=crop',
+        alt: 'Teak Outdoor Furniture Set',
+        title: 'Teak Outdoor Set',
+        description: 'Weather-resistant teak for outdoor elegance',
+      },
+      {
+        src: 'https://images.unsplash.com/photo-1540574163026-643ea20ade25?q=80&w=800&h=800&auto=format&fit=crop',
+        alt: 'Mahogany King Size Bed Frame',
+        title: 'Mahogany Bed Frame',
+        description: 'King size with intricate hand-carved details',
+      },
+      {
+        src: 'https://images.unsplash.com/photo-1556185781-a47769abb7ee?q=80&w=800&h=800&auto=format&fit=crop',
+        alt: 'Custom Maple Kitchen Cabinets',
+        title: 'Maple Kitchen Cabinets',
+        description: 'Custom-built with dovetail joinery',
+      },
     ],
-    footerText: 'Website Coming Soon • Contact Us For Inquiries',
   });
 
   useEffect(() => {
@@ -56,14 +95,26 @@ const PageEditor = () => {
 
   const fetchPageContent = async () => {
     try {
-      if (pageId === 'coming-soon') {
-        setPageName('Coming Soon Page');
-        // Load from API when available
-        // const response = await api.get(`/website/pages/${pageId}`);
-        // setContent(response.data.content);
+      setPageName('Coming Soon Page');
+
+      // Try to fetch the page from backend
+      const response = await api.get(`/website/pages/slug/coming-soon`);
+      if (response.data && response.data.content) {
+        // Ensure all required fields exist
+        const loadedContent = response.data.content;
+        setContent({
+          mainTitle: loadedContent.mainTitle || 'Crafting Visions in Wood',
+          highlightedWord: loadedContent.highlightedWord || 'Bold',
+          subtitle: loadedContent.subtitle || 'Our website is under construction, but our passion for creating extraordinary wood furniture never stops.',
+          phone: loadedContent.phone || '+255 743 777333',
+          email: loadedContent.email || 'info@udesign.co.tz',
+          logoUrl: loadedContent.logoUrl || '/logo.png',
+          carouselImages: Array.isArray(loadedContent.carouselImages) ? loadedContent.carouselImages : [],
+        });
       }
-    } catch (error) {
-      console.error('Error fetching page:', error);
+    } catch (error: any) {
+      // If page doesn't exist, we'll use the default content
+      console.log('Page not found, using default content');
     } finally {
       setLoading(false);
     }
@@ -72,20 +123,89 @@ const PageEditor = () => {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.put(`/website/pages/${pageId}`, { content });
-      enqueueSnackbar('Page saved successfully!', { variant: 'success' });
-    } catch (error) {
-      console.error('Error saving page:', error);
-      enqueueSnackbar('Failed to save page. Please try again.', { variant: 'error' });
+      let savedSuccessfully = false;
+
+      // First try to update existing page
+      try {
+        const existingPage = await api.get(`/website/pages/slug/coming-soon`);
+        if (existingPage.data) {
+          console.log('Updating existing page:', existingPage.data.id);
+          const response = await api.put(`/website/pages/${existingPage.data.id}`, { content });
+          console.log('Update response:', response.data);
+          savedSuccessfully = true;
+        }
+      } catch (getError: any) {
+        // Page doesn't exist, create it
+        console.log('Page not found, creating new page...');
+        try {
+          const response = await api.post(`/website/pages`, {
+            name: 'Coming Soon Page',
+            slug: 'coming-soon',
+            content,
+            status: 'published',
+          });
+          console.log('Create response:', response.data);
+          savedSuccessfully = true;
+        } catch (postError: any) {
+          console.error('Error creating page:', postError.response?.data || postError.message);
+          throw postError;
+        }
+      }
+
+      if (savedSuccessfully) {
+        enqueueSnackbar('Page saved successfully! Refresh the Coming Soon page to see changes.', { variant: 'success' });
+      }
+    } catch (error: any) {
+      console.error('Error saving page:', error.response?.data || error.message);
+      enqueueSnackbar(`Failed to save page: ${error.response?.data?.error || error.message}`, { variant: 'error' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleProductChange = (index: number, field: string, value: string) => {
-    const updatedProducts = [...content.products];
-    updatedProducts[index] = { ...updatedProducts[index], [field]: value };
-    setContent({ ...content, products: updatedProducts });
+  const handleImageChange = (index: number, field: keyof CarouselImage, value: string) => {
+    const updatedImages = [...content.carouselImages];
+    updatedImages[index] = { ...updatedImages[index], [field]: value };
+    setContent({ ...content, carouselImages: updatedImages });
+  };
+
+  const handleAddImage = () => {
+    const newImage: CarouselImage = {
+      src: '',
+      alt: '',
+      title: '',
+      description: '',
+    };
+    setContent({ ...content, carouselImages: [...content.carouselImages, newImage] });
+  };
+
+  const handleRemoveImage = (index: number) => {
+    const updatedImages = content.carouselImages.filter((_, i) => i !== index);
+    setContent({ ...content, carouselImages: updatedImages });
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await api.post('/website/files/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      if (response.data && response.data[0]) {
+        handleImageChange(index, 'src', response.data[0].url);
+        enqueueSnackbar('Image uploaded successfully!', { variant: 'success' });
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      enqueueSnackbar('Failed to upload image. Please try again.', { variant: 'error' });
+    }
   };
 
   if (loading) {
@@ -131,35 +251,37 @@ const PageEditor = () => {
       </Box>
 
       <Alert severity="info" sx={{ mb: 3 }}>
-        Edit the content below to customize your Coming Soon page. Changes will be reflected immediately on the public website.
+        Edit the content below to customize your Coming Soon page. Changes will be saved to the database and reflected on the public website.
       </Alert>
 
       <Paper sx={{ p: 3 }}>
         <Grid container spacing={3}>
           {/* Header Section */}
           <Grid item xs={12}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#dc2626' }}>
               Header Section
             </Typography>
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item xs={12} md={6}>
             <TextField
               fullWidth
-              label="Main Title"
-              value={content.title}
-              onChange={(e) => setContent({ ...content, title: e.target.value })}
-              placeholder="e.g., Welcome to UDesign"
+              label="Main Title (before highlighted word)"
+              value={content.mainTitle}
+              onChange={(e) => setContent({ ...content, mainTitle: e.target.value })}
+              placeholder="e.g., Crafting Visions in Wood"
+              helperText="This appears before the highlighted word"
             />
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item xs={12} md={6}>
             <TextField
               fullWidth
-              label="Subtitle"
-              value={content.subtitle}
-              onChange={(e) => setContent({ ...content, subtitle: e.target.value })}
-              placeholder="e.g., Premium Hardwood & Custom Furniture Manufacturer"
+              label="Highlighted Word (in red)"
+              value={content.highlightedWord}
+              onChange={(e) => setContent({ ...content, highlightedWord: e.target.value })}
+              placeholder="e.g., Bold"
+              helperText="This word will be displayed in red"
             />
           </Grid>
 
@@ -167,11 +289,11 @@ const PageEditor = () => {
             <TextField
               fullWidth
               multiline
-              rows={4}
-              label="Description"
-              value={content.description}
-              onChange={(e) => setContent({ ...content, description: e.target.value })}
-              placeholder="Enter your business description"
+              rows={3}
+              label="Subtitle"
+              value={content.subtitle}
+              onChange={(e) => setContent({ ...content, subtitle: e.target.value })}
+              placeholder="e.g., Our website is under construction..."
             />
           </Grid>
 
@@ -179,75 +301,180 @@ const PageEditor = () => {
             <Divider sx={{ my: 2 }} />
           </Grid>
 
-          {/* Products Section */}
+          {/* Contact Information */}
           <Grid item xs={12}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-              Products Section
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#dc2626' }}>
+              Contact Information
             </Typography>
           </Grid>
 
-          {content.products.map((product, index) => (
-            <Grid item xs={12} md={6} key={index}>
-              <Paper sx={{ p: 2, backgroundColor: '#f8fafc' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-                  Product {index + 1}
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Product Name"
-                      value={product.name}
-                      onChange={(e) => handleProductChange(index, 'name', e.target.value)}
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Icon (Emoji)"
-                      value={product.icon}
-                      onChange={(e) => handleProductChange(index, 'icon', e.target.value)}
-                      helperText="Use an emoji like 🌳 🪑 🔨 📐"
-                    />
-                  </Grid>
-                  <Grid item xs={12}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      multiline
-                      rows={2}
-                      label="Description"
-                      value={product.description}
-                      onChange={(e) => handleProductChange(index, 'description', e.target.value)}
-                    />
-                  </Grid>
-                </Grid>
-              </Paper>
-            </Grid>
-          ))}
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Phone Number"
+              value={content.phone}
+              onChange={(e) => setContent({ ...content, phone: e.target.value })}
+              placeholder="+255 743 777333"
+            />
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <TextField
+              fullWidth
+              label="Email Address"
+              type="email"
+              value={content.email}
+              onChange={(e) => setContent({ ...content, email: e.target.value })}
+              placeholder="info@udesign.co.tz"
+            />
+          </Grid>
 
           <Grid item xs={12}>
             <Divider sx={{ my: 2 }} />
           </Grid>
 
-          {/* Footer Section */}
+          {/* Logo Section */}
           <Grid item xs={12}>
-            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-              Footer Section
+            <Typography variant="h6" sx={{ fontWeight: 600, mb: 2, color: '#dc2626' }}>
+              Logo
             </Typography>
           </Grid>
 
           <Grid item xs={12}>
             <TextField
               fullWidth
-              label="Footer Text"
-              value={content.footerText}
-              onChange={(e) => setContent({ ...content, footerText: e.target.value })}
-              placeholder="e.g., Website Coming Soon • Contact Us For Inquiries"
+              label="Logo URL"
+              value={content.logoUrl}
+              onChange={(e) => setContent({ ...content, logoUrl: e.target.value })}
+              placeholder="/logo.png or https://..."
+              helperText="Upload your logo to the file manager and paste the URL here"
             />
           </Grid>
+
+          <Grid item xs={12}>
+            <Divider sx={{ my: 2 }} />
+          </Grid>
+
+          {/* Carousel Images Section */}
+          <Grid item xs={12}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: '#dc2626' }}>
+                Carousel Images
+              </Typography>
+              <Button
+                startIcon={<AddPhotoAlternateIcon />}
+                onClick={handleAddImage}
+                variant="outlined"
+                sx={{ borderColor: '#dc2626', color: '#dc2626', '&:hover': { borderColor: '#b91c1c', backgroundColor: '#fef2f2' } }}
+              >
+                Add Image
+              </Button>
+            </Box>
+          </Grid>
+
+          {content.carouselImages && content.carouselImages.length > 0 ? content.carouselImages.map((image, index) => (
+            <Grid item xs={12} key={index}>
+              <Card sx={{ p: 2, backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b' }}>
+                    Image {index + 1}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleRemoveImage(index)}
+                    sx={{ color: '#dc2626' }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    {image.src && (
+                      <CardMedia
+                        component="img"
+                        height="140"
+                        image={image.src}
+                        alt={image.alt}
+                        sx={{ borderRadius: 1, mb: 2, objectFit: 'cover' }}
+                      />
+                    )}
+                    <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
+                      <Button
+                        variant="outlined"
+                        component="label"
+                        size="small"
+                        startIcon={<AddPhotoAlternateIcon />}
+                        sx={{ borderColor: '#dc2626', color: '#dc2626', '&:hover': { borderColor: '#b91c1c' } }}
+                      >
+                        Upload Image
+                        <input
+                          type="file"
+                          hidden
+                          accept="image/*"
+                          onChange={(e) => handleImageUpload(e, index)}
+                        />
+                      </Button>
+                      <Typography variant="caption" sx={{ color: '#64748b', px: 1 }}>
+                        Or paste URL below
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  <Grid item xs={12} md={8}>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Image URL"
+                          value={image.src}
+                          onChange={(e) => handleImageChange(index, 'src', e.target.value)}
+                          placeholder="https://... or /uploads/..."
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Alt Text (for accessibility)"
+                          value={image.alt}
+                          onChange={(e) => handleImageChange(index, 'alt', e.target.value)}
+                          placeholder="e.g., Handcrafted Solid Oak Dining Table"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Title"
+                          value={image.title || ''}
+                          onChange={(e) => handleImageChange(index, 'title', e.target.value)}
+                          placeholder="e.g., Solid Oak Dining Table"
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Description"
+                          value={image.description || ''}
+                          onChange={(e) => handleImageChange(index, 'description', e.target.value)}
+                          placeholder="e.g., Handcrafted from premium oak"
+                        />
+                      </Grid>
+                    </Grid>
+                  </Grid>
+                </Grid>
+              </Card>
+            </Grid>
+          )) : (
+            <Grid item xs={12}>
+              <Alert severity="info">
+                No carousel images yet. Click "Add Image" to get started.
+              </Alert>
+            </Grid>
+          )}
         </Grid>
       </Paper>
     </Box>

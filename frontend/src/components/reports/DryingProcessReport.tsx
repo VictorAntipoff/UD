@@ -535,8 +535,7 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
             {process.readings.map((reading) => (
               <View key={reading.id} style={styles.tableRow}>
                 <Text style={styles.col1}>
-                  {new Date(reading.readingTime).toLocaleDateString()} {' '}
-                  {new Date(reading.readingTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(reading.readingTime).toLocaleDateString()} {new Date(reading.readingTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
                 <Text style={styles.col2}>{reading.electricityMeter.toFixed(2)}</Text>
                 <Text style={styles.col3}>{reading.humidity.toFixed(1)}</Text>

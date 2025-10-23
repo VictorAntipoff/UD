@@ -46,6 +46,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import SearchIcon from '@mui/icons-material/Search';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import { DryingProcessReport } from '../../components/reports/DryingProcessReport';
 import api from '../../lib/api';
@@ -78,6 +81,18 @@ const getCurrentLocalDatetime = () => {
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+// Helper function to format UTC datetime to local timezone for display
+const formatLocalDatetime = (utcDatetime: string) => {
+  const date = new Date(utcDatetime);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
 const textFieldSx = {
@@ -195,6 +210,11 @@ export default function DryingProcess() {
 
   const [thicknessUnit, setThicknessUnit] = useState<'mm' | 'inch'>('mm');
   const [editThicknessUnit, setEditThicknessUnit] = useState<'mm' | 'inch'>('mm');
+
+  // Completed table states
+  const [completedSearchTerm, setCompletedSearchTerm] = useState('');
+  const [completedSortField, setCompletedSortField] = useState<'batchNumber' | 'woodType' | 'completedDate' | 'finalHumidity'>('completedDate');
+  const [completedSortOrder, setCompletedSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const [editData, setEditData] = useState({
     woodTypeId: '',
@@ -564,6 +584,57 @@ export default function DryingProcess() {
     return totalUsed;
   };
 
+  // Filter and sort completed processes
+  const getFilteredAndSortedCompletedProcesses = () => {
+    let filtered = processes.filter(p => p.status === 'COMPLETED');
+
+    // Apply search filter
+    if (completedSearchTerm) {
+      const searchLower = completedSearchTerm.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.batchNumber.toLowerCase().includes(searchLower) ||
+        p.woodType.name.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      let compareValue = 0;
+
+      switch (completedSortField) {
+        case 'batchNumber':
+          compareValue = a.batchNumber.localeCompare(b.batchNumber);
+          break;
+        case 'woodType':
+          compareValue = a.woodType.name.localeCompare(b.woodType.name);
+          break;
+        case 'completedDate':
+          const dateA = a.endTime ? new Date(a.endTime).getTime() : 0;
+          const dateB = b.endTime ? new Date(b.endTime).getTime() : 0;
+          compareValue = dateA - dateB;
+          break;
+        case 'finalHumidity':
+          const humidityA = a.readings.length > 0 ? a.readings[a.readings.length - 1].humidity : 0;
+          const humidityB = b.readings.length > 0 ? b.readings[b.readings.length - 1].humidity : 0;
+          compareValue = humidityA - humidityB;
+          break;
+      }
+
+      return completedSortOrder === 'asc' ? compareValue : -compareValue;
+    });
+
+    return filtered;
+  };
+
+  const handleCompletedSort = (field: typeof completedSortField) => {
+    if (completedSortField === field) {
+      setCompletedSortOrder(completedSortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setCompletedSortField(field);
+      setCompletedSortOrder('asc');
+    }
+  };
+
   // AI estimation algorithm - predicts completion time based on humidity trend
   const estimateCompletion = (process: DryingProcess) => {
     const TARGET_HUMIDITY = 12; // Target humidity percentage
@@ -826,14 +897,43 @@ export default function DryingProcess() {
           <CircularProgress sx={{ color: '#dc2626' }} />
         </Box>
       ) : (
-        <Grid container spacing={3}>
-          {processes.map((process) => {
-            const electricityUsed = calculateElectricityUsed(process);
-            const currentHumidity = process.readings.length > 0
-              ? process.readings[process.readings.length - 1].humidity
-              : 0;
+        <>
+          {/* In Progress Section */}
+          {processes.filter(p => p.status === 'IN_PROGRESS').length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Typography
+                variant="h6"
+                sx={{
+                  color: '#1e293b',
+                  fontWeight: 700,
+                  fontSize: '1.125rem',
+                  mb: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1
+                }}
+              >
+                <DryIcon sx={{ fontSize: 24, color: '#3b82f6' }} />
+                Drying in Progress
+                <Chip
+                  label={processes.filter(p => p.status === 'IN_PROGRESS').length}
+                  size="small"
+                  sx={{
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    fontWeight: 700,
+                    fontSize: '0.75rem'
+                  }}
+                />
+              </Typography>
+              <Grid container spacing={3}>
+                {processes.filter(p => p.status === 'IN_PROGRESS').map((process) => {
+                  const electricityUsed = calculateElectricityUsed(process);
+                  const currentHumidity = process.readings.length > 0
+                    ? process.readings[process.readings.length - 1].humidity
+                    : 0;
 
-            return (
+                  return (
               <Grid item xs={12} key={process.id}>
                 <Accordion
                   expanded={expandedProcesses.includes(process.id)}
@@ -857,44 +957,54 @@ export default function DryingProcess() {
                   <AccordionSummary
                     expandIcon={<ExpandMoreIcon sx={{ color: '#dc2626' }} />}
                     sx={{
-                      p: 2,
+                      p: { xs: 1.5, sm: 2 },
                       backgroundColor: '#f8fafc',
                       '&:hover': {
                         backgroundColor: '#f1f5f9'
+                      },
+                      '& .MuiAccordionSummary-content': {
+                        margin: { xs: '8px 0', sm: '12px 0' }
                       }
                     }}
                   >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', mr: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Box
-                          sx={{
-                            backgroundColor: '#dc2626',
-                            color: '#fff',
-                            px: 2,
-                            py: 1,
-                            borderRadius: 1,
-                            fontWeight: 700,
-                            fontSize: '0.875rem'
-                          }}
-                        >
-                          {process.batchNumber}
+                    <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', md: 'center' }, width: '100%', mr: { xs: 1, md: 2 }, gap: { xs: 1.5, md: 0 } }}>
+                      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, gap: { xs: 1, sm: 2 }, width: { xs: '100%', md: 'auto' } }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <Box
+                            sx={{
+                              backgroundColor: '#dc2626',
+                              color: '#fff',
+                              px: 2,
+                              py: 0.75,
+                              borderRadius: 1,
+                              fontWeight: 700,
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            {process.batchNumber}
+                          </Box>
+                          <Chip
+                            label={getStatusLabel(process.status)}
+                            size="small"
+                            sx={{
+                              backgroundColor: getStatusColor(process.status),
+                              color: '#fff',
+                              fontWeight: 700,
+                              fontSize: '0.75rem'
+                            }}
+                          />
                         </Box>
-                        <Chip
-                          label={getStatusLabel(process.status)}
-                          size="small"
-                          sx={{
-                            backgroundColor: getStatusColor(process.status),
-                            color: '#fff',
-                            fontWeight: 700,
-                            fontSize: '0.75rem'
-                          }}
-                        />
-                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.875rem' }}>
+                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: { xs: '0.813rem', sm: '0.875rem' } }}>
                           {process.woodType.name} • {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
                           {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
                         </Typography>
                       </Box>
-                      <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
+                      <Stack
+                        direction="row"
+                        spacing={{ xs: 0.75, sm: 1 }}
+                        onClick={(e) => e.stopPropagation()}
+                        sx={{ flexShrink: 0 }}
+                      >
                         {process.status === 'IN_PROGRESS' && (
                           <>
                             <Button
@@ -903,13 +1013,26 @@ export default function DryingProcess() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedProcess(process);
+                                // Reset reading time to current time when dialog opens
+                                setNewReading(prev => ({
+                                  ...prev,
+                                  readingTime: getCurrentLocalDatetime()
+                                }));
                                 setReadingDialogOpen(true);
                               }}
                               sx={{
                                 color: '#dc2626',
                                 borderColor: '#dc2626',
-                                fontSize: '0.75rem',
+                                fontSize: { xs: '0.7rem', sm: '0.75rem' },
                                 textTransform: 'none',
+                                px: { xs: 1.5, sm: 2 },
+                                py: { xs: 0.5, sm: 0.75 },
+                                minWidth: { xs: '70px', sm: 'auto' },
+                                whiteSpace: 'nowrap',
+                                '& .MuiButton-startIcon': {
+                                  marginRight: { xs: 0.5, sm: 1 },
+                                  marginLeft: 0
+                                },
                                 '&:hover': {
                                   borderColor: '#b91c1c',
                                   backgroundColor: alpha('#dc2626', 0.04),
@@ -917,7 +1040,8 @@ export default function DryingProcess() {
                               }}
                               variant="outlined"
                             >
-                              Add Reading
+                              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Add Reading</Box>
+                              <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Add</Box>
                             </Button>
                             <Button
                               size="small"
@@ -929,8 +1053,16 @@ export default function DryingProcess() {
                               sx={{
                                 color: '#10b981',
                                 borderColor: '#10b981',
-                                fontSize: '0.75rem',
+                                fontSize: { xs: '0.7rem', sm: '0.75rem' },
                                 textTransform: 'none',
+                                px: { xs: 1.5, sm: 2 },
+                                py: { xs: 0.5, sm: 0.75 },
+                                minWidth: { xs: '85px', sm: 'auto' },
+                                whiteSpace: 'nowrap',
+                                '& .MuiButton-startIcon': {
+                                  marginRight: { xs: 0.5, sm: 1 },
+                                  marginLeft: 0
+                                },
                                 '&:hover': {
                                   borderColor: '#059669',
                                   backgroundColor: alpha('#10b981', 0.04),
@@ -952,8 +1084,11 @@ export default function DryingProcess() {
                             sx={{
                               color: '#3b82f6',
                               borderColor: '#3b82f6',
-                              fontSize: '0.75rem',
+                              fontSize: { xs: '0.7rem', sm: '0.75rem' },
                               textTransform: 'none',
+                              px: { xs: 1, sm: 2 },
+                              minWidth: { xs: 'auto', sm: 'auto' },
+                              display: { xs: 'none', sm: 'inline-flex' },
                               '&:hover': {
                                 borderColor: '#2563eb',
                                 backgroundColor: alpha('#3b82f6', 0.04),
@@ -973,13 +1108,14 @@ export default function DryingProcess() {
                             }}
                             sx={{
                               color: '#f59e0b',
+                              p: { xs: 0.75, sm: 1 },
                               '&:hover': {
                                 backgroundColor: alpha('#f59e0b', 0.1)
                               }
                             }}
                             title="Edit initial data (Admin only)"
                           >
-                            <EditIcon fontSize="small" />
+                            <EditIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />
                           </IconButton>
                         )}
                         {process.status !== 'COMPLETED' && (
@@ -991,12 +1127,13 @@ export default function DryingProcess() {
                             }}
                             sx={{
                               color: '#ef4444',
+                              p: { xs: 0.75, sm: 1 },
                               '&:hover': {
                                 backgroundColor: alpha('#ef4444', 0.1)
                               }
                             }}
                           >
-                            <DeleteIcon fontSize="small" />
+                            <DeleteIcon sx={{ fontSize: { xs: 18, sm: 20 } }} />
                           </IconButton>
                         )}
                       </Stack>
@@ -1131,13 +1268,21 @@ export default function DryingProcess() {
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
                                       <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
                                         {(() => {
-                                          const dateStr = reading.readingTime.split('T')[0];
-                                          const [year, month, day] = dateStr.split('-');
+                                          const localDate = new Date(reading.readingTime);
+                                          const month = String(localDate.getMonth() + 1).padStart(2, '0');
+                                          const day = String(localDate.getDate()).padStart(2, '0');
+                                          const year = localDate.getFullYear();
                                           return `${month}/${day}/${year}`;
                                         })()}
                                       </Typography>
                                       <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.25 }}>
-                                        {reading.readingTime.split('T')[1]?.substring(0, 8) || ''}
+                                        {(() => {
+                                          const localDate = new Date(reading.readingTime);
+                                          const hours = String(localDate.getHours()).padStart(2, '0');
+                                          const minutes = String(localDate.getMinutes()).padStart(2, '0');
+                                          const seconds = String(localDate.getSeconds()).padStart(2, '0');
+                                          return `${hours}:${minutes}:${seconds}`;
+                                        })()}
                                       </Typography>
                                     </TableCell>
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
@@ -1594,23 +1739,459 @@ export default function DryingProcess() {
                   </AccordionDetails>
                 </Accordion>
               </Grid>
-            );
-          })}
+                  );
+                })}
+              </Grid>
+            </Box>
+          )}
+
+          {/* Completed Section - Table Format (Desktop) / Card Format (Mobile) */}
+          {processes.filter(p => p.status === 'COMPLETED').length > 0 && (
+            <Box sx={{ mb: 4 }}>
+              <Box sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
+                justifyContent: 'space-between',
+                alignItems: { xs: 'stretch', sm: 'center' },
+                gap: 2,
+                mb: 2
+              }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: '#1e293b',
+                    fontWeight: 700,
+                    fontSize: '1.125rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1
+                  }}
+                >
+                  <CheckCircleIcon sx={{ fontSize: 24, color: '#10b981' }} />
+                  Completed Drying
+                  <Chip
+                    label={getFilteredAndSortedCompletedProcesses().length}
+                    size="small"
+                    sx={{
+                      backgroundColor: '#10b981',
+                      color: 'white',
+                      fontWeight: 700,
+                      fontSize: '0.75rem'
+                    }}
+                  />
+                </Typography>
+                <TextField
+                  size="small"
+                  placeholder="Search..."
+                  value={completedSearchTerm}
+                  onChange={(e) => setCompletedSearchTerm(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon sx={{ fontSize: 20, color: '#64748b' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{
+                    width: { xs: '100%', sm: 350 },
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: 'white',
+                    }
+                  }}
+                />
+              </Box>
+
+              {/* Desktop Table View */}
+              <Paper
+                elevation={0}
+                sx={{
+                  display: { xs: 'none', md: 'block' },
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 2,
+                  overflow: 'hidden'
+                }}
+              >
+                <TableContainer>
+                  <Table>
+                    <TableHead>
+                      <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                        <TableCell
+                          sx={{ fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}
+                          onClick={() => handleCompletedSort('batchNumber')}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            Batch Number
+                            {completedSortField === 'batchNumber' && (
+                              completedSortOrder === 'asc' ? <ArrowUpwardIcon sx={{ fontSize: 16 }} /> : <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell
+                          sx={{ fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}
+                          onClick={() => handleCompletedSort('woodType')}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            Wood Type & Specs
+                            {completedSortField === 'woodType' && (
+                              completedSortOrder === 'asc' ? <ArrowUpwardIcon sx={{ fontSize: 16 }} /> : <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell
+                          sx={{ fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}
+                          onClick={() => handleCompletedSort('completedDate')}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            Completed Date
+                            {completedSortField === 'completedDate' && (
+                              completedSortOrder === 'asc' ? <ArrowUpwardIcon sx={{ fontSize: 16 }} /> : <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell
+                          sx={{ fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}
+                          onClick={() => handleCompletedSort('finalHumidity')}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            Final Humidity
+                            {completedSortField === 'finalHumidity' && (
+                              completedSortOrder === 'asc' ? <ArrowUpwardIcon sx={{ fontSize: 16 }} /> : <ArrowDownwardIcon sx={{ fontSize: 16 }} />
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#1e293b' }}>Electricity Used</TableCell>
+                        <TableCell sx={{ fontWeight: 700, color: '#1e293b', textAlign: 'right' }}>Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {getFilteredAndSortedCompletedProcesses().map((process) => {
+                        const electricityUsed = calculateElectricityUsed(process);
+                        const finalHumidity = process.readings.length > 0
+                          ? process.readings[process.readings.length - 1].humidity
+                          : 0;
+
+                        return (
+                          <TableRow
+                            key={process.id}
+                            sx={{
+                              '&:hover': {
+                                backgroundColor: '#f0fdf4',
+                              },
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <TableCell>
+                              <Box
+                                sx={{
+                                  backgroundColor: '#10b981',
+                                  color: '#fff',
+                                  px: 2,
+                                  py: 0.75,
+                                  borderRadius: 1,
+                                  fontWeight: 700,
+                                  fontSize: '0.875rem',
+                                  display: 'inline-block'
+                                }}
+                              >
+                                {process.batchNumber}
+                              </Box>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                                {process.woodType.name}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pcs
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              {process.endTime ? (
+                                <>
+                                  <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
+                                    {new Date(process.endTime).toLocaleDateString('en-US', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      year: 'numeric'
+                                    })}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                    {new Date(process.endTime).toLocaleTimeString('en-US', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true
+                                    })}
+                                  </Typography>
+                                </>
+                              ) : (
+                                <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                                  N/A
+                                </Typography>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Card elevation={0} sx={{ backgroundColor: '#eff6ff', border: '1px solid #dbeafe', display: 'inline-block', px: 2, py: 1 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <OpacityIcon sx={{ fontSize: 18, color: '#3b82f6' }} />
+                                  <Typography variant="body1" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1rem' }}>
+                                    {finalHumidity.toFixed(1)}%
+                                  </Typography>
+                                </Box>
+                              </Card>
+                            </TableCell>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <ElectricBoltIcon sx={{ fontSize: 18, color: '#16a34a' }} />
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                                  {Math.abs(electricityUsed).toFixed(2)} Unit
+                                </Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell align="right">
+                              <Stack direction="row" spacing={1} justifyContent="flex-end">
+                                <Button
+                                  size="small"
+                                  startIcon={<AssessmentIcon />}
+                                  onClick={() => {
+                                    setSelectedProcess(process);
+                                    setDetailsDialogOpen(true);
+                                  }}
+                                  sx={{
+                                    color: '#3b82f6',
+                                    borderColor: '#3b82f6',
+                                    fontSize: '0.75rem',
+                                    textTransform: 'none',
+                                    '&:hover': {
+                                      borderColor: '#2563eb',
+                                      backgroundColor: alpha('#3b82f6', 0.04),
+                                    }
+                                  }}
+                                  variant="outlined"
+                                >
+                                  View
+                                </Button>
+                                {isAdmin && (
+                                  <>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setSelectedProcess(process);
+                                        setEditDialogOpen(true);
+                                      }}
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          color: '#3b82f6',
+                                          backgroundColor: alpha('#3b82f6', 0.04),
+                                        }
+                                      }}
+                                    >
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDeleteProcess(process.id)}
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          color: '#dc2626',
+                                          backgroundColor: alpha('#dc2626', 0.04),
+                                        }
+                                      }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </>
+                                )}
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Paper>
+
+              {/* Mobile Card View */}
+              <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                <Grid container spacing={2}>
+                  {getFilteredAndSortedCompletedProcesses().map((process) => {
+                    const electricityUsed = calculateElectricityUsed(process);
+                    const finalHumidity = process.readings.length > 0
+                      ? process.readings[process.readings.length - 1].humidity
+                      : 0;
+
+                    return (
+                      <Grid item xs={12} key={process.id}>
+                        <Card
+                          elevation={0}
+                          sx={{
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 2,
+                            '&:hover': {
+                              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.1)',
+                              borderColor: '#10b981',
+                            }
+                          }}
+                        >
+                          <CardContent sx={{ p: 2 }}>
+                            {/* Header */}
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                              <Box
+                                sx={{
+                                  backgroundColor: '#10b981',
+                                  color: '#fff',
+                                  px: 2,
+                                  py: 0.75,
+                                  borderRadius: 1,
+                                  fontWeight: 700,
+                                  fontSize: '0.875rem'
+                                }}
+                              >
+                                {process.batchNumber}
+                              </Box>
+                              <Stack direction="row" spacing={0.5}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    setSelectedProcess(process);
+                                    setDetailsDialogOpen(true);
+                                  }}
+                                  sx={{
+                                    color: '#3b82f6',
+                                    '&:hover': {
+                                      backgroundColor: alpha('#3b82f6', 0.04),
+                                    }
+                                  }}
+                                >
+                                  <AssessmentIcon fontSize="small" />
+                                </IconButton>
+                                {isAdmin && (
+                                  <>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => {
+                                        setSelectedProcess(process);
+                                        setEditDialogOpen(true);
+                                      }}
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          color: '#3b82f6',
+                                          backgroundColor: alpha('#3b82f6', 0.04),
+                                        }
+                                      }}
+                                    >
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleDeleteProcess(process.id)}
+                                      sx={{
+                                        color: '#64748b',
+                                        '&:hover': {
+                                          color: '#dc2626',
+                                          backgroundColor: alpha('#dc2626', 0.04),
+                                        }
+                                      }}
+                                    >
+                                      <DeleteIcon fontSize="small" />
+                                    </IconButton>
+                                  </>
+                                )}
+                              </Stack>
+                            </Box>
+
+                            {/* Wood Type */}
+                            <Typography variant="body1" sx={{ fontWeight: 600, color: '#1e293b', mb: 0.5 }}>
+                              {process.woodType.name}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 2 }}>
+                              {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
+                            </Typography>
+
+                            {/* Stats Cards */}
+                            <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
+                              <Box sx={{
+                                flex: 1,
+                                backgroundColor: '#eff6ff',
+                                border: '1px solid #dbeafe',
+                                borderRadius: 1.5,
+                                p: 1.5
+                              }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                                  <OpacityIcon sx={{ fontSize: 14, color: '#3b82f6' }} />
+                                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                                    Final Humidity
+                                  </Typography>
+                                </Box>
+                                <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
+                                  {finalHumidity.toFixed(1)}%
+                                </Typography>
+                              </Box>
+                              <Box sx={{
+                                flex: 1,
+                                backgroundColor: '#dcfce7',
+                                border: '1px solid #bbf7d0',
+                                borderRadius: 1.5,
+                                p: 1.5
+                              }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                                  <ElectricBoltIcon sx={{ fontSize: 14, color: '#16a34a' }} />
+                                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                                    Electricity
+                                  </Typography>
+                                </Box>
+                                <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.5rem' }}>
+                                  {Math.abs(electricityUsed).toFixed(2)}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.65rem' }}>
+                                  Unit
+                                </Typography>
+                              </Box>
+                            </Box>
+
+                            {/* Completed Date */}
+                            {process.endTime && (
+                              <Box sx={{ pt: 2, borderTop: '1px solid #e2e8f0' }}>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 0.5, fontSize: '0.7rem' }}>
+                                  Completed
+                                </Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b', fontSize: '0.875rem' }}>
+                                  {new Date(process.endTime).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    year: 'numeric'
+                                  })} • {new Date(process.endTime).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })}
+                                </Typography>
+                              </Box>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              </Box>
+            </Box>
+          )}
 
           {processes.length === 0 && (
-            <Grid item xs={12}>
-              <Box sx={{ textAlign: 'center', py: 8 }}>
-                <DryIcon sx={{ fontSize: 64, color: '#cbd5e1', mb: 2 }} />
-                <Typography variant="h6" sx={{ color: '#64748b', mb: 1 }}>
-                  No Drying Processes Yet
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#94a3b8' }}>
-                  Create your first drying process to start tracking operations
-                </Typography>
-              </Box>
-            </Grid>
+            <Box sx={{ textAlign: 'center', py: 8 }}>
+              <DryIcon sx={{ fontSize: 64, color: '#cbd5e1', mb: 2 }} />
+              <Typography variant="h6" sx={{ color: '#64748b', mb: 1 }}>
+                No Drying Processes Yet
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#94a3b8' }}>
+                Create your first drying process to start tracking operations
+              </Typography>
+            </Box>
           )}
-        </Grid>
+        </>
       )}
 
       {/* Create Process Dialog */}
@@ -1847,7 +2428,7 @@ export default function DryingProcess() {
           <Stack spacing={2.5}>
             <TextField
               fullWidth
-              label="Electricity Meter Reading (Unit)"
+              label="Electricity (Unit)"
               type="number"
               value={newReading.electricityMeter}
               onChange={(e) => setNewReading({ ...newReading, electricityMeter: e.target.value })}
@@ -2417,7 +2998,7 @@ export default function DryingProcess() {
                       {selectedProcess.readings.map((reading) => (
                         <TableRow key={reading.id} sx={{ '&:hover': { backgroundColor: '#fef2f2' } }}>
                           <TableCell sx={{ fontSize: '0.75rem' }}>
-                            {reading.readingTime.replace('T', ' ').substring(0, 19)}
+                            {formatLocalDatetime(reading.readingTime)}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
                             {reading.electricityMeter.toFixed(2)}

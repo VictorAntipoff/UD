@@ -45,6 +45,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import SearchIcon from '@mui/icons-material/Search';
 import api from '../../lib/api';
 import { format } from 'date-fns';
 import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
@@ -118,6 +119,7 @@ const WoodTransfer: FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [tabValue, setTabValue] = useState(0);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Dialog states
   const [openDialog, setOpenDialog] = useState(false);
@@ -364,10 +366,28 @@ const WoodTransfer: FC = () => {
   const completedCount = transfers.filter(t => t.status === 'COMPLETED').length;
 
   const filteredTransfers = transfers.filter(transfer => {
-    if (tabValue === 0) return transfer.status === 'PENDING';
-    if (tabValue === 1) return transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT';
-    if (tabValue === 2) return transfer.status === 'COMPLETED';
-    return true;
+    // Filter by tab
+    let matchesTab = false;
+    if (tabValue === 0) matchesTab = transfer.status === 'PENDING';
+    else if (tabValue === 1) matchesTab = transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT';
+    else if (tabValue === 2) matchesTab = transfer.status === 'COMPLETED';
+    else matchesTab = true;
+
+    if (!matchesTab) return false;
+
+    // Filter by search query
+    if (!searchQuery.trim()) return true;
+
+    const query = searchQuery.toLowerCase();
+    return (
+      transfer.transferNumber.toLowerCase().includes(query) ||
+      transfer.fromWarehouse.code.toLowerCase().includes(query) ||
+      transfer.fromWarehouse.name.toLowerCase().includes(query) ||
+      transfer.toWarehouse.code.toLowerCase().includes(query) ||
+      transfer.toWarehouse.name.toLowerCase().includes(query) ||
+      transfer.items.some(item => item.woodType.name.toLowerCase().includes(query)) ||
+      (transfer.notes && transfer.notes.toLowerCase().includes(query))
+    );
   });
 
   if (loading && transfers.length === 0) {
@@ -410,50 +430,73 @@ const WoodTransfer: FC = () => {
           </Alert>
         )}
 
-        {/* Filter Chips */}
-        <Box sx={{ mb: 3, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Chip
-            label={`Pending Approval (${pendingCount})`}
-            onClick={() => setTabValue(0)}
-            color={tabValue === 0 ? 'primary' : 'default'}
-            variant={tabValue === 0 ? 'filled' : 'outlined'}
+        {/* Search and Filter */}
+        <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Chip
+              label={`Pending Approval (${pendingCount})`}
+              onClick={() => setTabValue(0)}
+              color={tabValue === 0 ? 'primary' : 'default'}
+              variant={tabValue === 0 ? 'filled' : 'outlined'}
+              sx={{
+                fontWeight: tabValue === 0 ? 'bold' : 'normal',
+                px: 1,
+                cursor: 'pointer'
+              }}
+            />
+            <Chip
+              label={`In Transit (${inTransitCount})`}
+              onClick={() => setTabValue(1)}
+              color={tabValue === 1 ? 'warning' : 'default'}
+              variant={tabValue === 1 ? 'filled' : 'outlined'}
+              sx={{
+                fontWeight: tabValue === 1 ? 'bold' : 'normal',
+                px: 1,
+                cursor: 'pointer'
+              }}
+            />
+            <Chip
+              label="Completed"
+              onClick={() => setTabValue(2)}
+              color={tabValue === 2 ? 'success' : 'default'}
+              variant={tabValue === 2 ? 'filled' : 'outlined'}
+              sx={{
+                fontWeight: tabValue === 2 ? 'bold' : 'normal',
+                px: 1,
+                cursor: 'pointer'
+              }}
+            />
+            <Chip
+              label="All Transfers"
+              onClick={() => setTabValue(3)}
+              color={tabValue === 3 ? 'secondary' : 'default'}
+              variant={tabValue === 3 ? 'filled' : 'outlined'}
+              sx={{
+                fontWeight: tabValue === 3 ? 'bold' : 'normal',
+                px: 1,
+                cursor: 'pointer'
+              }}
+            />
+          </Box>
+
+          <TextField
+            placeholder="Search transfers..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            size="small"
             sx={{
-              fontWeight: tabValue === 0 ? 'bold' : 'normal',
-              px: 1,
-              cursor: 'pointer'
+              width: 300,
+              backgroundColor: '#fff',
+              '& .MuiOutlinedInput-root': {
+                fontSize: '0.875rem'
+              }
             }}
-          />
-          <Chip
-            label={`In Transit (${inTransitCount})`}
-            onClick={() => setTabValue(1)}
-            color={tabValue === 1 ? 'warning' : 'default'}
-            variant={tabValue === 1 ? 'filled' : 'outlined'}
-            sx={{
-              fontWeight: tabValue === 1 ? 'bold' : 'normal',
-              px: 1,
-              cursor: 'pointer'
-            }}
-          />
-          <Chip
-            label="Completed"
-            onClick={() => setTabValue(2)}
-            color={tabValue === 2 ? 'success' : 'default'}
-            variant={tabValue === 2 ? 'filled' : 'outlined'}
-            sx={{
-              fontWeight: tabValue === 2 ? 'bold' : 'normal',
-              px: 1,
-              cursor: 'pointer'
-            }}
-          />
-          <Chip
-            label="All Transfers"
-            onClick={() => setTabValue(3)}
-            color={tabValue === 3 ? 'secondary' : 'default'}
-            variant={tabValue === 3 ? 'filled' : 'outlined'}
-            sx={{
-              fontWeight: tabValue === 3 ? 'bold' : 'normal',
-              px: 1,
-              cursor: 'pointer'
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ color: '#64748b' }} />
+                </InputAdornment>
+              ),
             }}
           />
         </Box>
@@ -472,49 +515,53 @@ const WoodTransfer: FC = () => {
               return (
                 <Paper
                   key={transfer.id}
-                  elevation={1}
+                  elevation={0}
                   sx={{
-                    border: '1px solid',
-                    borderColor: isExpanded ? 'primary.main' : 'divider',
+                    border: '1px solid #e2e8f0',
                     borderRadius: 2,
+                    mb: 2,
                     transition: 'all 0.2s',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    '&:before': {
+                      display: 'none'
+                    }
                   }}
                 >
                   {/* Collapsed Header */}
                   <Box
                     sx={{
                       p: 2,
+                      backgroundColor: '#f8fafc',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
                       cursor: 'pointer',
                       '&:hover': {
-                        bgcolor: '#f8fafc'
+                        backgroundColor: '#f1f5f9'
                       }
                     }}
                     onClick={() => toggleCardExpanded(transfer.id)}
                   >
                     <Box display="flex" alignItems="center" gap={2} flex={1}>
-                      <LocalShippingIcon color="primary" sx={{ fontSize: 24 }} />
+                      <LocalShippingIcon sx={{ fontSize: 24, color: '#dc2626' }} />
                       <Box flex={1}>
-                        <Typography variant="subtitle1" fontWeight="bold">
+                        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.875rem' }}>
                           {transfer.transferNumber}
                         </Typography>
                         <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
                             {transfer.fromWarehouse.code} → {transfer.toWarehouse.code}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
                             •
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
                             {transfer.items?.length || 0} items ({transfer.items?.reduce((sum, item) => sum + item.quantity, 0) || 0} pcs)
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
                             •
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
                             {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
                           </Typography>
                         </Box>
@@ -523,10 +570,10 @@ const WoodTransfer: FC = () => {
                         label={transfer.status.replace('_', ' ')}
                         size="small"
                         color={getStatusColor(transfer.status)}
-                        sx={{ fontWeight: 'medium' }}
+                        sx={{ fontWeight: 700, fontSize: '0.75rem' }}
                       />
                       <IconButton size="small" sx={{ ml: 1 }}>
-                        {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                        {isExpanded ? <ExpandLessIcon sx={{ color: '#dc2626' }} /> : <ExpandMoreIcon sx={{ color: '#dc2626' }} />}
                       </IconButton>
                     </Box>
                   </Box>
@@ -656,6 +703,16 @@ const WoodTransfer: FC = () => {
                       size="small"
                       startIcon={<VisibilityIcon />}
                       onClick={() => handleOpenDetails(transfer)}
+                      sx={{
+                        color: '#dc2626',
+                        borderColor: '#dc2626',
+                        fontSize: '0.75rem',
+                        textTransform: 'none',
+                        '&:hover': {
+                          borderColor: '#b91c1c',
+                          backgroundColor: 'rgba(220, 38, 38, 0.04)',
+                        }
+                      }}
                     >
                       View Details
                     </Button>
