@@ -1,0 +1,22 @@
+# Environment variables - NEVER commit these files
+.env
+.env.*
+!.env.example
+
+# Uploads directory
+uploads/
+
+# Prisma
+prisma/.env
+.prisma/
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# Logs
+*.log
+logs/
