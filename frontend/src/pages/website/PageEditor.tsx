@@ -13,12 +13,21 @@ import {
   Card,
   CardMedia,
   CardActions,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  ImageList,
+  ImageListItem,
+  ImageListItemBar,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import PreviewIcon from '@mui/icons-material/Preview';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import api from '../../lib/api';
@@ -40,6 +49,16 @@ interface PageContent {
   logoUrl: string;
 }
 
+interface BackendFile {
+  id: string;
+  name: string;
+  originalName: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
 const PageEditor = () => {
   const { pageId } = useParams();
   const navigate = useNavigate();
@@ -47,6 +66,10 @@ const PageEditor = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pageName, setPageName] = useState('');
+  const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
+  const [backendFiles, setBackendFiles] = useState<BackendFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
 
   const [content, setContent] = useState<PageContent>({
     mainTitle: 'Crafting Visions in Wood',
@@ -205,6 +228,54 @@ const PageEditor = () => {
     } catch (error) {
       console.error('Error uploading image:', error);
       enqueueSnackbar('Failed to upload image. Please try again.', { variant: 'error' });
+    }
+  };
+
+  const fetchBackendFiles = async () => {
+    setLoadingFiles(true);
+    try {
+      const response = await api.get('/website/files');
+      if (response.data) {
+        // Filter only image files
+        const imageFiles = response.data.filter((file: BackendFile) =>
+          file.mimeType.startsWith('image/')
+        );
+        setBackendFiles(imageFiles);
+      }
+    } catch (error) {
+      console.error('Error fetching files:', error);
+      enqueueSnackbar('Failed to load files from backend', { variant: 'error' });
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const handleOpenFileBrowser = (index: number) => {
+    setSelectedImageIndex(index);
+    setFileBrowserOpen(true);
+    fetchBackendFiles();
+  };
+
+  const handleSelectFile = (fileUrl: string) => {
+    if (selectedImageIndex !== null) {
+      handleImageChange(selectedImageIndex, 'src', fileUrl);
+      setFileBrowserOpen(false);
+      setSelectedImageIndex(null);
+      enqueueSnackbar('Image selected successfully!', { variant: 'success' });
+    }
+  };
+
+  const getFileUrl = (url: string) => {
+    // If URL is already a full URL (starts with http:// or https://), use it directly
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    // For relative URLs (local files), prepend API URL in production
+    if (import.meta.env.DEV) {
+      return url; // Proxy will handle it in development
+    } else {
+      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3010';
+      return `${baseUrl}${url}`;
     }
   };
 
@@ -407,7 +478,7 @@ const PageEditor = () => {
                         startIcon={<AddPhotoAlternateIcon />}
                         sx={{ borderColor: '#dc2626', color: '#dc2626', '&:hover': { borderColor: '#b91c1c' } }}
                       >
-                        Upload Image
+                        Upload New
                         <input
                           type="file"
                           hidden
@@ -415,7 +486,16 @@ const PageEditor = () => {
                           onChange={(e) => handleImageUpload(e, index)}
                         />
                       </Button>
-                      <Typography variant="caption" sx={{ color: '#64748b', px: 1 }}>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<PhotoLibraryIcon />}
+                        onClick={() => handleOpenFileBrowser(index)}
+                        sx={{ backgroundColor: '#dc2626', '&:hover': { backgroundColor: '#b91c1c' } }}
+                      >
+                        Browse Files
+                      </Button>
+                      <Typography variant="caption" sx={{ color: '#64748b', px: 1, textAlign: 'center' }}>
                         Or paste URL below
                       </Typography>
                     </Box>
@@ -477,6 +557,76 @@ const PageEditor = () => {
           )}
         </Grid>
       </Paper>
+
+      {/* File Browser Dialog */}
+      <Dialog
+        open={fileBrowserOpen}
+        onClose={() => setFileBrowserOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <PhotoLibraryIcon sx={{ color: '#dc2626' }} />
+            <Typography variant="h6">Select Image from Files</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {loadingFiles ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : backendFiles.length === 0 ? (
+            <Alert severity="info">
+              No image files found. Upload some images to the file manager first.
+            </Alert>
+          ) : (
+            <ImageList cols={3} gap={16} sx={{ mt: 1 }}>
+              {backendFiles.map((file) => (
+                <ImageListItem
+                  key={file.id}
+                  sx={{
+                    cursor: 'pointer',
+                    border: '2px solid transparent',
+                    borderRadius: 1,
+                    overflow: 'hidden',
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      borderColor: '#dc2626',
+                      transform: 'scale(1.05)',
+                    },
+                  }}
+                  onClick={() => handleSelectFile(file.url)}
+                >
+                  <img
+                    src={getFileUrl(file.url)}
+                    alt={file.originalName}
+                    loading="lazy"
+                    style={{
+                      height: 200,
+                      objectFit: 'cover',
+                    }}
+                  />
+                  <ImageListItemBar
+                    title={file.originalName}
+                    subtitle={`${(file.size / 1024).toFixed(1)} KB`}
+                    actionIcon={
+                      <IconButton sx={{ color: 'white' }}>
+                        <CheckCircleIcon />
+                      </IconButton>
+                    }
+                  />
+                </ImageListItem>
+              ))}
+            </ImageList>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFileBrowserOpen(false)}>
+            Cancel
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
