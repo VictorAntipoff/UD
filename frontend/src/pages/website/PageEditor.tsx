@@ -20,6 +20,9 @@ import {
   ImageList,
   ImageListItem,
   ImageListItemBar,
+  Breadcrumbs,
+  Link,
+  Chip,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import PreviewIcon from '@mui/icons-material/Preview';
@@ -28,6 +31,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import FolderIcon from '@mui/icons-material/Folder';
+import HomeIcon from '@mui/icons-material/Home';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useSnackbar } from 'notistack';
 import api from '../../lib/api';
@@ -59,6 +64,20 @@ interface BackendFile {
   createdAt: string;
 }
 
+interface Folder {
+  id: string;
+  name: string;
+  _count: {
+    files: number;
+    subfolders: number;
+  };
+}
+
+interface BreadcrumbItem {
+  id: string | null;
+  name: string;
+}
+
 const PageEditor = () => {
   const { pageId } = useParams();
   const navigate = useNavigate();
@@ -68,6 +87,9 @@ const PageEditor = () => {
   const [pageName, setPageName] = useState('');
   const [fileBrowserOpen, setFileBrowserOpen] = useState(false);
   const [backendFiles, setBackendFiles] = useState<BackendFile[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: 'Root' }]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
 
@@ -231,13 +253,16 @@ const PageEditor = () => {
     }
   };
 
-  const fetchBackendFiles = async () => {
+  const fetchBackendFiles = async (folderId: string | null = null) => {
     setLoadingFiles(true);
     try {
-      const response = await api.get('/website/files');
+      const params = folderId ? `?parentId=${folderId}` : '';
+      const response = await api.get(`/website/folders${params}`);
       if (response.data) {
+        // Set folders
+        setFolders(response.data.folders || []);
         // Filter only image files
-        const imageFiles = response.data.filter((file: BackendFile) =>
+        const imageFiles = (response.data.files || []).filter((file: BackendFile) =>
           file.mimeType.startsWith('image/')
         );
         setBackendFiles(imageFiles);
@@ -253,7 +278,23 @@ const PageEditor = () => {
   const handleOpenFileBrowser = (index: number) => {
     setSelectedImageIndex(index);
     setFileBrowserOpen(true);
-    fetchBackendFiles();
+    setCurrentFolderId(null);
+    setBreadcrumbs([{ id: null, name: 'Root' }]);
+    fetchBackendFiles(null);
+  };
+
+  const handleNavigateToFolder = (folder: Folder) => {
+    setCurrentFolderId(folder.id);
+    setBreadcrumbs([...breadcrumbs, { id: folder.id, name: folder.name }]);
+    fetchBackendFiles(folder.id);
+  };
+
+  const handleBreadcrumbClick = (index: number) => {
+    const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
+    setBreadcrumbs(newBreadcrumbs);
+    const folderId = newBreadcrumbs[index].id;
+    setCurrentFolderId(folderId);
+    fetchBackendFiles(folderId);
   };
 
   const handleSelectFile = (fileUrl: string) => {
@@ -572,53 +613,120 @@ const PageEditor = () => {
           </Box>
         </DialogTitle>
         <DialogContent>
+          {/* Breadcrumbs */}
+          <Box sx={{ mb: 2, p: 1, backgroundColor: '#f9fafb', borderRadius: 1 }}>
+            <Breadcrumbs>
+              {breadcrumbs.map((crumb, index) => (
+                <Link
+                  key={crumb.id || 'root'}
+                  component="button"
+                  variant="body2"
+                  onClick={() => handleBreadcrumbClick(index)}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    cursor: 'pointer',
+                    textDecoration: 'none',
+                    color: index === breadcrumbs.length - 1 ? '#dc2626' : 'text.primary',
+                    fontWeight: index === breadcrumbs.length - 1 ? 600 : 400,
+                    '&:hover': {
+                      textDecoration: 'underline',
+                    },
+                  }}
+                >
+                  {index === 0 && <HomeIcon fontSize="small" />}
+                  {crumb.name}
+                </Link>
+              ))}
+            </Breadcrumbs>
+          </Box>
+
           {loadingFiles ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
               <CircularProgress />
             </Box>
-          ) : backendFiles.length === 0 ? (
+          ) : folders.length === 0 && backendFiles.length === 0 ? (
             <Alert severity="info">
-              No image files found. Upload some images to the file manager first.
+              No folders or image files found. Upload some images to the file manager first.
             </Alert>
           ) : (
-            <ImageList cols={3} gap={16} sx={{ mt: 1 }}>
-              {backendFiles.map((file) => (
-                <ImageListItem
-                  key={file.id}
-                  sx={{
-                    cursor: 'pointer',
-                    border: '2px solid transparent',
-                    borderRadius: 1,
-                    overflow: 'hidden',
-                    transition: 'all 0.2s',
-                    '&:hover': {
-                      borderColor: '#dc2626',
-                      transform: 'scale(1.05)',
-                    },
-                  }}
-                  onClick={() => handleSelectFile(file.url)}
-                >
-                  <img
-                    src={getFileUrl(file.url)}
-                    alt={file.originalName}
-                    loading="lazy"
-                    style={{
-                      height: 200,
-                      objectFit: 'cover',
-                    }}
-                  />
-                  <ImageListItemBar
-                    title={file.originalName}
-                    subtitle={`${(file.size / 1024).toFixed(1)} KB`}
-                    actionIcon={
-                      <IconButton sx={{ color: 'white' }}>
-                        <CheckCircleIcon />
-                      </IconButton>
-                    }
-                  />
-                </ImageListItem>
-              ))}
-            </ImageList>
+            <Box>
+              {/* Folders */}
+              {folders.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: '#64748b' }}>
+                    Folders
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {folders.map((folder) => (
+                      <Chip
+                        key={folder.id}
+                        icon={<FolderIcon />}
+                        label={folder.name}
+                        onClick={() => handleNavigateToFolder(folder)}
+                        sx={{
+                          cursor: 'pointer',
+                          backgroundColor: '#fff',
+                          border: '1px solid #e2e8f0',
+                          '&:hover': {
+                            backgroundColor: '#fef2f2',
+                            borderColor: '#dc2626',
+                          },
+                        }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              {/* Images */}
+              {backendFiles.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600, color: '#64748b' }}>
+                    Images
+                  </Typography>
+                  <ImageList cols={3} gap={16}>
+                    {backendFiles.map((file) => (
+                      <ImageListItem
+                        key={file.id}
+                        sx={{
+                          cursor: 'pointer',
+                          border: '2px solid transparent',
+                          borderRadius: 1,
+                          overflow: 'hidden',
+                          transition: 'all 0.2s',
+                          '&:hover': {
+                            borderColor: '#dc2626',
+                            transform: 'scale(1.05)',
+                          },
+                        }}
+                        onClick={() => handleSelectFile(file.url)}
+                      >
+                        <img
+                          src={getFileUrl(file.url)}
+                          alt={file.originalName}
+                          loading="lazy"
+                          style={{
+                            height: 200,
+                            objectFit: 'cover',
+                          }}
+                        />
+                        <ImageListItemBar
+                          title={file.originalName}
+                          subtitle={`${(file.size / 1024).toFixed(1)} KB`}
+                          actionIcon={
+                            <IconButton sx={{ color: 'white' }}>
+                              <CheckCircleIcon />
+                            </IconButton>
+                          }
+                        />
+                      </ImageListItem>
+                    ))}
+                  </ImageList>
+                </Box>
+              )}
+            </Box>
           )}
         </DialogContent>
         <DialogActions>
