@@ -14,9 +14,11 @@ import {
   useTheme,
   List,
   ListItem,
+  ListItemButton,
   ListItemText,
   ListItemAvatar,
-  Chip
+  Chip,
+  Button
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
@@ -28,12 +30,13 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CancelIcon from '@mui/icons-material/Cancel';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import api from '../../lib/api';
-import NotificationBell from '../NotificationBell';
 
 interface TopBarProps {
   onSidebarToggle: () => void;
@@ -65,6 +68,7 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
 
   const fetchNotifications = async () => {
     try {
+      // Fetch factory notifications
       const receiptsRes = await api.get('/management/wood-receipts');
 
       const receipts = receiptsRes.data || [];
@@ -121,6 +125,68 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
           action: () => navigate('/factory/wood-slicer')
         });
       });
+
+      // Fetch transfer notifications
+      try {
+        const transferNotifs = await api.get('/notifications');
+        const transferData = transferNotifs.data || [];
+
+        transferData.forEach((notif: any) => {
+          let icon, color;
+          switch(notif.type) {
+            case 'TRANSFER_CREATED':
+              icon = <LocalShippingIcon fontSize="small" />;
+              color = '#3b82f6';
+              break;
+            case 'TRANSFER_APPROVED':
+              icon = <CheckCircleIcon fontSize="small" />;
+              color = '#10b981';
+              break;
+            case 'TRANSFER_REJECTED':
+              icon = <CancelIcon fontSize="small" />;
+              color = '#ef4444';
+              break;
+            case 'TRANSFER_COMPLETED':
+              icon = <CheckCircleIcon fontSize="small" />;
+              color = '#10b981';
+              break;
+            case 'TRANSFER_IN_TRANSIT':
+              icon = <LocalShippingIcon fontSize="small" />;
+              color = '#3b82f6';
+              break;
+            case 'TRANSFER_PENDING':
+              icon = <AssignmentIcon fontSize="small" />;
+              color = '#f59e0b';
+              break;
+            case 'TRANSFER_NOTIFICATION':
+              icon = <AssignmentIcon fontSize="small" />;
+              color = '#64748b';
+              break;
+            default:
+              icon = <AssignmentIcon fontSize="small" />;
+              color = '#64748b';
+          }
+
+          notifs.push({
+            id: notif.id,
+            type: notif.type,
+            title: notif.title,
+            message: notif.message,
+            timestamp: notif.createdAt,
+            icon,
+            color,
+            action: () => {
+              if (notif.linkUrl) {
+                navigate(notif.linkUrl);
+              } else {
+                navigate('/dashboard/factory/wood-transfer');
+              }
+            }
+          });
+        });
+      } catch (transferError) {
+        console.error('Error fetching transfer notifications:', transferError);
+      }
 
       // Sort by timestamp (most recent first)
       notifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -199,9 +265,6 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
 
         {/* Right section */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {/* Transfer Notifications */}
-          <NotificationBell />
-
           {/* Notifications */}
           <Tooltip title="Notifications">
             <IconButton
@@ -321,12 +384,13 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
           ) : (
             <List sx={{ py: 0, maxHeight: 360, overflow: 'auto' }}>
               {notifications.map((notification) => (
-                <ListItem
+                <ListItemButton
                   key={notification.id}
-                  button
                   onClick={() => {
                     handleCloseNotifications();
-                    notification.action();
+                    if (notification.action) {
+                      notification.action();
+                    }
                   }}
                   sx={{
                     borderBottom: '1px solid',
@@ -342,26 +406,50 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
                     </Avatar>
                   </ListItemAvatar>
                   <ListItemText
-                    primary={
-                      <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                        {notification.title}
-                      </Typography>
-                    }
+                    primary={notification.title}
                     secondary={
-                      <Box>
-                        <Typography variant="body2" sx={{ fontSize: '0.8rem', color: 'text.secondary', mb: 0.5 }}>
-                          {notification.message}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem' }}>
+                      <>
+                        {notification.message}
+                        <br />
+                        <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>
                           {formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}
-                        </Typography>
-                      </Box>
+                        </span>
+                      </>
                     }
+                    primaryTypographyProps={{
+                      variant: 'body2',
+                      sx: { fontWeight: 600, fontSize: '0.875rem' }
+                    }}
+                    secondaryTypographyProps={{
+                      variant: 'body2',
+                      sx: { fontSize: '0.8rem', color: 'text.secondary' },
+                      component: 'span'
+                    }}
                   />
-                </ListItem>
+                </ListItemButton>
               ))}
             </List>
           )}
+
+          {/* View All Button */}
+          <Box sx={{ p: 1.5, borderTop: '1px solid', borderColor: 'divider', textAlign: 'center' }}>
+            <Button
+              fullWidth
+              size="small"
+              onClick={() => {
+                handleCloseNotifications();
+                navigate('/dashboard/notifications');
+              }}
+              sx={{
+                color: '#dc2626',
+                '&:hover': {
+                  backgroundColor: 'rgba(220, 38, 38, 0.04)'
+                }
+              }}
+            >
+              View All Notifications
+            </Button>
+          </Box>
         </Menu>
 
         {/* Messages Menu */}

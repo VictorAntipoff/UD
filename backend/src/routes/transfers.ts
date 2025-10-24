@@ -374,22 +374,31 @@ async function transferRoutes(fastify: FastifyInstance) {
           });
         }
 
-        // Create notifications for all admins
-        const admins = await tx.user.findMany({
-          where: {
-            role: 'ADMIN',
-            isActive: true
-          },
-          select: {
-            id: true
-          }
-        });
+        // Create notifications
+        const notifyUserIds: string[] = [];
 
-        // Send notification to each admin
-        for (const admin of admins) {
+        // If specific user is selected to notify, add them
+        if (data.notifyUserId) {
+          notifyUserIds.push(data.notifyUserId);
+        } else {
+          // Otherwise, notify all active admins
+          const admins = await tx.user.findMany({
+            where: {
+              role: 'ADMIN',
+              isActive: true
+            },
+            select: {
+              id: true
+            }
+          });
+          notifyUserIds.push(...admins.map(admin => admin.id));
+        }
+
+        // Send notification to each selected user
+        for (const userId of notifyUserIds) {
           await tx.notification.create({
             data: {
-              userId: admin.id,
+              userId: userId,
               type: 'TRANSFER_CREATED',
               title: 'New Transfer Created',
               message: `${userName} created transfer ${transfer.transferNumber} from ${fromWarehouse.name} to ${toWarehouse.name}`,
@@ -673,6 +682,7 @@ async function transferRoutes(fastify: FastifyInstance) {
   fastify.post('/:id/complete', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      const { notifyUserId } = request.body as { notifyUserId?: string };
       const userId = (request as any).user?.userId;
 
       // Get user info for history logging
@@ -806,6 +816,19 @@ async function transferRoutes(fastify: FastifyInstance) {
             details: `Transfer completed and stock updated at ${transfer.toWarehouse.name}`
           }
         });
+
+        // Send notification if user is specified
+        if (notifyUserId) {
+          await tx.notification.create({
+            data: {
+              userId: notifyUserId,
+              type: 'TRANSFER_COMPLETED',
+              title: 'Transfer Completed',
+              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}`,
+              linkUrl: `/dashboard/factory/wood-transfer?transfer=${updatedTransfer.id}`
+            }
+          });
+        }
 
         return updatedTransfer;
       });
@@ -1118,6 +1141,96 @@ async function transferRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error editing transfer item:', error);
       return reply.status(500).send({ error: 'Failed to edit transfer item' });
+    }
+  });
+
+  // Send notification for a transfer
+  fastify.post('/:id/notify', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { userId } = request.body as { userId: string };
+      const currentUserId = (request as any).user?.userId;
+
+      if (!userId) {
+        return reply.status(400).send({ error: 'User ID is required' });
+      }
+
+      // Get current user info
+      const currentUser = await prisma.user.findUnique({
+        where: { id: currentUserId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      // Get transfer details
+      const transfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: {
+          fromWarehouse: {
+            select: { name: true }
+          },
+          toWarehouse: {
+            select: { name: true }
+          }
+        }
+      });
+
+      if (!transfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      // Verify the target user exists
+      const targetUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true }
+      });
+
+      if (!targetUser) {
+        return reply.status(404).send({ error: 'Target user not found' });
+      }
+
+      // Create notification
+      const currentUserName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+
+      // Determine notification type based on transfer status
+      let notificationType = 'TRANSFER_NOTIFICATION';
+      let notificationTitle = 'Transfer Notification';
+
+      switch (transfer.status) {
+        case 'COMPLETED':
+          notificationType = 'TRANSFER_COMPLETED';
+          notificationTitle = 'Transfer Completed';
+          break;
+        case 'IN_TRANSIT':
+          notificationType = 'TRANSFER_IN_TRANSIT';
+          notificationTitle = 'Transfer In Transit';
+          break;
+        case 'PENDING':
+          notificationType = 'TRANSFER_PENDING';
+          notificationTitle = 'Transfer Pending Approval';
+          break;
+        default:
+          notificationType = 'TRANSFER_NOTIFICATION';
+          notificationTitle = 'Transfer Update';
+      }
+
+      await prisma.notification.create({
+        data: {
+          userId: userId,
+          type: notificationType,
+          title: notificationTitle,
+          message: `${currentUserName} sent you notification about transfer ${transfer.transferNumber} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}`,
+          linkUrl: `/dashboard/factory/wood-transfer?transfer=${transfer.id}`
+        }
+      });
+
+      return { message: 'Notification sent successfully' };
+    } catch (error) {
+      console.error('Error sending notification:', error);
+      return reply.status(500).send({ error: 'Failed to send notification' });
     }
   });
 }

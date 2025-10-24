@@ -306,18 +306,57 @@ const Clients = () => {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Delete Subscriber</DialogTitle>
-        <DialogContent>
-          <Typography>
+      <Dialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          }
+        }}
+      >
+        <DialogTitle sx={{
+          fontSize: '1.5rem',
+          fontWeight: 600,
+          color: colors.grey.dark,
+          pb: 2
+        }}>
+          Delete Subscriber
+        </DialogTitle>
+        <DialogContent sx={{ pb: 3 }}>
+          <Typography sx={{ fontSize: '1rem', lineHeight: 1.6, mb: 2 }}>
             Are you sure you want to delete <strong>{selectedSubscriber?.email}</strong> from the mailing list?
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: 'text.secondary',
+              fontSize: '0.875rem',
+              fontStyle: 'italic'
+            }}
+          >
             This action cannot be undone.
           </Typography>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>
+        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+          <Button
+            onClick={() => setDeleteDialogOpen(false)}
+            variant="outlined"
+            sx={{
+              borderColor: colors.grey.main,
+              color: colors.grey.dark,
+              fontSize: '0.9rem',
+              px: 3,
+              py: 1,
+              '&:hover': {
+                borderColor: colors.grey.dark,
+                backgroundColor: 'transparent',
+              },
+            }}
+          >
             Cancel
           </Button>
           <Button
@@ -325,6 +364,11 @@ const Clients = () => {
             variant="contained"
             sx={{
               backgroundColor: '#dc2626',
+              color: 'white',
+              fontSize: '0.9rem',
+              px: 3,
+              py: 1,
+              fontWeight: 600,
               '&:hover': {
                 backgroundColor: '#b91c1c',
               },

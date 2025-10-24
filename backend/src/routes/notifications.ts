@@ -142,6 +142,46 @@ async function notificationRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'Failed to create notification' });
     }
   });
+
+  // Send direct message to user
+  fastify.post('/send', async (request, reply) => {
+    try {
+      const currentUser = (request as any).user;
+      const data = request.body as any;
+
+      if (!data.userId || !data.title || !data.message) {
+        return reply.status(400).send({ error: 'Missing required fields: userId, title, message' });
+      }
+
+      // Get sender info
+      const sender = await prisma.user.findUnique({
+        where: { id: currentUser.userId },
+        select: { firstName: true, lastName: true, email: true }
+      });
+
+      if (!sender) {
+        return reply.status(404).send({ error: 'Sender not found' });
+      }
+
+      const senderName = `${sender.firstName || ''} ${sender.lastName || ''}`.trim() || sender.email;
+
+      // Create notification for recipient
+      const notification = await prisma.notification.create({
+        data: {
+          userId: data.userId,
+          type: 'DIRECT_MESSAGE',
+          title: data.title,
+          message: `From ${senderName}: ${data.message}`,
+          linkUrl: null
+        }
+      });
+
+      return { success: true, notification };
+    } catch (error) {
+      console.error('Error sending message:', error);
+      return reply.status(500).send({ error: 'Failed to send message' });
+    }
+  });
 }
 
 export default notificationRoutes;

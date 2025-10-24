@@ -26,6 +26,7 @@ import Pages from '../pages/website/Pages';
 import PageEditor from '../pages/website/PageEditor';
 import Files from '../pages/website/Files';
 import Clients from '../pages/crm/Clients';
+import NotificationCentre from '../pages/notifications/NotificationCentre';
 
 const ProtectedLayout = ({ children }: { children: React.ReactNode }) => (
   <ProtectedRoute>{children}</ProtectedRoute>
@@ -162,6 +163,10 @@ export const routes: RouteObject[] = [
             element: <Clients />
           }
         ]
+      },
+      {
+        path: 'notifications',
+        element: <NotificationCentre />
       }
     ]
   },

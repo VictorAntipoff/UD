@@ -34,6 +34,7 @@ import LanguageIcon from '@mui/icons-material/Language';
 import ArticleIcon from '@mui/icons-material/Article';
 import FolderIcon from '@mui/icons-material/Folder';
 import GroupsIcon from '@mui/icons-material/Groups';
+import NotificationsIcon from '@mui/icons-material/Notifications';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -74,6 +75,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
     location.pathname.startsWith('/dashboard/crm')
   );
   const [pendingCount, setPendingCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const handleMenuClick = (
     setter: React.Dispatch<React.SetStateAction<boolean>>,
@@ -160,8 +162,12 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
   useEffect(() => {
     if (user) {
       fetchPendingCount();
+      fetchUnreadCount();
       // Poll every 5 minutes for updates
-      const interval = setInterval(fetchPendingCount, 300000);
+      const interval = setInterval(() => {
+        fetchPendingCount();
+        fetchUnreadCount();
+      }, 300000);
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -173,6 +179,15 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
     } catch (error) {
       // Endpoint not yet implemented, silently default to 0
       setPendingCount(0);
+    }
+  };
+
+  const fetchUnreadCount = async () => {
+    try {
+      const response = await api.get('/notifications/unread-count');
+      setUnreadCount(response.data.count || 0);
+    } catch (error) {
+      setUnreadCount(0);
     }
   };
 
@@ -227,6 +242,21 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
               <ListItemText primary="Dashboard" />
             </ListItem>
           )}
+
+          {/* Notifications */}
+          <ListItem
+            button
+            onClick={() => handleNavigate('/dashboard/notifications')}
+            selected={location.pathname === '/dashboard/notifications'}
+            sx={commonButtonStyles}
+          >
+            <ListItemIcon sx={{ color: location.pathname === '/dashboard/notifications' ? colors.primary : colors.grey.main }}>
+              <Badge badgeContent={unreadCount} color="error">
+                <NotificationsIcon />
+              </Badge>
+            </ListItemIcon>
+            <ListItemText primary="Notifications" />
+          </ListItem>
 
           {/* Wood Calculator - Standalone */}
           {hasPermission('wood-calculator') && (

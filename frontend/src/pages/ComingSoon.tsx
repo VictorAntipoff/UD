@@ -8,8 +8,14 @@ import { useSnackbar } from 'notistack';
 import axios from 'axios';
 
 // Create a simple axios instance for public API calls
+const getApiUrl = () => {
+  const baseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3010';
+  // Add /api if not already present
+  return baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
+};
+
 const publicApi = axios.create({
-  baseURL: 'http://localhost:3010/api',
+  baseURL: getApiUrl(),
 });
 
 const logoRed = '#dc2626';
@@ -65,6 +71,39 @@ const slideInRight = keyframes`
   }
 `;
 
+// Ken Burns effect - slow pan and zoom for carousel images
+const kenBurnsEffect = keyframes`
+  0% {
+    transform: scale(1) translateX(0);
+  }
+  50% {
+    transform: scale(1.1) translateX(-5%);
+  }
+  100% {
+    transform: scale(1) translateX(0);
+  }
+`;
+
+// Alternative: pan from left to right
+const panLeftToRight = keyframes`
+  0% {
+    transform: scale(1.15) translateX(-5%);
+  }
+  100% {
+    transform: scale(1.15) translateX(5%);
+  }
+`;
+
+// Alternative: zoom in slowly
+const zoomIn = keyframes`
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.15);
+  }
+`;
+
 const MainContainer = styled(Box)({
   display: 'flex',
   flexDirection: 'column',
@@ -84,12 +123,14 @@ const ContactBar = styled(Box)({
 
 const ContentSection = styled(Container)({
   flex: 1,
+  display: 'flex',
+  alignItems: 'center',
   padding: '24px 16px',
   '@media (min-width: 768px)': {
-    padding: '48px 16px',
+    padding: '32px 16px',
   },
   '@media (min-width: 1024px)': {
-    padding: '64px 16px',
+    padding: '48px 16px',
   },
 });
 
@@ -256,17 +297,27 @@ const ComingSoon = () => {
 
       {/* Main Content */}
       <ContentSection maxWidth="lg">
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: { xs: 3, sm: 4, lg: 6 }, alignItems: 'center' }}>
-          {/* Left Column */}
-          <Box sx={{ order: { xs: 2, lg: 1 } }}>
-            {/* Logo */}
-            <Box sx={{ mb: { xs: 2, sm: 3, lg: 4 } }}>
-              <img
-                src={content.logoUrl}
-                alt="UDesign Logo"
-                style={{ width: isMobile ? '150px' : '200px', height: 'auto' }}
-              />
-            </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: 3, lg: 0 } }}>
+          {/* Logo - Top on mobile */}
+          <Box sx={{ display: { xs: 'flex', lg: 'none' }, justifyContent: 'center', mb: 2 }}>
+            <img
+              src={content.logoUrl.startsWith('http') ? content.logoUrl : `${import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3010'}${content.logoUrl}`}
+              alt="UDesign Logo"
+              style={{ width: '180px', height: 'auto' }}
+            />
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: { xs: 3, sm: 4, lg: 6 }, alignItems: 'center' }}>
+            {/* Left Column */}
+            <Box sx={{ order: { xs: 2, lg: 1 } }}>
+              {/* Logo - Desktop */}
+              <Box sx={{ display: { xs: 'none', lg: 'block' }, mb: 4 }}>
+                <img
+                  src={content.logoUrl.startsWith('http') ? content.logoUrl : `${import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3010'}${content.logoUrl}`}
+                  alt="UDesign Logo"
+                  style={{ width: '200px', height: 'auto' }}
+                />
+              </Box>
 
             {/* Title */}
             <AnimatedTitle
@@ -365,7 +416,7 @@ const ComingSoon = () => {
               sx={{
                 position: 'relative',
                 width: '100%',
-                maxWidth: { xs: '250px', sm: '320px', md: '380px', lg: '100%' },
+                maxWidth: { xs: '320px', sm: '360px', md: '400px', lg: '100%' },
                 aspectRatio: '1',
                 borderRadius: '50%',
                 overflow: 'hidden',
@@ -385,38 +436,52 @@ const ComingSoon = () => {
                     pointerEvents: index === currentImageIndex ? 'auto' : 'none',
                   }}
                 >
-                  <img
-                    src={image.src}
-                    alt={image.alt}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                  {/* Image caption overlay */}
                   <Box
+                    component="img"
+                    src={image.src.startsWith('http') ? image.src : `${import.meta.env.VITE_API_URL || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3010'}${image.src}`}
+                    alt={image.alt}
                     sx={{
+                      width: '120%',
+                      height: '120%',
+                      objectFit: 'cover',
+                      objectPosition: 'center',
                       position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      top: '-10%',
+                      left: '-10%',
+                      animation: `${panLeftToRight} 20s ease-in-out infinite alternate`,
                     }}
-                  >
+                  />
+                  {/* Image caption overlay - only show if title or description exists */}
+                  {(image.title || image.description) && (
                     <Box
                       sx={{
                         position: 'absolute',
-                        inset: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        background: 'linear-gradient(to top, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.6) 50%, transparent 100%)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'flex-end',
+                        pb: 4,
+                        px: 3,
                       }}
-                    />
-                    <Box sx={{ position: 'relative', zIndex: 1, textAlign: 'center', px: 3, py: 2, maxWidth: '280px' }}>
-                      <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: { xs: '1rem', sm: '1.125rem' }, textTransform: 'uppercase', mb: 1 }}>
-                        {image.title}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: { xs: '0.875rem', sm: '1rem' } }}>
-                        {image.description}
-                      </Typography>
+                    >
+                      <Box sx={{ textAlign: 'center', maxWidth: '280px' }}>
+                        {image.title && (
+                          <Typography variant="h6" sx={{ fontWeight: 700, color: '#fff', fontSize: { xs: '1rem', sm: '1.125rem' }, textTransform: 'uppercase', mb: image.description ? 1 : 0 }}>
+                            {image.title}
+                          </Typography>
+                        )}
+                        {image.description && (
+                          <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: { xs: '0.875rem', sm: '1rem' } }}>
+                            {image.description}
+                          </Typography>
+                        )}
+                      </Box>
                     </Box>
-                  </Box>
+                  )}
                 </Box>
               ))}
 
@@ -514,6 +579,7 @@ const ComingSoon = () => {
               </Typography>
             </Box>
           </ImageCarouselContainer>
+          </Box>
         </Box>
       </ContentSection>
 
@@ -525,32 +591,54 @@ const ComingSoon = () => {
       </DiagonalDivider>
 
       {/* Footer */}
-      <Box sx={{ backgroundColor: logoRed, color: '#fff', py: { xs: 2, sm: 2.5 } }}>
+      <Box sx={{ backgroundColor: logoRed, color: '#fff', py: { xs: 2.5, sm: 3 }, px: 2 }}>
         <Container maxWidth="lg">
-          <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Box sx={{ mb: { xs: 1.5, md: 0 } }}>
-              <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, fontSize: { xs: '1rem', sm: '1.125rem' } }}>
-                Contact Us
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <PhoneIcon sx={{ fontSize: 14 }} />
-                <MuiLink href={`tel:${content.phone}`} sx={{ color: '#fff', textDecoration: 'none', fontSize: { xs: '0.875rem', sm: '1rem' }, '&:hover': { color: '#fecaca' } }}>
-                  {content.phone}
-                </MuiLink>
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <EmailIcon sx={{ fontSize: 14 }} />
-                <MuiLink href={`mailto:${content.email}`} sx={{ color: '#fff', textDecoration: 'none', fontSize: { xs: '0.875rem', sm: '1rem' }, '&:hover': { color: '#fecaca' } }}>
-                  {content.email}
-                </MuiLink>
-              </Box>
+          {/* Contact Information - Compact */}
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 1,
+              mb: 2
+            }}
+          >
+            {/* Phone */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PhoneIcon sx={{ fontSize: 16 }} />
+              <MuiLink
+                href={`tel:${content.phone}`}
+                sx={{
+                  color: '#fff',
+                  textDecoration: 'none',
+                  fontSize: { xs: '0.875rem', sm: '1rem' },
+                  '&:hover': { textDecoration: 'underline' }
+                }}
+              >
+                {content.phone}
+              </MuiLink>
             </Box>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-              Stay connected with us for updates
-            </Typography>
+
+            {/* Email */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <EmailIcon sx={{ fontSize: 16 }} />
+              <MuiLink
+                href={`mailto:${content.email}`}
+                sx={{
+                  color: '#fff',
+                  textDecoration: 'none',
+                  fontSize: { xs: '0.875rem', sm: '1rem' },
+                  '&:hover': { textDecoration: 'underline' }
+                }}
+              >
+                {content.email}
+              </MuiLink>
+            </Box>
           </Box>
-          <Box sx={{ borderTop: '1px solid rgba(254, 202, 202, 0.3)', pt: 1.5, textAlign: 'center' }}>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+
+          {/* Copyright */}
+          <Box sx={{ textAlign: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.15)', pt: 2 }}>
+            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.8125rem' }, opacity: 0.85 }}>
               &copy; 2025 uDesign. All rights reserved.
             </Typography>
           </Box>

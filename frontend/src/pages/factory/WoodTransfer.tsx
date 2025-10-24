@@ -1,4 +1,5 @@
 import { useState, useEffect, type FC } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -110,9 +111,11 @@ const woodStatuses = [
 const thicknessOptions = ['1"', '2"', 'Custom'];
 
 const WoodTransfer: FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,12 +128,16 @@ const WoodTransfer: FC = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [openDetailsDialog, setOpenDetailsDialog] = useState(false);
   const [openEditDialog, setOpenEditDialog] = useState(false);
+  const [openCompleteDialog, setOpenCompleteDialog] = useState(false);
+  const [openNotifyDialog, setOpenNotifyDialog] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
+  const [selectedNotifyUserId, setSelectedNotifyUserId] = useState('');
   const [formData, setFormData] = useState({
     fromWarehouseId: '',
     toWarehouseId: '',
     transferDate: new Date().toISOString().split('T')[0], // Default to today
-    notes: ''
+    notes: '',
+    notifyUserId: ''
   });
   const [editFormData, setEditFormData] = useState({
     transferDate: '',
@@ -152,7 +159,21 @@ const WoodTransfer: FC = () => {
     fetchTransfers();
     fetchWarehouses();
     fetchWoodTypes();
+    fetchUsers();
   }, []);
+
+  // Handle transfer URL parameter to auto-open details
+  useEffect(() => {
+    const transferId = searchParams.get('transfer');
+    if (transferId && transfers.length > 0) {
+      const transfer = transfers.find(t => t.id === transferId);
+      if (transfer) {
+        handleOpenDetails(transfer);
+        // Remove the query parameter after opening
+        setSearchParams({});
+      }
+    }
+  }, [searchParams, transfers]);
 
   const fetchTransfers = async () => {
     try {
@@ -185,6 +206,15 @@ const WoodTransfer: FC = () => {
     }
   };
 
+  const fetchUsers = async () => {
+    try {
+      const response = await api.get('/users');
+      setUsers(response.data);
+    } catch (err) {
+      console.error('Failed to fetch users:', err);
+    }
+  };
+
   const handleOpenDialog = () => {
     // Only reset form fields, but keep transferDate from the current state
     // This preserves the user-selected date
@@ -192,7 +222,8 @@ const WoodTransfer: FC = () => {
       ...formData, // Keep existing formData (especially transferDate)
       fromWarehouseId: '',
       toWarehouseId: '',
-      notes: ''
+      notes: '',
+      notifyUserId: ''
     });
     setLineItems([
       {
@@ -286,17 +317,59 @@ const WoodTransfer: FC = () => {
     }
   };
 
-  const handleComplete = async (id: string) => {
-    if (!window.confirm('Mark this transfer as completed (goods received)?')) {
+  const handleOpenComplete = (transfer: Transfer) => {
+    setSelectedTransfer(transfer);
+    setSelectedNotifyUserId('');
+    setOpenCompleteDialog(true);
+  };
+
+  const handleCloseComplete = () => {
+    setOpenCompleteDialog(false);
+    setSelectedTransfer(null);
+    setSelectedNotifyUserId('');
+  };
+
+  const handleComplete = async () => {
+    if (!selectedTransfer) return;
+
+    try {
+      await api.post(`/transfers/${selectedTransfer.id}/complete`, {
+        notifyUserId: selectedNotifyUserId || undefined
+      });
+      setSuccess('Transfer completed successfully');
+      handleCloseComplete();
+      fetchTransfers();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to complete transfer');
+    }
+  };
+
+  const handleOpenNotify = (transfer: Transfer) => {
+    setSelectedTransfer(transfer);
+    setSelectedNotifyUserId('');
+    setOpenNotifyDialog(true);
+  };
+
+  const handleCloseNotify = () => {
+    setOpenNotifyDialog(false);
+    setSelectedTransfer(null);
+    setSelectedNotifyUserId('');
+  };
+
+  const handleSendNotification = async () => {
+    if (!selectedTransfer || !selectedNotifyUserId) {
+      setError('Please select a user to notify');
       return;
     }
 
     try {
-      await api.post(`/transfers/${id}/complete`);
-      setSuccess('Transfer completed successfully');
-      fetchTransfers();
+      await api.post(`/transfers/${selectedTransfer.id}/notify`, {
+        userId: selectedNotifyUserId
+      });
+      setSuccess('Notification sent successfully');
+      handleCloseNotify();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to complete transfer');
+      setError(err.response?.data?.error || 'Failed to send notification');
     }
   };
 
@@ -743,22 +816,37 @@ const WoodTransfer: FC = () => {
                         variant="contained"
                         size="small"
                         color="primary"
-                        onClick={() => handleComplete(transfer.id)}
+                        onClick={() => handleOpenComplete(transfer)}
                       >
                         Mark Received
                       </Button>
                     )}
                     {/* Admin-only: Edit button for completed transfers */}
                     {user?.role === 'ADMIN' && transfer.status === 'COMPLETED' && (
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        color="warning"
-                        startIcon={<EditIcon />}
-                        onClick={() => handleOpenEdit(transfer)}
-                      >
-                        Edit
-                      </Button>
+                      <>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="warning"
+                          startIcon={<EditIcon />}
+                          onClick={() => handleOpenEdit(transfer)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="primary"
+                          startIcon={<PersonIcon />}
+                          onClick={() => handleOpenNotify(transfer)}
+                          sx={{
+                            textTransform: 'none',
+                            fontSize: '0.75rem'
+                          }}
+                        >
+                          Notify
+                        </Button>
+                      </>
                     )}
                           </Box>
                         </Stack>
@@ -861,6 +949,33 @@ const WoodTransfer: FC = () => {
                       ),
                     }}
                   />
+
+                  <TextField
+                    select
+                    label="Notify User (Optional)"
+                    value={formData.notifyUserId}
+                    onChange={(e) => setFormData({ ...formData, notifyUserId: e.target.value })}
+                    fullWidth
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <PersonIcon color="action" />
+                        </InputAdornment>
+                      ),
+                    }}
+                    helperText="Select a user to notify about this transfer"
+                  >
+                    <MenuItem value="">
+                      <em>None</em>
+                    </MenuItem>
+                    {users.map((u) => (
+                      <MenuItem key={u.id} value={u.id}>
+                        {u.firstName && u.lastName
+                          ? `${u.firstName} ${u.lastName}`
+                          : u.user_metadata?.full_name || u.email}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                 </Stack>
               </Box>
 
@@ -1317,6 +1432,162 @@ const WoodTransfer: FC = () => {
               startIcon={<EditIcon />}
             >
               Save Changes
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Complete Transfer Dialog */}
+        <Dialog
+          open={openCompleteDialog}
+          onClose={handleCloseComplete}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box display="flex" alignItems="center" gap={1}>
+              <CheckIcon color="success" />
+              <Typography variant="h6" fontWeight="bold">
+                Complete Transfer
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={3} sx={{ mt: 2 }}>
+              <Alert severity="info">
+                Mark this transfer as completed (goods received at destination)?
+              </Alert>
+
+              {selectedTransfer && (
+                <Paper elevation={0} sx={{ p: 2, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Transfer Number
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" sx={{ mb: 1 }}>
+                    {selectedTransfer.transferNumber}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    From {selectedTransfer.fromWarehouse.name} → {selectedTransfer.toWarehouse.name}
+                  </Typography>
+                </Paper>
+              )}
+
+              <TextField
+                select
+                label="Notify User (Optional)"
+                value={selectedNotifyUserId}
+                onChange={(e) => setSelectedNotifyUserId(e.target.value)}
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                helperText="Select a user to notify about completion"
+              >
+                <MenuItem value="">
+                  <em>None</em>
+                </MenuItem>
+                {users.map((u) => (
+                  <MenuItem key={u.id} value={u.id}>
+                    {u.firstName && u.lastName
+                      ? `${u.firstName} ${u.lastName}`
+                      : u.user_metadata?.full_name || u.email}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={handleCloseComplete} size="large">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleComplete}
+              variant="contained"
+              color="success"
+              size="large"
+              startIcon={<CheckIcon />}
+            >
+              Complete Transfer
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Send Notification Dialog */}
+        <Dialog
+          open={openNotifyDialog}
+          onClose={handleCloseNotify}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box display="flex" alignItems="center" gap={1}>
+              <PersonIcon color="primary" />
+              <Typography variant="h6" fontWeight="bold">
+                Send Notification
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={3} sx={{ mt: 2 }}>
+              {selectedTransfer && (
+                <Paper elevation={0} sx={{ p: 2, bgcolor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Transfer Number
+                  </Typography>
+                  <Typography variant="body1" fontWeight="medium" sx={{ mb: 1 }}>
+                    {selectedTransfer.transferNumber}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Status: {selectedTransfer.status}
+                  </Typography>
+                </Paper>
+              )}
+
+              <TextField
+                select
+                label="Select User to Notify"
+                value={selectedNotifyUserId}
+                onChange={(e) => setSelectedNotifyUserId(e.target.value)}
+                fullWidth
+                required
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonIcon color="action" />
+                    </InputAdornment>
+                  ),
+                }}
+                helperText="Choose a user to send transfer notification"
+              >
+                <MenuItem value="">
+                  <em>Select a user</em>
+                </MenuItem>
+                {users.map((u) => (
+                  <MenuItem key={u.id} value={u.id}>
+                    {u.firstName && u.lastName
+                      ? `${u.firstName} ${u.lastName}`
+                      : u.user_metadata?.full_name || u.email}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={handleCloseNotify} size="large">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendNotification}
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={<PersonIcon />}
+              disabled={!selectedNotifyUserId}
+            >
+              Send Notification
             </Button>
           </DialogActions>
         </Dialog>
