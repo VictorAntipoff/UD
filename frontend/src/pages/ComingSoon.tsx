@@ -114,13 +114,6 @@ const MainContainer = styled(Box)({
   padding: 0,
 });
 
-const ContactBar = styled(Box)({
-  backgroundColor: '#f3f4f6',
-  padding: '8px 0',
-  fontSize: '0.875rem',
-  borderBottom: '1px solid #e5e7eb',
-});
-
 const ContentSection = styled(Container)({
   flex: 1,
   display: 'flex',
@@ -277,24 +270,6 @@ const ComingSoon = () => {
 
   return (
     <MainContainer>
-      {/* Contact Bar */}
-      <ContactBar>
-        <Container maxWidth="lg" sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <PhoneIcon sx={{ fontSize: 16, color: logoRed }} />
-            <MuiLink href={`tel:${content.phone}`} sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { color: logoRed } }}>
-              {content.phone}
-            </MuiLink>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <EmailIcon sx={{ fontSize: 16, color: logoRed }} />
-            <MuiLink href={`mailto:${content.email}`} sx={{ color: 'inherit', textDecoration: 'none', '&:hover': { color: logoRed } }}>
-              {content.email}
-            </MuiLink>
-          </Box>
-        </Container>
-      </ContactBar>
-
       {/* Main Content */}
       <ContentSection maxWidth="lg">
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: { xs: 3, lg: 0 } }}>
@@ -591,54 +566,70 @@ const ComingSoon = () => {
       </DiagonalDivider>
 
       {/* Footer */}
-      <Box sx={{ backgroundColor: logoRed, color: '#fff', py: { xs: 2.5, sm: 3 }, px: 2 }}>
+      <Box sx={{ backgroundColor: logoRed, color: '#fff', py: { xs: 3, sm: 4 }, px: 2 }}>
         <Container maxWidth="lg">
-          {/* Contact Information - Compact */}
           <Box
             sx={{
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: { xs: 'column', sm: 'row' },
+              justifyContent: 'space-between',
               alignItems: 'center',
-              gap: 1,
-              mb: 2
+              gap: { xs: 2, sm: 3 },
             }}
           >
-            {/* Phone */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <PhoneIcon sx={{ fontSize: 16 }} />
-              <MuiLink
-                href={`tel:${content.phone}`}
-                sx={{
-                  color: '#fff',
-                  textDecoration: 'none',
-                  fontSize: { xs: '0.875rem', sm: '1rem' },
-                  '&:hover': { textDecoration: 'underline' }
-                }}
-              >
-                {content.phone}
-              </MuiLink>
+            {/* Contact Information */}
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
+                alignItems: 'center',
+                gap: { xs: 1.5, sm: 3 },
+              }}
+            >
+              {/* Phone */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <PhoneIcon sx={{ fontSize: 18 }} />
+                <MuiLink
+                  href={`tel:${content.phone}`}
+                  sx={{
+                    color: '#fff',
+                    textDecoration: 'none',
+                    fontSize: { xs: '0.875rem', sm: '0.9375rem' },
+                    fontWeight: 500,
+                    '&:hover': { opacity: 0.85 }
+                  }}
+                >
+                  {content.phone}
+                </MuiLink>
+              </Box>
+
+              {/* Email */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <EmailIcon sx={{ fontSize: 18 }} />
+                <MuiLink
+                  href={`mailto:${content.email}`}
+                  sx={{
+                    color: '#fff',
+                    textDecoration: 'none',
+                    fontSize: { xs: '0.875rem', sm: '0.9375rem' },
+                    fontWeight: 500,
+                    '&:hover': { opacity: 0.85 }
+                  }}
+                >
+                  {content.email}
+                </MuiLink>
+              </Box>
             </Box>
 
-            {/* Email */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <EmailIcon sx={{ fontSize: 16 }} />
-              <MuiLink
-                href={`mailto:${content.email}`}
-                sx={{
-                  color: '#fff',
-                  textDecoration: 'none',
-                  fontSize: { xs: '0.875rem', sm: '1rem' },
-                  '&:hover': { textDecoration: 'underline' }
-                }}
-              >
-                {content.email}
-              </MuiLink>
-            </Box>
-          </Box>
-
-          {/* Copyright */}
-          <Box sx={{ textAlign: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.15)', pt: 2 }}>
-            <Typography variant="body2" sx={{ fontSize: { xs: '0.75rem', sm: '0.8125rem' }, opacity: 0.85 }}>
+            {/* Copyright */}
+            <Typography
+              variant="body2"
+              sx={{
+                fontSize: { xs: '0.75rem', sm: '0.8125rem' },
+                opacity: 0.9,
+                fontWeight: 400
+              }}
+            >
               &copy; 2025 uDesign. All rights reserved.
             </Typography>
           </Box>
