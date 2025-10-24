@@ -79,8 +79,10 @@ const setupServer = async () => {
         'http://localhost:3020',
         'http://localhost:5173',
         'http://localhost:5174',
+        'https://ud-xi.vercel.app',
+        'https://u-design-six.vercel.app',
         process.env.FRONTEND_URL,
-        process.env.PRODUCTION_FRONTEND_URL // Add specific production URL
+        process.env.PRODUCTION_FRONTEND_URL
       ].filter(Boolean);
 
       // SECURITY: Allow no origin for health checks, monitoring, and development tools
