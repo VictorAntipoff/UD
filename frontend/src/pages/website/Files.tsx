@@ -250,6 +250,41 @@ const Files = () => {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, type: 'file' | 'folder', id: string) => {
+    e.dataTransfer.setData('itemType', type);
+    e.dataTransfer.setData('itemId', id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetFolderId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const itemType = e.dataTransfer.getData('itemType') as 'file' | 'folder';
+    const itemId = e.dataTransfer.getData('itemId');
+
+    if (!itemType || !itemId) return;
+
+    try {
+      if (itemType === 'file') {
+        await api.put(`/website/files/${itemId}/move`, { folderId: targetFolderId });
+        showSnackbar('File moved successfully', 'success');
+      } else {
+        await api.put(`/website/folders/${itemId}/move`, { parentId: targetFolderId });
+        showSnackbar('Folder moved successfully', 'success');
+      }
+      fetchFolderContents(currentFolderId);
+    } catch (error) {
+      showSnackbar(`Failed to move ${itemType}`, 'error');
+    }
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -299,7 +334,11 @@ const Files = () => {
       </Box>
 
       {/* Breadcrumbs */}
-      <Paper sx={{ p: 2, mb: 3 }}>
+      <Paper
+        sx={{ p: 2, mb: 3 }}
+        onDragOver={handleDragOver}
+        onDrop={(e) => handleDrop(e, currentFolderId)}
+      >
         <Breadcrumbs>
           {breadcrumbs.map((crumb, index) => (
             <Link
@@ -348,6 +387,10 @@ const Files = () => {
           {folders.map((folder) => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={folder.id}>
               <Card
+                draggable
+                onDragStart={(e) => handleDragStart(e, 'folder', folder.id)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, folder.id)}
                 sx={{
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
@@ -403,7 +446,11 @@ const Files = () => {
           {/* Files */}
           {files.map((file) => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={file.id}>
-              <Card sx={{ border: '1px solid #e2e8f0' }}>
+              <Card
+                draggable
+                onDragStart={(e) => handleDragStart(e, 'file', file.id)}
+                sx={{ border: '1px solid #e2e8f0', cursor: 'move' }}
+              >
                 <CardContent sx={{ pb: 1 }}>
                   {file.mimeType.startsWith('image/') ? (
                     <CardMedia

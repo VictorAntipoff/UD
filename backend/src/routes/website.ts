@@ -388,6 +388,51 @@ async function websiteRoutes(fastify: FastifyInstance) {
       reply.status(500).send({ error: error.message });
     }
   });
+
+  // Move file to a different folder
+  fastify.put('/files/:id/move', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { folderId } = request.body as { folderId: string | null };
+
+      // Update file's folder
+      await prisma.websiteFile.update({
+        where: { id },
+        data: { folderId },
+      });
+
+      reply.send({ message: 'File moved successfully' });
+    } catch (error: any) {
+      console.error('File move error:', error);
+      reply.status(500).send({ error: error.message });
+    }
+  });
+
+  // Move folder to a different parent folder
+  fastify.put('/folders/:id/move', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { parentId } = request.body as { parentId: string | null };
+
+      // Prevent moving folder into itself
+      if (id === parentId) {
+        return reply.status(400).send({ error: 'Cannot move folder into itself' });
+      }
+
+      // TODO: Prevent circular nesting (moving folder into its own descendant)
+
+      // Update folder's parent
+      await prisma.websiteFolder.update({
+        where: { id },
+        data: { parentId },
+      });
+
+      reply.send({ message: 'Folder moved successfully' });
+    } catch (error: any) {
+      console.error('Folder move error:', error);
+      reply.status(500).send({ error: error.message });
+    }
+  });
 }
 
 export default websiteRoutes;
