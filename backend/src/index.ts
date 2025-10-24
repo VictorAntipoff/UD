@@ -81,6 +81,10 @@ const setupServer = async () => {
         'http://localhost:5174',
         'https://ud-xi.vercel.app',
         'https://u-design-six.vercel.app',
+        'https://udesign.co.tz',
+        'https://www.udesign.co.tz',
+        'http://udesign.co.tz',
+        'http://www.udesign.co.tz',
         process.env.FRONTEND_URL,
         process.env.PRODUCTION_FRONTEND_URL
       ].filter(Boolean);
