@@ -21,6 +21,7 @@ import WoodDryingSettings from '../pages/management/WoodDryingSettings';
 import AssetList from '../pages/assets/AssetList';
 import AssetDetail from '../pages/assets/AssetDetail';
 import AssetForm from '../pages/assets/AssetForm';
+import AssetSettings from '../pages/assets/AssetSettings';
 import ComingSoon from '../pages/ComingSoon';
 import Pages from '../pages/website/Pages';
 import PageEditor from '../pages/website/PageEditor';
@@ -118,6 +119,10 @@ export const routes: RouteObject[] = [
           {
             index: true,
             element: <AssetList />
+          },
+          {
+            path: 'settings',
+            element: <AssetSettings />
           },
           {
             path: 'new',

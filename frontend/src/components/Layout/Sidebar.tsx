@@ -307,6 +307,17 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                     </ListItemIcon>
                     <ListItemText primary="Items" />
                   </ListItem>
+                  <ListItem
+                    button
+                    sx={submenuStyles}
+                    onClick={() => handleNavigate('/dashboard/assets/settings')}
+                    selected={location.pathname === '/dashboard/assets/settings'}
+                  >
+                    <ListItemIcon sx={{ color: location.pathname === '/dashboard/assets/settings' ? colors.primary : colors.grey.main }}>
+                      <SettingsIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Settings" />
+                  </ListItem>
                 </List>
               </Collapse>
             </>

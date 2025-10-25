@@ -951,12 +951,17 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Drying process not found' });
       }
 
+      // Convert datetime-local format to ISO while preserving exact time
+      const readingTimeISO = data.readingTime
+        ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
+        : new Date().toISOString();
+
       const reading = await prisma.dryingReading.create({
         data: {
           dryingProcessId: id,
           electricityMeter: data.electricityMeter,
           humidity: data.humidity,
-          readingTime: data.readingTime || new Date(),
+          readingTime: readingTimeISO,
           notes: data.notes || '',
           lukuSms: data.lukuSms || null,
           createdById: user.userId,
@@ -1360,12 +1365,17 @@ async function factoryRoutes(fastify: FastifyInstance) {
         ? `${user.firstName} ${user.lastName}`
         : user.email;
 
+      // Convert datetime-local format to ISO while preserving exact time
+      const readingTimeISO = data.readingTime !== undefined
+        ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
+        : undefined;
+
       const reading = await prisma.dryingReading.update({
         where: { id },
         data: {
           ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
           ...(data.humidity !== undefined && { humidity: data.humidity }),
-          ...(data.readingTime !== undefined && { readingTime: data.readingTime }),
+          ...(readingTimeISO !== undefined && { readingTime: readingTimeISO }),
           ...(data.notes !== undefined && { notes: data.notes }),
           ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms }),
           updatedById: user.userId,

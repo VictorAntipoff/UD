@@ -30,12 +30,14 @@ import {
   CheckCircle as ActiveIcon,
   Build as MaintenanceIcon,
   Warning as BrokenIcon,
-  Archive as DisposedIcon
+  Archive as DisposedIcon,
+  QrCodeScanner as QrCodeScannerIcon
 } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { format } from 'date-fns';
+import { QRScanner } from '../../components/QRScanner';
 
 const AssetList = () => {
   const navigate = useNavigate();
@@ -46,6 +48,7 @@ const AssetList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -133,19 +136,38 @@ const AssetList = () => {
             Track and manage company assets with depreciation
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/assets/new')}
-          sx={{
-            backgroundColor: '#dc2626',
-            '&:hover': { backgroundColor: '#b91c1c' },
-            textTransform: 'none',
-            fontWeight: 600
-          }}
-        >
-          Add Asset
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<QrCodeScannerIcon />}
+            onClick={() => setQrScannerOpen(true)}
+            sx={{
+              borderColor: '#dc2626',
+              color: '#dc2626',
+              '&:hover': {
+                borderColor: '#b91c1c',
+                backgroundColor: 'rgba(220, 38, 38, 0.04)'
+              },
+              textTransform: 'none',
+              fontWeight: 600
+            }}
+          >
+            Scan QR Code
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/dashboard/assets/new')}
+            sx={{
+              backgroundColor: '#dc2626',
+              '&:hover': { backgroundColor: '#b91c1c' },
+              textTransform: 'none',
+              fontWeight: 600
+            }}
+          >
+            Add Asset
+          </Button>
+        </Box>
       </Box>
 
       {/* Statistics Cards */}
@@ -311,7 +333,7 @@ const AssetList = () => {
             <Button
               variant="contained"
               startIcon={<AddIcon />}
-              onClick={() => navigate('/assets/new')}
+              onClick={() => navigate('/dashboard/assets/new')}
               sx={{
                 backgroundColor: '#dc2626',
                 '&:hover': { backgroundColor: '#b91c1c' }
@@ -325,13 +347,13 @@ const AssetList = () => {
             <Table>
               <TableHead>
                 <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                  <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem', width: '60px' }}>Image</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Asset Tag</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Name</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Category</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Brand</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Status</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Purchase Price</TableCell>
-                  <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Book Value</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Purchase Date</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem', textAlign: 'center' }}>Actions</TableCell>
                 </TableRow>
@@ -346,6 +368,42 @@ const AssetList = () => {
                       '&:hover': { backgroundColor: '#f8fafc' }
                     }}
                   >
+                    <TableCell sx={{ p: 1 }}>
+                      {asset.imageUrl ? (
+                        <Box
+                          component="img"
+                          src={asset.imageUrl}
+                          alt={asset.name}
+                          sx={{
+                            width: 50,
+                            height: 50,
+                            objectFit: 'contain',
+                            borderRadius: 1,
+                            border: '1px solid #e2e8f0',
+                            backgroundColor: '#f8fafc',
+                            p: 0.5
+                          }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: 50,
+                            height: 50,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: 1,
+                            border: '1px solid #e2e8f0',
+                            backgroundColor: '#f8fafc'
+                          }}
+                        >
+                          <CategoryIcon sx={{ color: '#cbd5e1', fontSize: 24 }} />
+                        </Box>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Typography sx={{ fontWeight: 600, fontSize: '0.875rem', color: '#dc2626' }}>
                         {asset.assetTag}
@@ -390,9 +448,6 @@ const AssetList = () => {
                     <TableCell sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
                       {formatCurrency(asset.purchasePrice)}
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#10b981' }}>
-                      {formatCurrency(asset.currentBookValue || asset.purchasePrice)}
-                    </TableCell>
                     <TableCell sx={{ fontSize: '0.875rem' }}>
                       {format(new Date(asset.purchaseDate), 'MMM dd, yyyy')}
                     </TableCell>
@@ -400,7 +455,7 @@ const AssetList = () => {
                       <Tooltip title="View Details">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/assets/${asset.id}`)}
+                          onClick={() => navigate(`/dashboard/assets/${asset.id}`)}
                           sx={{ color: '#3b82f6' }}
                         >
                           <ViewIcon fontSize="small" />
@@ -409,7 +464,7 @@ const AssetList = () => {
                       <Tooltip title="Edit">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/assets/${asset.id}/edit`)}
+                          onClick={() => navigate(`/dashboard/assets/${asset.id}/edit`)}
                           sx={{ color: '#f59e0b' }}
                         >
                           <EditIcon fontSize="small" />
@@ -432,6 +487,16 @@ const AssetList = () => {
           </TableContainer>
         )}
       </Paper>
+
+      {/* QR Scanner Dialog */}
+      <QRScanner
+        open={qrScannerOpen}
+        onClose={() => setQrScannerOpen(false)}
+        onScan={(data) => {
+          // Navigate to the scanned asset detail page
+          navigate(`/dashboard/assets/${data.id}`);
+        }}
+      />
     </Box>
   );
 };

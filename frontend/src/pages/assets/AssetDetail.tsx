@@ -42,6 +42,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { format } from 'date-fns';
+import { AssetQRCode } from '../../components/AssetQRCode';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -88,7 +89,7 @@ const AssetDetail = () => {
 
     try {
       await api.delete(`/assets/${id}`);
-      navigate('/assets');
+      navigate('/dashboard/assets');
     } catch (error) {
       console.error('Error deleting asset:', error);
     }
@@ -158,16 +159,12 @@ const AssetDetail = () => {
     );
   }
 
-  const depreciationRate = asset.depreciationPerMonth
-    ? ((asset.depreciationPerMonth / asset.purchasePrice) * 100).toFixed(2)
-    : 0;
-
   return (
     <Box sx={{ p: 3, backgroundColor: '#f8fafc', minHeight: '100vh' }}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <IconButton onClick={() => navigate('/assets')} sx={{ color: '#64748b' }}>
+          <IconButton onClick={() => navigate('/dashboard/assets')} sx={{ color: '#64748b' }}>
             <BackIcon />
           </IconButton>
           <Box>
@@ -183,7 +180,7 @@ const AssetDetail = () => {
           <Button
             variant="outlined"
             startIcon={<EditIcon />}
-            onClick={() => navigate(`/assets/${id}/edit`)}
+            onClick={() => navigate(`/dashboard/assets/${id}/edit`)}
             sx={{
               borderColor: '#dc2626',
               color: '#dc2626',
@@ -206,6 +203,38 @@ const AssetDetail = () => {
           </Button>
         </Box>
       </Box>
+
+      {/* Product Image and QR Code */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        {asset.imageUrl && (
+          <Grid item xs={12} md={8}>
+            <Paper elevation={0} sx={{ p: 2, border: '1px solid #e2e8f0', height: '100%' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <Box
+                  component="img"
+                  src={asset.imageUrl}
+                  alt={asset.name}
+                  sx={{
+                    maxWidth: '100%',
+                    maxHeight: '400px',
+                    objectFit: 'contain',
+                    borderRadius: 2,
+                    border: '1px solid #e2e8f0',
+                    backgroundColor: '#f8fafc',
+                    p: 2
+                  }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              </Box>
+            </Paper>
+          </Grid>
+        )}
+        <Grid item xs={12} md={asset.imageUrl ? 4 : 12}>
+          <AssetQRCode assetTag={asset.assetTag} assetId={asset.id} size={250} />
+        </Grid>
+      </Grid>
 
       {/* Status and Quick Info */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -243,10 +272,10 @@ const AssetDetail = () => {
           <Card elevation={0} sx={{ border: '1px solid #e2e8f0', height: '100%' }}>
             <CardContent>
               <Typography variant="body2" sx={{ color: '#64748b', mb: 1, fontSize: '0.75rem' }}>
-                Current Book Value
+                Expected Lifespan
               </Typography>
               <Typography variant="h6" sx={{ fontWeight: 700, color: '#10b981' }}>
-                {formatCurrency(asset.currentBookValue || asset.purchasePrice)}
+                {asset.lifespanValue ? `${asset.lifespanValue} ${asset.lifespanUnit?.toLowerCase()}` : 'Not set'}
               </Typography>
             </CardContent>
           </Card>
@@ -255,10 +284,10 @@ const AssetDetail = () => {
           <Card elevation={0} sx={{ border: '1px solid #e2e8f0', height: '100%' }}>
             <CardContent>
               <Typography variant="body2" sx={{ color: '#64748b', mb: 1, fontSize: '0.75rem' }}>
-                Depreciation/Month
+                Category
               </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 700, color: '#ef4444' }}>
-                {asset.depreciationPerMonth ? formatCurrency(asset.depreciationPerMonth) : 'N/A'}
+              <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                {asset.category?.name || 'N/A'}
               </Typography>
             </CardContent>
           </Card>
@@ -286,7 +315,7 @@ const AssetDetail = () => {
           }}
         >
           <Tab label="Overview" />
-          <Tab label="Financial & Depreciation" />
+          <Tab label="Purchase & Warranty" />
           <Tab label="Maintenance" icon={<MaintenanceIcon fontSize="small" />} iconPosition="start" />
           <Tab label="Documents" icon={<DocumentIcon fontSize="small" />} iconPosition="start" />
           <Tab label="Assignment History" icon={<AssignmentIcon fontSize="small" />} iconPosition="start" />
@@ -376,90 +405,40 @@ const AssetDetail = () => {
           </Grid>
         </TabPanel>
 
-        {/* Financial & Depreciation Tab */}
+        {/* Purchase & Warranty Tab */}
         <TabPanel value={tabValue} index={1}>
           <Box sx={{ px: 3 }}>
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: '#1e293b' }}>
-                  Financial Summary
+                  Purchase Information
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  <InfoRow label="Purchase Date" value={asset.purchaseDate ? format(new Date(asset.purchaseDate), 'MMM dd, yyyy') : 'N/A'} />
                   <InfoRow label="Purchase Price" value={formatCurrency(asset.purchasePrice)} />
-                  <InfoRow label="Salvage Value" value={formatCurrency(asset.salvageValue || 0)} />
-                  <InfoRow
-                    label="Depreciable Amount"
-                    value={formatCurrency(asset.purchasePrice - (asset.salvageValue || 0))}
-                  />
-                  <InfoRow
-                    label="Accumulated Depreciation"
-                    value={formatCurrency(asset.accumulatedDepreciation || 0)}
-                  />
-                  <InfoRow
-                    label="Current Book Value"
-                    value={formatCurrency(asset.currentBookValue || asset.purchasePrice)}
-                  />
+                  <InfoRow label="Supplier" value={asset.supplier || 'N/A'} />
+                  <InfoRow label="Invoice Number" value={asset.invoiceNumber || 'N/A'} />
+                  <InfoRow label="Expected Lifespan" value={asset.lifespanValue ? `${asset.lifespanValue} ${asset.lifespanUnit?.toLowerCase()}` : 'Not set'} />
                 </Box>
               </Grid>
               <Grid item xs={12} md={6}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: '#1e293b' }}>
-                  Depreciation Settings
+                  Warranty Information
                 </Typography>
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                  <InfoRow label="Method" value={asset.depreciationMethod.replace('_', ' ')} />
-                  <InfoRow label="Useful Life" value={`${asset.usefulLifeYears || 0} years`} />
+                  <InfoRow label="Warranty Provider" value={asset.warrantyProvider || 'N/A'} />
                   <InfoRow
-                    label="Depreciation per Month"
-                    value={asset.depreciationPerMonth ? formatCurrency(asset.depreciationPerMonth) : 'N/A'}
+                    label="Warranty Start"
+                    value={asset.warrantyStartDate ? format(new Date(asset.warrantyStartDate), 'MMM dd, yyyy') : 'N/A'}
                   />
-                  <InfoRow label="Depreciation Rate" value={`${depreciationRate}% per month`} />
                   <InfoRow
-                    label="Months Elapsed"
-                    value={asset.depreciationSchedule?.length || 0}
+                    label="Warranty End"
+                    value={asset.warrantyEndDate ? format(new Date(asset.warrantyEndDate), 'MMM dd, yyyy') : 'N/A'}
                   />
+                  <InfoRow label="Warranty Terms" value={asset.warrantyTerms || 'N/A'} />
                 </Box>
               </Grid>
             </Grid>
-
-            {/* Depreciation Schedule */}
-            {asset.depreciationSchedule && asset.depreciationSchedule.length > 0 && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2, color: '#1e293b' }}>
-                  Depreciation Schedule (Last 12 Months)
-                </Typography>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ backgroundColor: '#f8fafc' }}>
-                        <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Month</TableCell>
-                        <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Opening Value</TableCell>
-                        <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Depreciation</TableCell>
-                        <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Accumulated</TableCell>
-                        <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Closing Value</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {asset.depreciationSchedule.slice(0, 12).map((schedule: any) => (
-                        <TableRow key={schedule.id}>
-                          <TableCell sx={{ fontSize: '0.75rem' }}>{schedule.monthYear}</TableCell>
-                          <TableCell sx={{ fontSize: '0.75rem' }}>{formatCurrency(schedule.openingBookValue)}</TableCell>
-                          <TableCell sx={{ fontSize: '0.75rem', color: '#ef4444' }}>
-                            {formatCurrency(schedule.depreciationAmount)}
-                          </TableCell>
-                          <TableCell sx={{ fontSize: '0.75rem' }}>
-                            {formatCurrency(schedule.accumulatedDepreciation)}
-                          </TableCell>
-                          <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#10b981' }}>
-                            {formatCurrency(schedule.closingBookValue)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </>
-            )}
           </Box>
         </TabPanel>
 

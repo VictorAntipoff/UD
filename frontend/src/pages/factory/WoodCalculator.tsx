@@ -404,6 +404,7 @@ Generated on: ${new Date().toLocaleString()}`;
 
   const loadCalculationFromHistory = useCallback((item: CalculationResult) => {
     // Set dimensions from history
+    // Note: Stored prices are always WITHOUT VAT (see line 365)
     setDimensions({
       thickness: item.dimensions.thickness,
       width: item.dimensions.width,
@@ -412,7 +413,7 @@ Generated on: ${new Date().toLocaleString()}`;
       woodTypeId: item.woodType.id,
       notes: item.dimensions.notes,
       taxPercentage: item.taxPercentage,
-      isPriceWithVAT: true,
+      isPriceWithVAT: false, // Stored price is always without VAT
     });
 
     // Set result from history
@@ -420,7 +421,7 @@ Generated on: ${new Date().toLocaleString()}`;
       volumeM3: item.volumeM3,
       planksPerM3: item.planksPerM3,
       pricePerM3: item.pricePerM3,
-      pricePerM3WithTax: item.pricePerM3
+      pricePerM3WithTax: item.pricePerM3WithTax
     });
 
     // Scroll to top of the calculator
@@ -652,14 +653,14 @@ Generated on: ${new Date().toLocaleString()}`;
                     <TextField
                       select
                       fullWidth
-                      label="Price Type"
+                      label="Price Includes VAT?"
                       value={dimensions.isPriceWithVAT}
                       onChange={(e) => setDimensions((prev: PlankDimensions) => ({
                         ...prev,
                         isPriceWithVAT: e.target.value === 'true'
                       }))}
                       size="small"
-                      sx={{ 
+                      sx={{
                         '& .MuiInputLabel-root': {
                           fontSize: '0.85rem'
                         },
@@ -668,8 +669,8 @@ Generated on: ${new Date().toLocaleString()}`;
                         }
                       }}
                     >
-                      <MenuItem value="false" sx={{ fontSize: '0.85rem' }}>Price without VAT</MenuItem>
-                      <MenuItem value="true" sx={{ fontSize: '0.85rem' }}>Price with VAT</MenuItem>
+                      <MenuItem value="false" sx={{ fontSize: '0.85rem' }}>No (Enter price excl. VAT)</MenuItem>
+                      <MenuItem value="true" sx={{ fontSize: '0.85rem' }}>Yes (Enter price incl. VAT)</MenuItem>
                     </TextField>
                   </Grid>
                   <Grid item xs={12} sm={4}>
@@ -1130,9 +1131,16 @@ Generated on: ${new Date().toLocaleString()}`;
                         : '-'}
                     </TableCell>
                     <TableCell align="right">
-                      {item.dimensions.pricePerPlank 
-                        ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
-                        : '-'}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                          {item.dimensions.pricePerPlank
+                            ? `TZS ${formatNumber(item.dimensions.pricePerPlank)}`
+                            : '-'}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
+                          (excl. VAT)
+                        </Typography>
+                      </Box>
                     </TableCell>
                     <TableCell align="right">
                       {item.volumeM3 
@@ -1145,9 +1153,16 @@ Generated on: ${new Date().toLocaleString()}`;
                         : '-'}
                     </TableCell>
                     <TableCell align="right">
-                      {item.pricePerM3 
-                        ? `TZS ${formatNumber(item.pricePerM3)}`
-                        : '-'}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                          {item.pricePerM3
+                            ? `TZS ${formatNumber(item.pricePerM3)}`
+                            : '-'}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>
+                          (excl. {item.taxPercentage}% VAT)
+                        </Typography>
+                      </Box>
                     </TableCell>
                     <TableCell align="right">
                       <Box sx={{ 

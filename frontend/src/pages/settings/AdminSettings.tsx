@@ -233,6 +233,12 @@ export default function AdminSettings() {
       ]
     },
     {
+      category: 'Notifications',
+      items: [
+        { key: 'notifications', label: 'Notification Centre', hasActions: false },
+      ]
+    },
+    {
       category: 'Administration',
       items: [
         { key: 'user-settings', label: 'User Settings', hasActions: true },

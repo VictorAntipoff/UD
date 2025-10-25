@@ -347,6 +347,7 @@ model Approval {
 model AssetCategory {
   id          String   @id @default(uuid())
   name        String   @unique
+  code        String   @unique // Category code (e.g., HT, MAC, etc.)
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -355,6 +356,7 @@ model AssetCategory {
   assets      Asset[]
 
   @@index([name])
+  @@index([code])
 }
 
 model Asset {
@@ -363,6 +365,7 @@ model Asset {
   name                  String
   description           String?
   categoryId            String
+  imageUrl              String?   // Product image URL
 
   // Basic Information
   brand                 String?
@@ -379,18 +382,16 @@ model Asset {
   invoiceDocument       String?   // File path/URL
 
   // Warranty Information
+  warrantyDurationValue Int?      // Warranty duration (number)
+  warrantyDurationUnit  String?   // 'YEARS' or 'MONTHS'
   warrantyStartDate     DateTime?
   warrantyEndDate       DateTime?
   warrantyTerms         String?
+  warrantyProvider      String?   // Supplier/provider of warranty
 
-  // Financial/Depreciation
-  depreciationMethod    String    @default("STRAIGHT_LINE") // STRAIGHT_LINE, DECLINING_BALANCE, CUSTOM, NONE
-  usefulLifeYears       Float?    // Useful life in years
-  usefulLifeMonths      Int?      // Useful life in months (calculated from years)
-  salvageValue          Float?    @default(0) // Residual value at end of useful life
-  depreciationPerMonth  Float?    // Auto-calculated monthly depreciation
-  accumulatedDepreciation Float?  @default(0) // Total depreciation to date
-  currentBookValue      Float?    // Current value (purchase price - accumulated depreciation)
+  // Lifespan
+  lifespanValue         Int?      // Lifespan value (number)
+  lifespanUnit          String?   // 'YEARS' or 'MONTHS'
 
   // Technical Specifications (flexible JSON field)
   technicalSpecs        Json?
@@ -417,7 +418,6 @@ model Asset {
   maintenanceRecords    AssetMaintenance[]
   documents             AssetDocument[]
   assignmentHistory     AssetAssignment[]
-  depreciationSchedule  DepreciationSchedule[]
 
   @@index([assetTag])
   @@index([categoryId])
@@ -501,28 +501,6 @@ model AssetAssignment {
   @@index([assetId])
   @@index([assignedToUserId])
   @@index([assignmentDate])
-}
-
-model DepreciationSchedule {
-  id                    String    @id @default(uuid())
-  assetId               String
-  month                 Int       // Month number (1-N)
-  year                  Int
-  monthYear             String    // YYYY-MM format for easy querying
-
-  openingBookValue      Float
-  depreciationAmount    Float
-  accumulatedDepreciation Float
-  closingBookValue      Float
-
-  createdAt             DateTime  @default(now())
-
-  // Relations
-  asset                 Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
-
-  @@unique([assetId, monthYear])
-  @@index([assetId])
-  @@index([monthYear])
 }
 
 // ===== WAREHOUSE & INVENTORY MANAGEMENT MODELS =====

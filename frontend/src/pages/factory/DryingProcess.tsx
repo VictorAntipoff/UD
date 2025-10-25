@@ -427,7 +427,7 @@ export default function DryingProcess() {
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
-        readingTime: newReading.readingTime + ':00', // Just append seconds
+        readingTime: newReading.readingTime, // Send as-is, backend will handle
         notes: newReading.notes,
         lukuSms: lukuSms.trim() || null // Include Luku SMS if provided
       });
@@ -456,7 +456,7 @@ export default function DryingProcess() {
       await api.put(`/factory/drying-readings/${editingReading.id}`, {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
-        readingTime: editReadingData.readingTime + ':00', // Just append seconds
+        readingTime: editReadingData.readingTime, // Send as-is, backend will handle
         notes: editReadingData.notes,
         lukuSms: editReadingData.lukuSms.trim() || null
       });
