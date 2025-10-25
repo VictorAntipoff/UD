@@ -956,7 +956,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           dryingProcessId: id,
           electricityMeter: data.electricityMeter,
           humidity: data.humidity,
-          readingTime: data.readingTime ? new Date(data.readingTime) : new Date(),
+          readingTime: data.readingTime || new Date(),
           notes: data.notes || '',
           lukuSms: data.lukuSms || null,
           createdById: user.userId,
@@ -1365,7 +1365,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         data: {
           ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
           ...(data.humidity !== undefined && { humidity: data.humidity }),
-          ...(data.readingTime !== undefined && { readingTime: new Date(data.readingTime) }),
+          ...(data.readingTime !== undefined && { readingTime: data.readingTime }),
           ...(data.notes !== undefined && { notes: data.notes }),
           ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms }),
           updatedById: user.userId,
