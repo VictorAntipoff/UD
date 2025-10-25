@@ -479,10 +479,12 @@ export default function DryingProcess() {
 
   const openEditReadingDialog = (reading: any) => {
     setEditingReading(reading);
+    // Extract datetime without timezone conversion - just take first 16 chars of ISO string
+    const readingTimeValue = reading.readingTime.slice(0, 16);
     setEditReadingData({
       electricityMeter: reading.electricityMeter.toString(),
       humidity: reading.humidity.toString(),
-      readingTime: new Date(reading.readingTime).toISOString().slice(0, 16),
+      readingTime: readingTimeValue,
       notes: reading.notes || '',
       lukuSms: reading.lukuSms || ''
     });
