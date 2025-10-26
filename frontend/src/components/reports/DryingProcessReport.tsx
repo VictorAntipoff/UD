@@ -372,7 +372,7 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
         </View>
 
         {/* Notes */}
-        {process.notes && (
+        {process.notes && process.notes.trim() !== '' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Notes</Text>
             <View style={styles.notes}>
@@ -539,7 +539,7 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
                 </Text>
                 <Text style={styles.col2}>{reading.electricityMeter.toFixed(2)}</Text>
                 <Text style={styles.col3}>{reading.humidity.toFixed(1)}</Text>
-                <Text style={styles.col4}>{reading.notes || '-'}</Text>
+                <Text style={styles.col4}>{reading.notes && reading.notes.trim() !== '' ? reading.notes : '-'}</Text>
               </View>
             ))}
           </View>

@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireWarehouseManagement, requireStockAdjustment, requireRole } from '../middleware/auth.js';
 async function managementRoutes(fastify) {
     // SECURITY: Protect all management routes with authentication
     fastify.addHook('onRequest', authenticateToken);
@@ -284,7 +284,7 @@ async function managementRoutes(fastify) {
         }
     });
     // Approve a wood receipt (change status to CONFIRMED)
-    fastify.post('/wood-receipts/:id/approve', async (request, reply) => {
+    fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
         try {
             const { id } = request.params;
             const receipt = await prisma.woodReceipt.update({
@@ -306,7 +306,7 @@ async function managementRoutes(fastify) {
         }
     });
     // Reject a wood receipt (you can customize the rejected status)
-    fastify.post('/wood-receipts/:id/reject', async (request, reply) => {
+    fastify.post('/wood-receipts/:id/reject', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
         try {
             const { id } = request.params;
             const { notes } = request.body;
@@ -330,6 +330,552 @@ async function managementRoutes(fastify) {
         catch (error) {
             console.error('Error rejecting wood receipt:', error);
             return reply.status(500).send({ error: 'Failed to reject wood receipt' });
+        }
+    });
+    // ==================== WAREHOUSE MANAGEMENT ====================
+    // Get all warehouses (including archived if query param is set)
+    fastify.get('/warehouses', async (request, reply) => {
+        try {
+            const { includeArchived } = request.query;
+            const whereClause = includeArchived === 'true'
+                ? {}
+                : { status: 'ACTIVE' };
+            const warehouses = await prisma.warehouse.findMany({
+                where: whereClause,
+                include: {
+                    assignedUsers: {
+                        include: {
+                            user: {
+                                select: {
+                                    id: true,
+                                    email: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    role: true
+                                }
+                            }
+                        }
+                    },
+                    _count: {
+                        select: {
+                            stock: true,
+                            transfersFrom: true,
+                            transfersTo: true
+                        }
+                    }
+                },
+                orderBy: [
+                    { status: 'asc' },
+                    { code: 'asc' }
+                ]
+            });
+            return warehouses;
+        }
+        catch (error) {
+            console.error('Error fetching warehouses:', error);
+            return reply.status(500).send({ error: 'Failed to fetch warehouses' });
+        }
+    });
+    // Get a single warehouse by ID
+    fastify.get('/warehouses/:id', async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const warehouse = await prisma.warehouse.findUnique({
+                where: { id },
+                include: {
+                    assignedUsers: {
+                        include: {
+                            user: {
+                                select: {
+                                    id: true,
+                                    email: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    role: true
+                                }
+                            }
+                        }
+                    },
+                    stock: {
+                        include: {
+                            woodType: true
+                        }
+                    },
+                    _count: {
+                        select: {
+                            transfersFrom: true,
+                            transfersTo: true,
+                            stockAdjustments: true
+                        }
+                    }
+                }
+            });
+            if (!warehouse) {
+                return reply.status(404).send({ error: 'Warehouse not found' });
+            }
+            return warehouse;
+        }
+        catch (error) {
+            console.error('Error fetching warehouse:', error);
+            return reply.status(500).send({ error: 'Failed to fetch warehouse' });
+        }
+    });
+    // Create a new warehouse
+    fastify.post('/warehouses', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
+        try {
+            const data = request.body;
+            if (!data.code || !data.name) {
+                return reply.status(400).send({
+                    error: 'Missing required fields: code and name are required'
+                });
+            }
+            // Check if code already exists
+            const existing = await prisma.warehouse.findUnique({
+                where: { code: data.code }
+            });
+            if (existing) {
+                return reply.status(400).send({
+                    error: 'Warehouse code already exists'
+                });
+            }
+            const warehouse = await prisma.warehouse.create({
+                data: {
+                    code: data.code,
+                    name: data.name,
+                    address: data.address || null,
+                    contactPerson: data.contactPerson || null,
+                    stockControlEnabled: data.stockControlEnabled ?? false,
+                    requiresApproval: data.requiresApproval ?? false,
+                    status: 'ACTIVE'
+                },
+                include: {
+                    assignedUsers: true
+                }
+            });
+            return warehouse;
+        }
+        catch (error) {
+            console.error('Error creating warehouse:', error);
+            return reply.status(500).send({ error: 'Failed to create warehouse' });
+        }
+    });
+    // Update a warehouse
+    fastify.put('/warehouses/:id', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const data = request.body;
+            // If updating code, check it doesn't conflict with existing
+            if (data.code) {
+                const existing = await prisma.warehouse.findUnique({
+                    where: { code: data.code }
+                });
+                if (existing && existing.id !== id) {
+                    return reply.status(400).send({
+                        error: 'Warehouse code already exists'
+                    });
+                }
+            }
+            const warehouse = await prisma.warehouse.update({
+                where: { id },
+                data: {
+                    code: data.code,
+                    name: data.name,
+                    address: data.address,
+                    contactPerson: data.contactPerson,
+                    stockControlEnabled: data.stockControlEnabled,
+                    requiresApproval: data.requiresApproval
+                },
+                include: {
+                    assignedUsers: true
+                }
+            });
+            return warehouse;
+        }
+        catch (error) {
+            console.error('Error updating warehouse:', error);
+            return reply.status(500).send({ error: 'Failed to update warehouse' });
+        }
+    });
+    // Archive a warehouse (soft delete)
+    fastify.patch('/warehouses/:id/archive', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const warehouse = await prisma.warehouse.update({
+                where: { id },
+                data: {
+                    status: 'ARCHIVED'
+                }
+            });
+            return warehouse;
+        }
+        catch (error) {
+            console.error('Error archiving warehouse:', error);
+            return reply.status(500).send({ error: 'Failed to archive warehouse' });
+        }
+    });
+    // Restore an archived warehouse
+    fastify.patch('/warehouses/:id/restore', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const warehouse = await prisma.warehouse.update({
+                where: { id },
+                data: {
+                    status: 'ACTIVE'
+                }
+            });
+            return warehouse;
+        }
+        catch (error) {
+            console.error('Error restoring warehouse:', error);
+            return reply.status(500).send({ error: 'Failed to restore warehouse' });
+        }
+    });
+    // Update assigned users for a warehouse
+    fastify.put('/warehouses/:id/assigned-users', { onRequest: requireWarehouseManagement() }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const { userIds } = request.body;
+            // Delete all existing user assignments
+            await prisma.warehouseUser.deleteMany({
+                where: { warehouseId: id }
+            });
+            // Create new user assignments
+            if (userIds && userIds.length > 0) {
+                await prisma.warehouseUser.createMany({
+                    data: userIds.map(userId => ({
+                        warehouseId: id,
+                        userId
+                    }))
+                });
+            }
+            // Fetch and return the updated warehouse with users
+            const warehouse = await prisma.warehouse.findUnique({
+                where: { id },
+                include: {
+                    assignedUsers: {
+                        include: {
+                            user: {
+                                select: {
+                                    id: true,
+                                    email: true,
+                                    firstName: true,
+                                    lastName: true,
+                                    role: true
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            return warehouse;
+        }
+        catch (error) {
+            console.error('Error updating assigned users:', error);
+            return reply.status(500).send({ error: 'Failed to update assigned users' });
+        }
+    });
+    // ==================== STOCK MANAGEMENT ====================
+    // Get stock for a specific warehouse
+    fastify.get('/warehouses/:id/stock', async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const stock = await prisma.stock.findMany({
+                where: { warehouseId: id },
+                include: {
+                    woodType: true,
+                    warehouse: {
+                        select: {
+                            code: true,
+                            name: true
+                        }
+                    }
+                },
+                orderBy: [
+                    { woodType: { name: 'asc' } },
+                    { thickness: 'asc' }
+                ]
+            });
+            return stock;
+        }
+        catch (error) {
+            console.error('Error fetching stock:', error);
+            return reply.status(500).send({ error: 'Failed to fetch stock' });
+        }
+    });
+    // Get consolidated stock across all active warehouses
+    fastify.get('/stock/consolidated', async (request, reply) => {
+        try {
+            const stock = await prisma.stock.findMany({
+                where: {
+                    warehouse: {
+                        status: 'ACTIVE'
+                    }
+                },
+                include: {
+                    woodType: true,
+                    warehouse: {
+                        select: {
+                            code: true,
+                            name: true,
+                            stockControlEnabled: true
+                        }
+                    }
+                },
+                orderBy: [
+                    { woodType: { name: 'asc' } },
+                    { thickness: 'asc' },
+                    { warehouse: { name: 'asc' } }
+                ]
+            });
+            // Group by wood type and thickness for summary
+            const summary = stock.reduce((acc, item) => {
+                const key = `${item.woodTypeId}_${item.thickness}`;
+                if (!acc[key]) {
+                    acc[key] = {
+                        woodType: item.woodType,
+                        thickness: item.thickness,
+                        totalNotDried: 0,
+                        totalUnderDrying: 0,
+                        totalDried: 0,
+                        totalDamaged: 0,
+                        totalInTransit: 0,
+                        warehouses: []
+                    };
+                }
+                acc[key].totalNotDried += item.statusNotDried;
+                acc[key].totalUnderDrying += item.statusUnderDrying;
+                acc[key].totalDried += item.statusDried;
+                acc[key].totalDamaged += item.statusDamaged;
+                acc[key].totalInTransit += item.statusInTransitOut + item.statusInTransitIn;
+                acc[key].warehouses.push({
+                    warehouse: item.warehouse,
+                    quantities: {
+                        notDried: item.statusNotDried,
+                        underDrying: item.statusUnderDrying,
+                        dried: item.statusDried,
+                        damaged: item.statusDamaged,
+                        inTransitOut: item.statusInTransitOut,
+                        inTransitIn: item.statusInTransitIn
+                    }
+                });
+                return acc;
+            }, {});
+            return {
+                detailed: stock,
+                summary: Object.values(summary)
+            };
+        }
+        catch (error) {
+            console.error('Error fetching consolidated stock:', error);
+            return reply.status(500).send({ error: 'Failed to fetch consolidated stock' });
+        }
+    });
+    // Get low stock alerts
+    fastify.get('/stock/alerts', async (request, reply) => {
+        try {
+            const lowStockItems = await prisma.stock.findMany({
+                where: {
+                    warehouse: {
+                        status: 'ACTIVE',
+                        stockControlEnabled: true
+                    },
+                    minimumStockLevel: {
+                        not: null
+                    }
+                },
+                include: {
+                    woodType: true,
+                    warehouse: {
+                        select: {
+                            code: true,
+                            name: true
+                        }
+                    }
+                }
+            });
+            // Filter items where total available stock is below minimum
+            const alerts = lowStockItems.filter(item => {
+                const totalAvailable = item.statusNotDried + item.statusDried;
+                return item.minimumStockLevel && totalAvailable < item.minimumStockLevel;
+            }).map(item => ({
+                ...item,
+                currentStock: item.statusNotDried + item.statusDried,
+                shortfall: item.minimumStockLevel - (item.statusNotDried + item.statusDried)
+            }));
+            return alerts;
+        }
+        catch (error) {
+            console.error('Error fetching stock alerts:', error);
+            return reply.status(500).send({ error: 'Failed to fetch stock alerts' });
+        }
+    });
+    // Create or update stock (for initial setup or minimum level updates)
+    fastify.post('/stock', { onRequest: requireStockAdjustment() }, async (request, reply) => {
+        try {
+            const data = request.body;
+            if (!data.warehouseId || !data.woodTypeId || !data.thickness) {
+                return reply.status(400).send({
+                    error: 'Missing required fields: warehouseId, woodTypeId, and thickness are required'
+                });
+            }
+            // Check if stock record exists
+            const existing = await prisma.stock.findUnique({
+                where: {
+                    warehouseId_woodTypeId_thickness: {
+                        warehouseId: data.warehouseId,
+                        woodTypeId: data.woodTypeId,
+                        thickness: data.thickness
+                    }
+                }
+            });
+            let stock;
+            if (existing) {
+                // Update existing record
+                stock = await prisma.stock.update({
+                    where: { id: existing.id },
+                    data: {
+                        minimumStockLevel: data.minimumStockLevel
+                    },
+                    include: {
+                        woodType: true,
+                        warehouse: true
+                    }
+                });
+            }
+            else {
+                // Create new record
+                stock = await prisma.stock.create({
+                    data: {
+                        warehouseId: data.warehouseId,
+                        woodTypeId: data.woodTypeId,
+                        thickness: data.thickness,
+                        minimumStockLevel: data.minimumStockLevel || null,
+                        statusNotDried: 0,
+                        statusUnderDrying: 0,
+                        statusDried: 0,
+                        statusDamaged: 0,
+                        statusInTransitOut: 0,
+                        statusInTransitIn: 0
+                    },
+                    include: {
+                        woodType: true,
+                        warehouse: true
+                    }
+                });
+            }
+            return stock;
+        }
+        catch (error) {
+            console.error('Error creating/updating stock:', error);
+            return reply.status(500).send({ error: 'Failed to create/update stock' });
+        }
+    });
+    // Physical stock adjustment
+    fastify.post('/stock/adjust', { onRequest: requireStockAdjustment() }, async (request, reply) => {
+        try {
+            const data = request.body;
+            const userId = request.user?.userId;
+            if (!data.warehouseId || !data.woodTypeId || !data.thickness || !data.woodStatus || data.quantityAfter === undefined || !data.reason) {
+                return reply.status(400).send({
+                    error: 'Missing required fields: warehouseId, woodTypeId, thickness, woodStatus, quantityAfter, and reason are required'
+                });
+            }
+            // Get or create stock record
+            let stock = await prisma.stock.findUnique({
+                where: {
+                    warehouseId_woodTypeId_thickness: {
+                        warehouseId: data.warehouseId,
+                        woodTypeId: data.woodTypeId,
+                        thickness: data.thickness
+                    }
+                }
+            });
+            if (!stock) {
+                stock = await prisma.stock.create({
+                    data: {
+                        warehouseId: data.warehouseId,
+                        woodTypeId: data.woodTypeId,
+                        thickness: data.thickness,
+                        statusNotDried: 0,
+                        statusUnderDrying: 0,
+                        statusDried: 0,
+                        statusDamaged: 0,
+                        statusInTransitOut: 0,
+                        statusInTransitIn: 0
+                    }
+                });
+            }
+            // Get current quantity for the specified status
+            const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
+            const quantityBefore = stock[statusField];
+            const quantityChange = data.quantityAfter - quantityBefore;
+            // Update stock and create adjustment record in a transaction
+            const result = await prisma.$transaction([
+                prisma.stock.update({
+                    where: { id: stock.id },
+                    data: {
+                        [statusField]: data.quantityAfter
+                    }
+                }),
+                prisma.stockAdjustment.create({
+                    data: {
+                        warehouseId: data.warehouseId,
+                        woodTypeId: data.woodTypeId,
+                        thickness: data.thickness,
+                        woodStatus: data.woodStatus,
+                        quantityBefore,
+                        quantityAfter: data.quantityAfter,
+                        quantityChange,
+                        reason: data.reason,
+                        notes: data.notes || null,
+                        adjustedById: userId
+                    },
+                    include: {
+                        woodType: true,
+                        warehouse: true,
+                        adjustedBy: {
+                            select: {
+                                email: true,
+                                firstName: true,
+                                lastName: true
+                            }
+                        }
+                    }
+                })
+            ]);
+            return result[1]; // Return the adjustment record
+        }
+        catch (error) {
+            console.error('Error adjusting stock:', error);
+            return reply.status(500).send({ error: 'Failed to adjust stock' });
+        }
+    });
+    // Get stock adjustment history
+    fastify.get('/stock/adjustments', async (request, reply) => {
+        try {
+            const { warehouseId } = request.query;
+            const whereClause = warehouseId ? { warehouseId } : {};
+            const adjustments = await prisma.stockAdjustment.findMany({
+                where: whereClause,
+                include: {
+                    woodType: true,
+                    warehouse: true,
+                    adjustedBy: {
+                        select: {
+                            email: true,
+                            firstName: true,
+                            lastName: true
+                        }
+                    }
+                },
+                orderBy: { adjustedAt: 'desc' },
+                take: 100 // Limit to last 100 adjustments
+            });
+            return adjustments;
+        }
+        catch (error) {
+            console.error('Error fetching adjustments:', error);
+            return reply.status(500).send({ error: 'Failed to fetch adjustments' });
         }
     });
 }

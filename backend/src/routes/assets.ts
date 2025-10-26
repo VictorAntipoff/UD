@@ -11,13 +11,19 @@ export default async function assetRoutes(fastify: FastifyInstance) {
 
   // ===== ASSET CATEGORY ROUTES =====
 
-  // Get all asset categories
+  // Get all asset categories (including subcategories)
   fastify.get('/categories', async (request, reply) => {
     try {
       const categories = await prisma.assetCategory.findMany({
         include: {
           _count: {
-            select: { assets: true }
+            select: { assets: true, subcategories: true }
+          },
+          parent: {
+            select: { id: true, name: true, code: true }
+          },
+          subcategories: {
+            select: { id: true, name: true, code: true }
           }
         },
         orderBy: { name: 'asc' }
@@ -29,13 +35,45 @@ export default async function assetRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Create asset category
+  // Get category tree structure (root categories with subcategories)
+  fastify.get('/categories/tree', async (request, reply) => {
+    try {
+      const rootCategories = await prisma.assetCategory.findMany({
+        where: { parentId: null },
+        include: {
+          subcategories: {
+            include: {
+              _count: {
+                select: { assets: true }
+              }
+            },
+            orderBy: { name: 'asc' }
+          },
+          _count: {
+            select: { assets: true }
+          }
+        },
+        orderBy: { name: 'asc' }
+      });
+      return rootCategories;
+    } catch (error) {
+      console.error('Error fetching category tree:', error);
+      return reply.status(500).send({ error: 'Failed to fetch category tree' });
+    }
+  });
+
+  // Create asset category (or subcategory if parentId provided)
   fastify.post('/categories', async (request, reply) => {
     try {
-      const { name, code, description } = request.body as any;
+      const { name, code, description, parentId } = request.body as any;
 
       const category = await prisma.assetCategory.create({
-        data: { name, code, description }
+        data: { name, code, description, parentId: parentId || null },
+        include: {
+          parent: {
+            select: { id: true, name: true, code: true }
+          }
+        }
       });
 
       return category;
@@ -49,11 +87,16 @@ export default async function assetRoutes(fastify: FastifyInstance) {
   fastify.patch('/categories/:id', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
-      const { name, code, description } = request.body as any;
+      const { name, code, description, parentId } = request.body as any;
 
       const category = await prisma.assetCategory.update({
         where: { id },
-        data: { name, code, description }
+        data: { name, code, description, parentId: parentId !== undefined ? parentId : undefined },
+        include: {
+          parent: {
+            select: { id: true, name: true, code: true }
+          }
+        }
       });
 
       return category;
@@ -76,6 +119,17 @@ export default async function assetRoutes(fastify: FastifyInstance) {
       if (assetsCount > 0) {
         return reply.status(400).send({
           error: `Cannot delete category with ${assetsCount} existing asset(s)`
+        });
+      }
+
+      // Check if category has subcategories
+      const subcategoriesCount = await prisma.assetCategory.count({
+        where: { parentId: id }
+      });
+
+      if (subcategoriesCount > 0) {
+        return reply.status(400).send({
+          error: `Cannot delete category with ${subcategoriesCount} subcategory(ies). Delete subcategories first.`
         });
       }
 
@@ -174,6 +228,77 @@ export default async function assetRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error uploading image from URL to Cloudinary:', error);
       return reply.status(500).send({ error: 'Failed to upload image from URL' });
+    }
+  });
+
+  // Download and organize asset files (image and PDFs) to AssetTag folder
+  fastify.post('/download-asset-files', async (request, reply) => {
+    try {
+      const { assetTag, imageUrl, pdfUrl } = request.body as { assetTag: string; imageUrl?: string; pdfUrl?: string };
+
+      if (!assetTag) {
+        return reply.status(400).send({ error: 'Asset tag is required' });
+      }
+
+      const results: any = {};
+
+      // Create folder structure: udesign/assets/{AssetTag}/
+      const assetFolder = `udesign/assets/${assetTag}`;
+
+      // Download and upload image if provided
+      if (imageUrl) {
+        try {
+          const imageResponse = await fetch(imageUrl);
+          if (imageResponse.ok) {
+            const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+            const imageResult = await uploadToCloudinary(imageBuffer, {
+              folder: assetFolder,
+              public_id: `image-${Date.now()}`,
+              resource_type: 'image'
+            });
+
+            results.imageUrl = imageResult.secure_url;
+          }
+        } catch (err) {
+          console.error('Error downloading image:', err);
+          results.imageError = 'Failed to download image';
+        }
+      }
+
+      // Download and upload PDF if provided
+      if (pdfUrl) {
+        try {
+          const pdfResponse = await fetch(pdfUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          });
+
+          if (pdfResponse.ok) {
+            const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+
+            const pdfResult = await uploadToCloudinary(pdfBuffer, {
+              folder: assetFolder,
+              public_id: `manual-${Date.now()}`,
+              resource_type: 'raw' // For PDF files
+            });
+
+            results.pdfUrl = pdfResult.secure_url;
+          }
+        } catch (err) {
+          console.error('Error downloading PDF:', err);
+          results.pdfError = 'Failed to download PDF';
+        }
+      }
+
+      return {
+        success: true,
+        ...results
+      };
+    } catch (error) {
+      console.error('Error downloading asset files:', error);
+      return reply.status(500).send({ error: 'Failed to download asset files' });
     }
   });
 
@@ -576,7 +701,7 @@ export default async function assetRoutes(fastify: FastifyInstance) {
   // Search for products online using Google Custom Search API
   fastify.post('/search-product', async (request, reply) => {
     try {
-      const { query } = request.body as { query: string };
+      const { query, brand } = request.body as { query: string; brand?: string };
 
       if (!query) {
         return reply.status(400).send({ error: 'Search query is required' });
@@ -601,26 +726,77 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         return { results: mockResults };
       }
 
-      // Call Google Custom Search API
-      const searchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image&num=6`;
+      let allResults: any[] = [];
 
-      const response = await fetch(searchUrl);
+      // If brand is provided, search official website first
+      if (brand && brand.trim()) {
+        const brandDomain = brand.toLowerCase().replace(/\s+/g, '');
+        const officialSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image&num=5&siteSearch=${brandDomain}.com&siteSearchFilter=i`;
 
-      if (!response.ok) {
-        throw new Error(`Google API error: ${response.statusText}`);
+        try {
+          const officialResponse = await fetch(officialSearchUrl);
+          if (officialResponse.ok) {
+            const officialData = await officialResponse.json();
+
+            // Transform official site results
+            const officialResults = (officialData.items || []).map((item: any) => {
+              let source = 'Unknown';
+              try {
+                const urlString = item.displayLink || item.link || item.image?.contextLink;
+                if (urlString) {
+                  const fullUrl = urlString.startsWith('http') ? urlString : `https://${urlString}`;
+                  source = new URL(fullUrl).hostname;
+                }
+              } catch (err) {
+                console.error('Error parsing source URL:', err);
+              }
+
+              return {
+                title: item.title || query,
+                link: item.link || item.image?.contextLink || '#',
+                snippet: item.snippet || '',
+                image: item.link || item.image?.thumbnailLink || '',
+                price: item.pagemap?.offer?.[0]?.price || 'Price not available',
+                source,
+                isOfficialSite: true
+              };
+            });
+
+            allResults = officialResults;
+          }
+        } catch (err) {
+          console.error('Error fetching from official site:', err);
+        }
       }
 
-      const data = await response.json();
+      // Get general search results
+      const generalSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${searchEngineId}&q=${encodeURIComponent(query)}&searchType=image&num=8`;
 
-      // Transform Google API results to our format
-      const results = (data.items || []).map((item: any) => {
+      const generalResponse = await fetch(generalSearchUrl);
+
+      if (!generalResponse.ok) {
+        throw new Error(`Google API error: ${generalResponse.statusText}`);
+      }
+
+      const generalData = await generalResponse.json();
+
+      // Transform general results
+      const generalResults = (generalData.items || []).map((item: any) => {
         let source = 'Unknown';
+        let isOfficialSite = false;
+
         try {
           const urlString = item.displayLink || item.link || item.image?.contextLink;
           if (urlString) {
-            // Ensure URL has protocol
             const fullUrl = urlString.startsWith('http') ? urlString : `https://${urlString}`;
-            source = new URL(fullUrl).hostname;
+            const hostname = new URL(fullUrl).hostname;
+            source = hostname;
+
+            // Check if this is the official brand website
+            if (brand && brand.trim()) {
+              const brandDomain = brand.toLowerCase().replace(/\s+/g, '');
+              isOfficialSite = hostname.toLowerCase().includes(brandDomain);
+            }
           }
         } catch (err) {
           console.error('Error parsing source URL:', err);
@@ -632,14 +808,184 @@ export default async function assetRoutes(fastify: FastifyInstance) {
           snippet: item.snippet || '',
           image: item.link || item.image?.thumbnailLink || '',
           price: item.pagemap?.offer?.[0]?.price || 'Price not available',
-          source
+          source,
+          isOfficialSite
         };
       });
 
-      return { results };
+      // Merge results: official site results first, then general results (excluding duplicates)
+      const officialLinks = new Set(allResults.map(r => r.link));
+      const uniqueGeneralResults = generalResults.filter((r: any) => !officialLinks.has(r.link));
+
+      allResults = [...allResults, ...uniqueGeneralResults];
+
+      // Limit to 10 total results
+      return { results: allResults.slice(0, 10) };
     } catch (error) {
       console.error('Error searching products:', error);
       return reply.status(500).send({ error: 'Failed to search products' });
+    }
+  });
+
+  // Scrape product data from URL
+  fastify.post('/scrape-product-url', async (request, reply) => {
+    try {
+      const { url } = request.body as { url: string };
+
+      if (!url) {
+        return reply.status(400).send({ error: 'URL is required' });
+      }
+
+      // Validate URL
+      let validUrl: URL;
+      try {
+        validUrl = new URL(url);
+      } catch (err) {
+        return reply.status(400).send({ error: 'Invalid URL format' });
+      }
+
+      // Fetch the page
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch URL: ${response.statusText}`);
+      }
+
+      const html = await response.text();
+
+      // Helper function to strip HTML tags and decode entities
+      const cleanHtmlText = (text: string): string => {
+        let cleaned = text;
+
+        // Strip HTML tags
+        cleaned = cleaned.replace(/<[^>]*>/g, ' ');
+
+        // Replace common named entities
+        cleaned = cleaned.replace(/&amp;/g, '&');
+        cleaned = cleaned.replace(/&lt;/g, '<');
+        cleaned = cleaned.replace(/&gt;/g, '>');
+        cleaned = cleaned.replace(/&quot;/g, '"');
+        cleaned = cleaned.replace(/&#039;/g, "'");
+        cleaned = cleaned.replace(/&nbsp;/g, ' ');
+
+        // Replace numeric entities (e.g., &#8211;)
+        cleaned = cleaned.replace(/&#(\d+);/g, (match, dec) => {
+          return String.fromCharCode(parseInt(dec));
+        });
+
+        // Replace hex entities (e.g., &#x2013;)
+        cleaned = cleaned.replace(/&#x([0-9a-f]+);/gi, (match, hex) => {
+          return String.fromCharCode(parseInt(hex, 16));
+        });
+
+        // Clean up multiple spaces
+        cleaned = cleaned.replace(/\s+/g, ' ').trim();
+
+        return cleaned;
+      };
+
+      // Extract basic information from HTML
+      let title = '';
+      let snippet = '';
+      let imageUrl = '';
+      let price = '';
+      let pdfUrl = '';
+
+      // Extract title from <title> tag or og:title
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i) ||
+                        html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
+      if (titleMatch) {
+        title = cleanHtmlText(titleMatch[1].trim());
+      }
+
+      // Extract description from meta description or og:description
+      const descMatch = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i) ||
+                       html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i);
+      if (descMatch) {
+        snippet = cleanHtmlText(descMatch[1].trim());
+      }
+
+      // Extract image from og:image or first large image
+      const imgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
+      if (imgMatch) {
+        imageUrl = imgMatch[1].trim();
+        // Make sure image URL is absolute
+        if (imageUrl.startsWith('/')) {
+          imageUrl = `${validUrl.origin}${imageUrl}`;
+        } else if (!imageUrl.startsWith('http')) {
+          imageUrl = `${validUrl.origin}/${imageUrl}`;
+        }
+      }
+
+      // Try to extract price (common patterns)
+      const pricePatterns = [
+        /["']price["']\s*:\s*["']?([0-9,]+\.?[0-9]*)/i,
+        /<meta[^>]*property=["']product:price:amount["'][^>]*content=["']([^"']+)["']/i,
+        /\$\s*([0-9,]+\.?[0-9]*)/,
+        /USD\s*([0-9,]+\.?[0-9]*)/i,
+        /Price[:\s]*\$?\s*([0-9,]+\.?[0-9]*)/i
+      ];
+
+      for (const pattern of pricePatterns) {
+        const match = html.match(pattern);
+        if (match) {
+          price = match[1].replace(/,/g, '');
+          if (!price.startsWith('$')) {
+            price = `$${price}`;
+          }
+          break;
+        }
+      }
+
+      // Extract PDF links (manual, datasheet, spec sheet, etc.)
+      const pdfPatterns = [
+        /<a[^>]*href=["']([^"']*\.pdf)["'][^>]*>/gi,
+        /<a[^>]*href=["']([^"']*manual[^"']*)["'][^>]*>/gi,
+        /<a[^>]*href=["']([^"']*datasheet[^"']*)["'][^>]*>/gi,
+        /<a[^>]*href=["']([^"']*spec[^"']*)["'][^>]*>/gi,
+      ];
+
+      const pdfUrls: string[] = [];
+      for (const pattern of pdfPatterns) {
+        let match;
+        while ((match = pattern.exec(html)) !== null) {
+          let foundUrl = match[1];
+          // Make URL absolute
+          if (foundUrl.startsWith('/')) {
+            foundUrl = `${validUrl.origin}${foundUrl}`;
+          } else if (!foundUrl.startsWith('http')) {
+            foundUrl = `${validUrl.origin}/${foundUrl}`;
+          }
+          // Only add PDF files
+          if (foundUrl.toLowerCase().endsWith('.pdf') && !pdfUrls.includes(foundUrl)) {
+            pdfUrls.push(foundUrl);
+          }
+        }
+      }
+
+      // Use first PDF found (usually manual or datasheet)
+      pdfUrl = pdfUrls.length > 0 ? pdfUrls[0] : '';
+
+      return {
+        success: true,
+        product: {
+          title: title || 'Product from ' + validUrl.hostname,
+          link: url,
+          snippet: snippet || 'Product information scraped from URL',
+          image: imageUrl,
+          price: price || 'Price not available',
+          source: validUrl.hostname,
+          isOfficialSite: false,
+          pdfUrl: pdfUrl
+        }
+      };
+    } catch (error) {
+      console.error('Error scraping product URL:', error);
+      return reply.status(500).send({ error: 'Failed to scrape product data from URL' });
     }
   });
 

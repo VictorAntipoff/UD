@@ -13,10 +13,14 @@ import {
   Button,
   CircularProgress,
   IconButton,
-  Chip
+  Chip,
+  Tabs,
+  Tab
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
+import LinkIcon from '@mui/icons-material/Link';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import api from '../lib/api';
 
 interface ProductResult {
@@ -26,16 +30,21 @@ interface ProductResult {
   image?: string;
   price?: string;
   source?: string;
+  isOfficialSite?: boolean;
+  pdfUrl?: string;
 }
 
 interface ProductSearchDialogProps {
   open: boolean;
   onClose: () => void;
   onSelect: (product: ProductResult) => void;
+  brand?: string;
 }
 
-export default function ProductSearchDialog({ open, onClose, onSelect }: ProductSearchDialogProps) {
+export default function ProductSearchDialog({ open, onClose, onSelect, brand }: ProductSearchDialogProps) {
+  const [activeTab, setActiveTab] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [productUrl, setProductUrl] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<ProductResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +57,8 @@ export default function ProductSearchDialog({ open, onClose, onSelect }: Product
 
     try {
       const response = await api.post('/assets/search-product', {
-        query: searchQuery
+        query: searchQuery,
+        brand: brand || ''
       });
 
       if (response.data.results) {
@@ -64,6 +74,31 @@ export default function ProductSearchDialog({ open, onClose, onSelect }: Product
     }
   };
 
+  const handleScrapeUrl = async () => {
+    if (!productUrl.trim()) return;
+
+    setSearching(true);
+    setError(null);
+    setResults([]);
+
+    try {
+      const response = await api.post('/assets/scrape-product-url', {
+        url: productUrl
+      });
+
+      if (response.data.success && response.data.product) {
+        setResults([response.data.product]);
+      } else {
+        setError('Could not extract product information from URL');
+      }
+    } catch (err: any) {
+      console.error('URL scraping error:', err);
+      setError(err.response?.data?.error || 'Failed to scrape product data from URL');
+    } finally {
+      setSearching(false);
+    }
+  };
+
   const handleSelectProduct = (product: ProductResult) => {
     onSelect(product);
     onClose();
@@ -71,7 +106,11 @@ export default function ProductSearchDialog({ open, onClose, onSelect }: Product
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      handleSearch();
+      if (activeTab === 0) {
+        handleSearch();
+      } else {
+        handleScrapeUrl();
+      }
     }
   };
 
@@ -104,38 +143,100 @@ export default function ProductSearchDialog({ open, onClose, onSelect }: Product
       </DialogTitle>
 
       <DialogContent sx={{ pt: 3 }}>
-        {/* Search Bar */}
-        <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
-          <TextField
-            fullWidth
-            placeholder="Search for product (e.g., Makita RT0700C Trimmer)"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyPress={handleKeyPress}
-            size="small"
-            autoFocus
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 2
-              }
-            }}
+        {/* Tabs */}
+        <Tabs
+          value={activeTab}
+          onChange={(e, newValue) => {
+            setActiveTab(newValue);
+            setResults([]);
+            setError(null);
+          }}
+          sx={{ mb: 3, borderBottom: '1px solid #e2e8f0' }}
+        >
+          <Tab
+            label="Search Online"
+            icon={<SearchIcon />}
+            iconPosition="start"
+            sx={{ textTransform: 'none', fontWeight: 600 }}
           />
-          <Button
-            variant="contained"
-            onClick={handleSearch}
-            disabled={searching || !searchQuery.trim()}
-            startIcon={searching ? <CircularProgress size={20} /> : <SearchIcon />}
-            sx={{
-              minWidth: '120px',
-              bgcolor: '#dc2626',
-              '&:hover': { bgcolor: '#b91c1c' },
-              textTransform: 'none',
-              borderRadius: 2
-            }}
-          >
-            {searching ? 'Searching...' : 'Search'}
-          </Button>
-        </Box>
+          <Tab
+            label="Paste Product Link"
+            icon={<LinkIcon />}
+            iconPosition="start"
+            sx={{ textTransform: 'none', fontWeight: 600 }}
+          />
+        </Tabs>
+
+        {/* Search Tab */}
+        {activeTab === 0 && (
+          <Box sx={{ mb: 3, display: 'flex', gap: 2 }}>
+            <TextField
+              fullWidth
+              placeholder="Search for product (e.g., Makita RT0700C Trimmer)"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyPress={handleKeyPress}
+              size="small"
+              autoFocus
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2
+                }
+              }}
+            />
+            <Button
+              variant="contained"
+              onClick={handleSearch}
+              disabled={searching || !searchQuery.trim()}
+              startIcon={searching ? <CircularProgress size={20} /> : <SearchIcon />}
+              sx={{
+                minWidth: '120px',
+                bgcolor: '#dc2626',
+                '&:hover': { bgcolor: '#b91c1c' },
+                textTransform: 'none',
+                borderRadius: 2
+              }}
+            >
+              {searching ? 'Searching...' : 'Search'}
+            </Button>
+          </Box>
+        )}
+
+        {/* Paste Link Tab */}
+        {activeTab === 1 && (
+          <Box sx={{ mb: 3 }}>
+            <TextField
+              fullWidth
+              placeholder="Paste product URL (e.g., https://www.makita.com/product/...)"
+              value={productUrl}
+              onChange={(e) => setProductUrl(e.target.value)}
+              onKeyPress={handleKeyPress}
+              size="small"
+              autoFocus
+              sx={{
+                mb: 2,
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 2
+                }
+              }}
+            />
+            <Button
+              variant="contained"
+              onClick={handleScrapeUrl}
+              disabled={searching || !productUrl.trim()}
+              startIcon={searching ? <CircularProgress size={20} /> : <LinkIcon />}
+              fullWidth
+              sx={{
+                bgcolor: '#dc2626',
+                '&:hover': { bgcolor: '#b91c1c' },
+                textTransform: 'none',
+                borderRadius: 2
+              }}
+            >
+              {searching ? 'Fetching data...' : 'Get Product Info'}
+            </Button>
+          </Box>
+        )}
 
         {/* Error Message */}
         {error && (
@@ -160,15 +261,32 @@ export default function ProductSearchDialog({ open, onClose, onSelect }: Product
                     height: '100%',
                     cursor: 'pointer',
                     transition: 'all 0.3s',
+                    position: 'relative',
                     '&:hover': {
                       transform: 'translateY(-4px)',
                       boxShadow: '0 8px 16px rgba(0,0,0,0.1)'
                     },
                     borderRadius: 2,
-                    border: '1px solid #e2e8f0'
+                    border: product.isOfficialSite ? '2px solid #10b981' : '1px solid #e2e8f0'
                   }}
                   onClick={() => handleSelectProduct(product)}
                 >
+                  {product.isOfficialSite && (
+                    <Chip
+                      label="Official Website"
+                      size="small"
+                      sx={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        bgcolor: '#10b981',
+                        color: '#fff',
+                        fontWeight: 600,
+                        fontSize: '0.65rem',
+                        zIndex: 1
+                      }}
+                    />
+                  )}
                   {product.image && (
                     <CardMedia
                       component="img"
@@ -239,6 +357,19 @@ export default function ProductSearchDialog({ open, onClose, onSelect }: Product
                           size="small"
                           variant="outlined"
                           sx={{ fontSize: '0.7rem' }}
+                        />
+                      )}
+                      {product.pdfUrl && (
+                        <Chip
+                          icon={<PictureAsPdfIcon sx={{ fontSize: '0.9rem' }} />}
+                          label="PDF Available"
+                          size="small"
+                          sx={{
+                            bgcolor: '#dbeafe',
+                            color: '#1e40af',
+                            fontSize: '0.7rem',
+                            fontWeight: 600
+                          }}
                         />
                       )}
                     </Box>

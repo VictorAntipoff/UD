@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import { config } from 'dotenv';
 import { expand } from 'dotenv-expand';
 import { PrismaClient } from '@prisma/client';
@@ -35,14 +37,44 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // Register CORS
 const setupServer = async () => {
+    // Register security headers (Helmet)
+    await app.register(helmet, {
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                styleSrc: ["'self'", "'unsafe-inline'"],
+                scriptSrc: ["'self'"],
+                imgSrc: ["'self'", 'data:', 'https:'],
+            },
+        },
+    });
+    // Register rate limiting
+    await app.register(rateLimit, {
+        max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Max 100 requests in production, 1000 in development
+        timeWindow: '15 minutes', // Per 15 minutes
+        errorResponseBuilder: function (request, context) {
+            return {
+                code: 429,
+                error: 'Too Many Requests',
+                message: `You have exceeded the ${context.max} requests in ${context.after} limit. Please try again later.`,
+                expiresIn: context.ttl
+            };
+        }
+    });
     await app.register(cors, {
         origin: (origin, cb) => {
             const allowedOrigins = [
                 'http://localhost:3020',
                 'http://localhost:5173',
                 'http://localhost:5174',
+                'https://ud-xi.vercel.app',
+                'https://u-design-six.vercel.app',
+                'https://udesign.co.tz',
+                'https://www.udesign.co.tz',
+                'http://udesign.co.tz',
+                'http://www.udesign.co.tz',
                 process.env.FRONTEND_URL,
-                process.env.PRODUCTION_FRONTEND_URL // Add specific production URL
+                process.env.PRODUCTION_FRONTEND_URL
             ].filter(Boolean);
             // SECURITY: Allow no origin for health checks, monitoring, and development tools
             // Health check endpoints (/api/health) don't need CORS as they contain no sensitive data
@@ -351,6 +383,11 @@ const setupServer = async () => {
     const managementRoutes = (await import('./routes/management.js')).default;
     const settingsRoutes = (await import('./routes/settings.js')).default;
     const electricityRoutes = (await import('./routes/electricity.js')).default;
+    const assetRoutes = (await import('./routes/assets.js')).default;
+    const transferRoutes = (await import('./routes/transfers.js')).default;
+    const websiteRoutes = (await import('./routes/website.js')).default;
+    const notificationRoutes = (await import('./routes/notifications.js')).default;
+    const crmRoutes = (await import('./routes/crm.js')).default;
     await app.register(authRoutes, { prefix: '/api/auth' });
     await app.register(projectRoutes, { prefix: '/api/projects' });
     await app.register(factoryRoutes, { prefix: '/api/factory' });
@@ -358,7 +395,12 @@ const setupServer = async () => {
     await app.register(managementRoutes, { prefix: '/api/management' });
     await app.register(settingsRoutes, { prefix: '/api/settings' });
     await app.register(electricityRoutes, { prefix: '/api/electricity' });
-    // Register static file serving
+    await app.register(assetRoutes, { prefix: '/api/assets' });
+    await app.register(transferRoutes, { prefix: '/api/transfers' });
+    await app.register(websiteRoutes, { prefix: '/api/website' });
+    await app.register(notificationRoutes, { prefix: '/api/notifications' });
+    await app.register(crmRoutes);
+    // Register static file serving for public files
     await app.register(fastifyStatic, {
         root: path.join(__dirname, '../public'),
         prefix: '/',
@@ -368,6 +410,26 @@ const setupServer = async () => {
                 res.setHeader('Content-Type', 'image/x-icon');
                 res.setHeader('Cache-Control', 'public, max-age=31536000');
             }
+        }
+    });
+    // Register static file serving for uploads
+    await app.register(fastifyStatic, {
+        root: path.join(__dirname, '../uploads'),
+        prefix: '/uploads/',
+        decorateReply: false,
+        setHeaders: (res, filePath) => {
+            // Set proper content type for images
+            if (filePath.endsWith('.png')) {
+                res.setHeader('Content-Type', 'image/png');
+            }
+            else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+                res.setHeader('Content-Type', 'image/jpeg');
+            }
+            else if (filePath.endsWith('.svg')) {
+                res.setHeader('Content-Type', 'image/svg+xml');
+            }
+            // Allow caching for uploaded files
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 day
         }
     });
     // Register health routes

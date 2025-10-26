@@ -16,6 +16,7 @@ async function usersRoutes(fastify) {
                     failedLoginAttempts: true,
                     accountLockedAt: true,
                     lastFailedLoginAt: true,
+                    permissions: true,
                     createdAt: true,
                     updatedAt: true
                 }
@@ -25,6 +26,189 @@ async function usersRoutes(fastify) {
         catch (error) {
             console.error('Error fetching users:', error);
             return reply.status(500).send({ error: 'Failed to fetch users' });
+        }
+    });
+    // SECURITY: Create user (Admin only)
+    fastify.post('/', async (request, reply) => {
+        try {
+            const createData = request.body;
+            // Check if requester is admin
+            const requestUser = request.user;
+            if (requestUser.role !== 'ADMIN') {
+                return reply.status(403).send({
+                    error: 'Forbidden',
+                    message: 'Only administrators can create users'
+                });
+            }
+            // Validate required fields
+            if (!createData.email || !createData.password) {
+                return reply.status(400).send({
+                    error: 'Bad Request',
+                    message: 'Email and password are required'
+                });
+            }
+            // Check if user already exists
+            const existingUser = await prisma.user.findUnique({
+                where: { email: createData.email }
+            });
+            if (existingUser) {
+                return reply.status(409).send({
+                    error: 'Conflict',
+                    message: 'User with this email already exists'
+                });
+            }
+            // Hash password
+            const bcrypt = await import('bcryptjs');
+            const hashedPassword = await bcrypt.hash(createData.password, 10);
+            // Create user
+            const user = await prisma.user.create({
+                data: {
+                    email: createData.email,
+                    password: hashedPassword,
+                    firstName: createData.firstName || null,
+                    lastName: createData.lastName || null,
+                    role: createData.role || 'USER',
+                    isActive: createData.isActive !== undefined ? createData.isActive : true,
+                    permissions: createData.permissions || null
+                },
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                    isActive: true,
+                    permissions: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
+            return {
+                success: true,
+                message: 'User created successfully',
+                user
+            };
+        }
+        catch (error) {
+            console.error('Error creating user:', error);
+            return reply.status(500).send({ error: 'Failed to create user' });
+        }
+    });
+    // Update own profile (any authenticated user)
+    fastify.put('/profile', async (request, reply) => {
+        try {
+            const updateData = request.body;
+            const requestUser = request.user;
+            // Prepare update data (only allow certain fields)
+            const data = {};
+            if (updateData.firstName !== undefined)
+                data.firstName = updateData.firstName;
+            if (updateData.lastName !== undefined)
+                data.lastName = updateData.lastName;
+            // Update password if provided and current password is correct
+            if (updateData.newPassword && updateData.currentPassword) {
+                const user = await prisma.user.findUnique({
+                    where: { id: requestUser.userId }
+                });
+                if (!user) {
+                    return reply.status(404).send({ error: 'User not found' });
+                }
+                // Verify current password
+                const bcrypt = await import('bcryptjs');
+                const validPassword = await bcrypt.compare(updateData.currentPassword, user.password);
+                if (!validPassword) {
+                    return reply.status(400).send({ error: 'Current password is incorrect' });
+                }
+                // Hash new password
+                data.password = await bcrypt.hash(updateData.newPassword, 10);
+            }
+            const user = await prisma.user.update({
+                where: { id: requestUser.userId },
+                data,
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                    isActive: true,
+                    permissions: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
+            return {
+                success: true,
+                message: 'Profile updated successfully',
+                user
+            };
+        }
+        catch (error) {
+            console.error('Error updating profile:', error);
+            return reply.status(500).send({ error: 'Failed to update profile' });
+        }
+    });
+    // SECURITY: Update user (Admin only)
+    fastify.put('/:userId', async (request, reply) => {
+        try {
+            const { userId } = request.params;
+            const updateData = request.body;
+            console.log('PUT /users/:userId called');
+            console.log('User ID:', userId);
+            console.log('Update data:', JSON.stringify(updateData, null, 2));
+            // Check if requester is admin
+            const requestUser = request.user;
+            if (requestUser.role !== 'ADMIN') {
+                return reply.status(403).send({
+                    error: 'Forbidden',
+                    message: 'Only administrators can update users'
+                });
+            }
+            // Prepare update data
+            const data = {};
+            if (updateData.email)
+                data.email = updateData.email;
+            if (updateData.firstName !== undefined)
+                data.firstName = updateData.firstName;
+            if (updateData.lastName !== undefined)
+                data.lastName = updateData.lastName;
+            if (updateData.role)
+                data.role = updateData.role;
+            if (updateData.isActive !== undefined)
+                data.isActive = updateData.isActive;
+            if (updateData.permissions)
+                data.permissions = updateData.permissions;
+            console.log('Prepared data for update:', JSON.stringify(data, null, 2));
+            // Update password if provided
+            if (updateData.password) {
+                const bcrypt = await import('bcryptjs');
+                data.password = await bcrypt.hash(updateData.password, 10);
+            }
+            const user = await prisma.user.update({
+                where: { id: userId },
+                data,
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true,
+                    isActive: true,
+                    permissions: true,
+                    createdAt: true,
+                    updatedAt: true
+                }
+            });
+            console.log('User updated successfully:', JSON.stringify(user, null, 2));
+            return {
+                success: true,
+                message: 'User updated successfully',
+                user
+            };
+        }
+        catch (error) {
+            console.error('Error updating user:', error);
+            return reply.status(500).send({ error: 'Failed to update user' });
         }
     });
     // SECURITY: Unlock user account (Admin only)

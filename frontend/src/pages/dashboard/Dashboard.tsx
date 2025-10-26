@@ -122,7 +122,7 @@ const Dashboard = () => {
       label: 'Total LOTs',
       color: '#dc2626',
       subtext: `${stats.activeLots} Active`,
-      path: '/management/wood-receipt',
+      path: '/dashboard/management/wood-receipt',
       gradient: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
     },
     {
@@ -131,7 +131,7 @@ const Dashboard = () => {
       label: 'Pending Receipts',
       color: '#3b82f6',
       subtext: 'Awaiting Delivery',
-      path: '/management/wood-receipt',
+      path: '/dashboard/management/wood-receipt',
       gradient: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
     },
     {
@@ -398,7 +398,7 @@ const Dashboard = () => {
             </Typography>
           </Box>
           <Typography
-            onClick={() => navigate('/management/wood-receipt')}
+            onClick={() => navigate('/dashboard/management/wood-receipt')}
             sx={{
               color: '#dc2626',
               fontSize: '0.75rem',
@@ -430,7 +430,7 @@ const Dashboard = () => {
               <Paper
                 key={lot.id}
                 elevation={0}
-                onClick={() => navigate('/management/wood-receipt')}
+                onClick={() => navigate('/dashboard/management/wood-receipt')}
                 sx={{
                   p: 1.5,
                   border: '1px solid #e2e8f0',

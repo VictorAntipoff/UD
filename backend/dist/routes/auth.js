@@ -130,7 +130,8 @@ async function authRoutes(fastify) {
                     role: true,
                     firstName: true,
                     lastName: true,
-                    isActive: true
+                    isActive: true,
+                    permissions: true
                 }
             });
             if (!user) {

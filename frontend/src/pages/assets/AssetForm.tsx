@@ -28,6 +28,7 @@ const AssetForm = () => {
   const [tagSelectorOpen, setTagSelectorOpen] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedParentCategory, setSelectedParentCategory] = useState('');
   const [formData, setFormData] = useState({
     assetTag: '',
     name: '',
@@ -43,6 +44,7 @@ const AssetForm = () => {
     purchasePrice: '',
     supplier: '',
     invoiceNumber: '',
+    invoiceDocument: '',
     warrantyDurationValue: '',
     warrantyDurationUnit: 'YEARS',
     warrantyStartDate: '',
@@ -102,6 +104,7 @@ const AssetForm = () => {
         purchasePrice: asset.purchasePrice.toString(),
         supplier: asset.supplier || '',
         invoiceNumber: asset.invoiceNumber || '',
+        invoiceDocument: asset.invoiceDocument || '',
         warrantyDurationValue: asset.warrantyDurationValue?.toString() || '',
         warrantyDurationUnit: asset.warrantyDurationUnit || 'YEARS',
         warrantyStartDate: asset.warrantyStartDate ? asset.warrantyStartDate.split('T')[0] : '',
@@ -111,6 +114,12 @@ const AssetForm = () => {
         lifespanValue: asset.lifespanValue?.toString() || '',
         lifespanUnit: asset.lifespanUnit || 'YEARS'
       });
+
+      // Set parent category if the selected category is a subcategory
+      const selectedCategory = categories.find(c => c.id === asset.categoryId);
+      if (selectedCategory?.parentId) {
+        setSelectedParentCategory(selectedCategory.parentId);
+      }
     } catch (error) {
       console.error('Error fetching asset:', error);
     } finally {
@@ -143,19 +152,57 @@ const AssetForm = () => {
         warrantyEndDate = endDate.toISOString().split('T')[0];
       }
 
+      // Store URLs temporarily before creating asset
+      const tempImageUrl = formData.imageUrl;
+      const tempPdfUrl = formData.invoiceDocument;
+
       const data = {
         ...formData,
         purchasePrice: parseFloat(formData.purchasePrice),
         lifespanValue: formData.lifespanValue ? parseInt(formData.lifespanValue) : null,
         warrantyDurationValue: formData.warrantyDurationValue ? parseInt(formData.warrantyDurationValue) : null,
         warrantyStartDate: warrantyStartDate || null,
-        warrantyEndDate: warrantyEndDate || null
+        warrantyEndDate: warrantyEndDate || null,
+        // Don't save URLs yet - they will be updated after download
+        imageUrl: null,
+        invoiceDocument: null
       };
 
+      let createdAsset;
       if (isEdit) {
-        await api.patch(`/assets/${id}`, data);
+        createdAsset = await api.patch(`/assets/${id}`, data);
       } else {
-        await api.post('/assets', data);
+        const response = await api.post('/assets', data);
+        createdAsset = response.data;
+      }
+
+      // After asset is created with asset tag, download files to proper folder
+      if (createdAsset && createdAsset.assetTag && (tempImageUrl || tempPdfUrl)) {
+        try {
+          const downloadResponse = await api.post('/assets/download-asset-files', {
+            assetTag: createdAsset.assetTag,
+            imageUrl: tempImageUrl?.startsWith('http') ? tempImageUrl : null,
+            pdfUrl: tempPdfUrl?.startsWith('http') ? tempPdfUrl : null
+          });
+
+          if (downloadResponse.data.success) {
+            // Update asset with downloaded file URLs
+            const updateData: any = {};
+            if (downloadResponse.data.imageUrl) {
+              updateData.imageUrl = downloadResponse.data.imageUrl;
+            }
+            if (downloadResponse.data.pdfUrl) {
+              updateData.invoiceDocument = downloadResponse.data.pdfUrl;
+            }
+
+            if (Object.keys(updateData).length > 0) {
+              await api.patch(`/assets/${createdAsset.id}`, updateData);
+            }
+          }
+        } catch (downloadError) {
+          console.error('Error downloading asset files:', downloadError);
+          // Continue anyway - asset is created, just files might not be downloaded
+        }
       }
 
       navigate('/dashboard/assets');
@@ -173,15 +220,29 @@ const AssetForm = () => {
 
       // Auto-generate asset name when category, brand, or model changes
       if (field === 'categoryId' || field === 'brand' || field === 'modelNumber') {
-        const category = field === 'categoryId' ?
-          categories.find(c => c.id === value)?.name || '' :
-          categories.find(c => c.id === newData.categoryId)?.name || '';
+        const selectedCategory = field === 'categoryId' ?
+          categories.find(c => c.id === value) :
+          categories.find(c => c.id === newData.categoryId);
 
         const brand = field === 'brand' ? value : newData.brand;
         const model = field === 'modelNumber' ? value : newData.modelNumber;
 
-        // Generate name: Category - Brand - Model
-        const parts = [category, brand, model].filter(p => p && p.trim());
+        // Generate name: Category - Subcategory - Brand - Model
+        // If it's a subcategory, include parent category name
+        const parts = [];
+        if (selectedCategory) {
+          if (selectedCategory.parentId) {
+            const parentCategory = categories.find(c => c.id === selectedCategory.parentId);
+            if (parentCategory) {
+              parts.push(parentCategory.name);
+            }
+          }
+          parts.push(selectedCategory.name);
+        }
+
+        if (brand && brand.trim()) parts.push(brand);
+        if (model && model.trim()) parts.push(model);
+
         if (parts.length > 0) {
           newData.name = parts.join(' - ');
         }
@@ -200,11 +261,16 @@ const AssetForm = () => {
       name: product.title,
       description: product.snippet || '',
       brand: brand,
-      modelNumber: product.title.replace(brand, '').trim()
+      modelNumber: product.title.replace(brand, '').trim(),
+      // Store URLs temporarily - will download after asset is saved with asset tag
+      imageUrl: product.image || prev.imageUrl,
+      invoiceDocument: product.pdfUrl || prev.invoiceDocument
     }));
 
-    if (product.image) {
-      await handleDownloadProductImage(product.image);
+    // Don't download immediately - wait until asset is saved
+    // Show notification if PDF was found
+    if (product.pdfUrl) {
+      console.log('Product manual/datasheet found:', product.pdfUrl);
     }
   };
 
@@ -363,6 +429,25 @@ const AssetForm = () => {
                     </Box>
                   )}
                   <Button
+                    variant="contained"
+                    startIcon={<SearchIcon />}
+                    onClick={() => setSearchDialogOpen(true)}
+                    fullWidth
+                    size="small"
+                    sx={{
+                      bgcolor: '#dc2626',
+                      color: '#fff',
+                      textTransform: 'none',
+                      fontSize: '0.8125rem',
+                      mb: 1,
+                      '&:hover': {
+                        bgcolor: '#b91c1c'
+                      }
+                    }}
+                  >
+                    Search for Product
+                  </Button>
+                  <Button
                     variant="outlined"
                     component="label"
                     startIcon={<UploadIcon />}
@@ -401,7 +486,7 @@ const AssetForm = () => {
                   Basic Information
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
+                  <Grid item xs={12}>
                     <Box>
                       <TextField
                         required
@@ -437,13 +522,38 @@ const AssetForm = () => {
                       fullWidth
                       size="small"
                       label="Category"
-                      value={formData.categoryId}
-                      onChange={(e) => handleChange('categoryId', e.target.value)}
+                      value={selectedParentCategory}
+                      onChange={(e) => {
+                        const parentId = e.target.value;
+                        setSelectedParentCategory(parentId);
+                        // Clear subcategory when parent changes
+                        setFormData(prev => ({ ...prev, categoryId: '' }));
+                      }}
                       sx={fieldSx}
                     >
-                      {categories.map((cat) => (
-                        <MenuItem key={cat.id} value={cat.id}>{cat.name}</MenuItem>
+                      {categories.filter(cat => !cat.parentId).map((cat) => (
+                        <MenuItem key={cat.id} value={cat.id}>{cat.name} ({cat.code})</MenuItem>
                       ))}
+                    </TextField>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <TextField
+                      required
+                      select
+                      fullWidth
+                      size="small"
+                      label="Subcategory"
+                      value={formData.categoryId}
+                      onChange={(e) => handleChange('categoryId', e.target.value)}
+                      disabled={!selectedParentCategory}
+                      sx={fieldSx}
+                      helperText={!selectedParentCategory ? "Select category first" : ""}
+                    >
+                      {categories
+                        .filter(cat => cat.parentId === selectedParentCategory)
+                        .map((cat) => (
+                          <MenuItem key={cat.id} value={cat.id}>{cat.name} ({cat.code})</MenuItem>
+                        ))}
                     </TextField>
                   </Grid>
                   <Grid item xs={12}>
@@ -717,6 +827,7 @@ const AssetForm = () => {
         open={searchDialogOpen}
         onClose={() => setSearchDialogOpen(false)}
         onSelect={handleProductSelect}
+        brand={formData.brand}
       />
 
       <AssetTagSelector

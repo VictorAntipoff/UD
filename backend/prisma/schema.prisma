@@ -346,17 +346,22 @@ model Approval {
 
 model AssetCategory {
   id          String   @id @default(uuid())
-  name        String   @unique
-  code        String   @unique // Category code (e.g., HT, MAC, etc.)
+  name        String
+  code        String   @unique // Category code (e.g., HT, MAC, HT-RTR, etc.)
   description String?
+  parentId    String?  // For subcategories - references parent category
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // Relations
-  assets      Asset[]
+  parent       AssetCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  subcategories AssetCategory[] @relation("CategoryHierarchy")
+  assets       Asset[]
 
+  @@unique([name, parentId]) // Allow same name in different parent categories
   @@index([name])
   @@index([code])
+  @@index([parentId])
 }
 
 model Asset {

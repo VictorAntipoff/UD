@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import PDFDocument from 'pdfkit';
 async function factoryRoutes(fastify) {
     // SECURITY: Protect all factory routes with authentication
     fastify.addHook('onRequest', authenticateToken);
@@ -178,6 +179,12 @@ async function factoryRoutes(fastify) {
         }
         catch (error) {
             console.error('Error deleting wood type:', error);
+            // Check if it's a foreign key constraint error
+            if (error.code === 'P2003' || error.code === 'P2014') {
+                return reply.status(400).send({
+                    error: 'Cannot delete wood type that is being used in calculations, processes, or receipts. Please delete those records first.'
+                });
+            }
             return reply.status(500).send({ error: 'Failed to delete wood type' });
         }
     });
@@ -622,38 +629,59 @@ async function factoryRoutes(fastify) {
     fastify.post('/drying-processes', async (request, reply) => {
         try {
             const data = request.body;
+            // Get authenticated user info
+            const user = request.user;
+            const userName = user.firstName && user.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user.email;
             // Validate required fields
             if (!data.woodTypeId || !data.thickness || !data.pieceCount || !data.startTime) {
                 return reply.status(400).send({ error: 'Missing required fields' });
             }
-            // Generate unique batch number
-            const now = new Date();
-            const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
-            const count = await prisma.dryingProcess.count({
-                where: {
-                    batchNumber: {
-                        startsWith: `DRY-${dateStr}`
+            // Generate unique batch number (format: UD-DRY-00001)
+            const count = await prisma.dryingProcess.count();
+            const batchNumber = `UD-DRY-${String(count + 1).padStart(5, '0')}`;
+            // Use transaction if updating stock
+            const process = await prisma.$transaction(async (tx) => {
+                // Create the drying process
+                const createdProcess = await tx.dryingProcess.create({
+                    data: {
+                        batchNumber,
+                        woodTypeId: data.woodTypeId,
+                        thickness: data.thickness,
+                        thicknessUnit: data.thicknessUnit || 'mm',
+                        pieceCount: data.pieceCount,
+                        startingHumidity: data.startingHumidity,
+                        startingElectricityUnits: data.startingElectricityUnits,
+                        startTime: new Date(data.startTime),
+                        notes: data.notes || '',
+                        status: 'IN_PROGRESS',
+                        useStock: data.useStock || false,
+                        sourceWarehouseId: data.warehouseId || null,
+                        stockThickness: data.stockThickness || null,
+                        createdById: user.userId,
+                        createdByName: userName
+                    },
+                    include: {
+                        woodType: true,
+                        readings: true
                     }
+                });
+                // If using stock, update the warehouse stock
+                if (data.useStock && data.warehouseId && data.stockThickness) {
+                    await tx.stock.updateMany({
+                        where: {
+                            warehouseId: data.warehouseId,
+                            woodTypeId: data.woodTypeId,
+                            thickness: data.stockThickness
+                        },
+                        data: {
+                            statusNotDried: { decrement: data.pieceCount },
+                            statusUnderDrying: { increment: data.pieceCount }
+                        }
+                    });
                 }
-            });
-            const batchNumber = `DRY-${dateStr}-${String(count + 1).padStart(3, '0')}`;
-            const process = await prisma.dryingProcess.create({
-                data: {
-                    batchNumber,
-                    woodTypeId: data.woodTypeId,
-                    thickness: data.thickness,
-                    thicknessUnit: data.thicknessUnit || 'mm',
-                    pieceCount: data.pieceCount,
-                    startingHumidity: data.startingHumidity,
-                    startingElectricityUnits: data.startingElectricityUnits,
-                    startTime: new Date(data.startTime),
-                    notes: data.notes || '',
-                    status: 'IN_PROGRESS'
-                },
-                include: {
-                    woodType: true,
-                    readings: true
-                }
+                return createdProcess;
             });
             return process;
         }
@@ -695,27 +723,52 @@ async function factoryRoutes(fastify) {
                     calculatedCost = totalKWh * pricePerKWh;
                 }
             }
-            const process = await prisma.dryingProcess.update({
-                where: { id },
-                data: {
-                    ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
-                    ...(data.thickness !== undefined && { thickness: data.thickness }),
-                    ...(data.thicknessUnit && { thicknessUnit: data.thicknessUnit }),
-                    ...(data.pieceCount !== undefined && { pieceCount: data.pieceCount }),
-                    ...(data.startingHumidity !== undefined && { startingHumidity: data.startingHumidity }),
-                    ...(data.startingElectricityUnits !== undefined && { startingElectricityUnits: data.startingElectricityUnits }),
-                    ...(data.startTime && { startTime: new Date(data.startTime) }),
-                    ...(data.status && { status: data.status }),
-                    ...(data.endTime && { endTime: new Date(data.endTime) }),
-                    ...(calculatedCost !== undefined && { totalCost: calculatedCost }),
-                    ...(data.notes !== undefined && { notes: data.notes })
-                },
-                include: {
-                    woodType: true,
-                    readings: {
-                        orderBy: { readingTime: 'asc' }
+            // Use transaction to update stock when completing
+            const process = await prisma.$transaction(async (tx) => {
+                // Get current process to check if it's being completed
+                const currentProcess = await tx.dryingProcess.findUnique({
+                    where: { id }
+                });
+                const updatedProcess = await tx.dryingProcess.update({
+                    where: { id },
+                    data: {
+                        ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
+                        ...(data.thickness !== undefined && { thickness: data.thickness }),
+                        ...(data.thicknessUnit && { thicknessUnit: data.thicknessUnit }),
+                        ...(data.pieceCount !== undefined && { pieceCount: data.pieceCount }),
+                        ...(data.startingHumidity !== undefined && { startingHumidity: data.startingHumidity }),
+                        ...(data.startingElectricityUnits !== undefined && { startingElectricityUnits: data.startingElectricityUnits }),
+                        ...(data.startTime && { startTime: new Date(data.startTime) }),
+                        ...(data.status && { status: data.status }),
+                        ...(data.endTime && { endTime: new Date(data.endTime) }),
+                        ...(calculatedCost !== undefined && { totalCost: calculatedCost }),
+                        ...(data.notes !== undefined && { notes: data.notes })
+                    },
+                    include: {
+                        woodType: true,
+                        readings: {
+                            orderBy: { readingTime: 'asc' }
+                        }
                     }
+                });
+                // If completing the process and it uses stock, update warehouse stock
+                if (data.status === 'COMPLETED' &&
+                    currentProcess?.useStock &&
+                    currentProcess?.sourceWarehouseId &&
+                    currentProcess?.stockThickness) {
+                    await tx.stock.updateMany({
+                        where: {
+                            warehouseId: currentProcess.sourceWarehouseId,
+                            woodTypeId: currentProcess.woodTypeId,
+                            thickness: currentProcess.stockThickness
+                        },
+                        data: {
+                            statusUnderDrying: { decrement: currentProcess.pieceCount },
+                            statusDried: { increment: currentProcess.pieceCount }
+                        }
+                    });
                 }
+                return updatedProcess;
             });
             return process;
         }
@@ -743,6 +796,11 @@ async function factoryRoutes(fastify) {
         try {
             const { id } = request.params;
             const data = request.body;
+            // Get authenticated user info
+            const user = request.user;
+            const userName = user.firstName && user.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user.email;
             // Validate required fields
             if (data.electricityMeter === undefined || data.humidity === undefined) {
                 return reply.status(400).send({ error: 'Missing required fields' });
@@ -754,14 +812,22 @@ async function factoryRoutes(fastify) {
             if (!process) {
                 return reply.status(404).send({ error: 'Drying process not found' });
             }
+            // Convert datetime-local format to ISO while preserving exact time
+            const readingTimeISO = data.readingTime
+                ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
+                : new Date().toISOString();
             const reading = await prisma.dryingReading.create({
                 data: {
                     dryingProcessId: id,
                     electricityMeter: data.electricityMeter,
                     humidity: data.humidity,
-                    readingTime: data.readingTime ? new Date(data.readingTime) : new Date(),
+                    readingTime: readingTimeISO,
                     notes: data.notes || '',
-                    lukuSms: data.lukuSms || null
+                    lukuSms: data.lukuSms || null,
+                    createdById: user.userId,
+                    createdByName: userName,
+                    updatedById: user.userId,
+                    updatedByName: userName
                 }
             });
             return reading;
@@ -771,19 +837,322 @@ async function factoryRoutes(fastify) {
             return reply.status(500).send({ error: 'Failed to add reading' });
         }
     });
+    // Generate PDF report for drying process
+    fastify.get('/drying-processes/:id/pdf', async (request, reply) => {
+        try {
+            const { id } = request.params;
+            console.log(`[PDF] Starting PDF generation for process ID: ${id}`);
+            // Get user info from request
+            const user = request.user;
+            // Fetch process with all related data
+            const process = await prisma.dryingProcess.findUnique({
+                where: { id },
+                include: {
+                    woodType: true,
+                    readings: {
+                        orderBy: {
+                            readingTime: 'asc'
+                        }
+                    }
+                }
+            });
+            if (!process) {
+                return reply.status(404).send({ error: 'Drying process not found' });
+            }
+            // Calculate electricity usage
+            const electricityUsed = process.readings.length > 0 && process.startingElectricityUnits
+                ? process.readings[process.readings.length - 1].electricityMeter - process.startingElectricityUnits
+                : 0;
+            // Calculate running hours
+            const runningHours = process.endTime
+                ? (new Date(process.endTime).getTime() - new Date(process.startTime).getTime()) / (1000 * 60 * 60)
+                : (new Date().getTime() - new Date(process.startTime).getTime()) / (1000 * 60 * 60);
+            const currentHumidity = process.readings.length > 0
+                ? process.readings[process.readings.length - 1].humidity
+                : process.startingHumidity || 0;
+            // Calculate costs (TODO: fetch from settings table when available)
+            const ELECTRICITY_PRICE = 400; // TZS per unit
+            const ANNUAL_DEPRECIATION = 2000000; // TZS per year
+            const DEPRECIATION_PER_HOUR = ANNUAL_DEPRECIATION / 8760; // per hour
+            const electricityCost = Math.abs(electricityUsed) * ELECTRICITY_PRICE;
+            const depreciationCost = runningHours * DEPRECIATION_PER_HOUR;
+            const totalCost = electricityCost + depreciationCost;
+            // Create PDF with Promise-based approach
+            const generatePDF = () => {
+                return new Promise((resolve, reject) => {
+                    const doc = new PDFDocument({
+                        margin: 50,
+                        bufferPages: true,
+                        autoFirstPage: true
+                    });
+                    const chunks = [];
+                    doc.on('data', (chunk) => {
+                        chunks.push(chunk);
+                        console.log(`[PDF] Received chunk: ${chunk.length} bytes, total chunks: ${chunks.length}`);
+                    });
+                    doc.on('end', () => {
+                        try {
+                            const pdfBuffer = Buffer.concat(chunks);
+                            console.log(`[PDF] Document ended. Generated PDF: ${pdfBuffer.length} bytes from ${chunks.length} chunks`);
+                            if (pdfBuffer.length === 0) {
+                                console.error('[PDF] ERROR: PDF buffer is empty!');
+                                reject(new Error('Generated PDF is empty'));
+                            }
+                            else {
+                                resolve(pdfBuffer);
+                            }
+                        }
+                        catch (error) {
+                            console.error('[PDF] Error in end handler:', error);
+                            reject(error);
+                        }
+                    });
+                    doc.on('error', (error) => {
+                        console.error('[PDF] PDFKit error:', error);
+                        reject(error);
+                    });
+                    try {
+                        // ===== PAGE 1: Professional Layout =====
+                        // Logo area - "UDesign" text logo
+                        doc.fontSize(28).fillColor('#dc2626').text('U', 70, 50, { continued: true, lineBreak: false });
+                        doc.fontSize(28).fillColor('#475569').text('Design', { lineBreak: true });
+                        doc.moveDown(0.5);
+                        // Title
+                        doc.fontSize(24).fillColor('#dc2626').text('Drying Process Report', 50, doc.y, { align: 'center' });
+                        doc.moveDown(0.3);
+                        doc.fontSize(12).fillColor('#64748b').text('Professional Wood Solutions', { align: 'center' });
+                        doc.moveDown(1.5);
+                        // Generated by and timestamp on same line
+                        const genY = doc.y;
+                        doc.fontSize(9).fillColor('#94a3b8').text(`Generated by: ${user?.email || 'system'}`, 50, genY);
+                        doc.text(new Date().toLocaleString(), 50, genY, { align: 'right', width: 500 });
+                        // Separator line
+                        doc.moveTo(50, doc.y + 10).lineTo(545, doc.y + 10).strokeColor('#e2e8f0').lineWidth(1).stroke();
+                        doc.moveDown(1.5);
+                        // PROCESS INFORMATION
+                        doc.fontSize(12).fillColor('#dc2626').text('PROCESS INFORMATION');
+                        doc.moveDown(0.5);
+                        const leftCol = 150;
+                        const labelCol = 50;
+                        let infoY = doc.y;
+                        doc.fontSize(10).fillColor('#64748b');
+                        doc.text('Batch Number:', labelCol, infoY);
+                        doc.fillColor('#000').text(process.batchNumber, leftCol, infoY);
+                        infoY += 18;
+                        doc.fillColor('#64748b').text('Status:', labelCol, infoY);
+                        doc.fillColor('#000').text(process.status.charAt(0) + process.status.slice(1).toLowerCase(), leftCol, infoY);
+                        infoY += 18;
+                        doc.fillColor('#64748b').text('Wood Type:', labelCol, infoY);
+                        doc.fillColor('#000').text(process.woodType.name, leftCol, infoY);
+                        infoY += 18;
+                        doc.fillColor('#64748b').text('Grade:', labelCol, infoY);
+                        doc.fillColor('#000').text(process.woodType.grade, leftCol, infoY);
+                        infoY += 18;
+                        doc.fillColor('#64748b').text('Thickness:', labelCol, infoY);
+                        doc.fillColor('#000').text(`${(process.thickness / 10).toFixed(1)}cm (${(process.thickness / 25.4).toFixed(2)}in)`, leftCol, infoY);
+                        infoY += 18;
+                        doc.fillColor('#64748b').text('Piece Count:', labelCol, infoY);
+                        doc.fillColor('#000').text(`${process.pieceCount}`, leftCol, infoY);
+                        infoY += 18;
+                        doc.fillColor('#64748b').text('Start Time:', labelCol, infoY);
+                        doc.fillColor('#000').text(new Date(process.startTime).toLocaleString(), leftCol, infoY);
+                        if (process.endTime) {
+                            infoY += 18;
+                            doc.fillColor('#64748b').text('End Time:', labelCol, infoY);
+                            doc.fillColor('#000').text(new Date(process.endTime).toLocaleString(), leftCol, infoY);
+                        }
+                        doc.y = infoY + 25;
+                        // STATISTICS - Card style
+                        doc.fontSize(12).fillColor('#dc2626').text('STATISTICS', 50);
+                        doc.moveDown(0.5);
+                        const card1X = 70;
+                        const card2X = 310;
+                        const cardY = doc.y;
+                        const cardWidth = 170;
+                        const cardHeight = 60;
+                        // Card 1 - Electricity Used
+                        doc.rect(card1X, cardY, cardWidth, cardHeight).fillAndStroke('#f8fafc', '#e2e8f0');
+                        doc.fontSize(9).fillColor('#64748b').text('Electricity Used', card1X + 10, cardY + 10);
+                        doc.fontSize(16).fillColor('#dc2626').text(`${Math.abs(electricityUsed).toFixed(2)} Units`, card1X + 10, cardY + 28);
+                        // Card 2 - Running Hours
+                        doc.rect(card2X, cardY, cardWidth, cardHeight).fillAndStroke('#f8fafc', '#e2e8f0');
+                        doc.fontSize(9).fillColor('#64748b').text('Running Hours', card2X + 10, cardY + 10);
+                        doc.fontSize(16).fillColor('#dc2626').text(`${runningHours.toFixed(1)} hrs`, card2X + 10, cardY + 28);
+                        const card3Y = cardY + cardHeight + 10;
+                        // Card 3 - Starting Humidity
+                        if (process.startingHumidity) {
+                            doc.rect(card1X, card3Y, cardWidth, cardHeight).fillAndStroke('#f8fafc', '#e2e8f0');
+                            doc.fontSize(9).fillColor('#64748b').text('Starting Humidity', card1X + 10, card3Y + 10);
+                            doc.fontSize(16).fillColor('#dc2626').text(`${process.startingHumidity.toFixed(1)}%`, card1X + 10, card3Y + 28);
+                        }
+                        // Card 4 - Current Humidity
+                        doc.rect(card2X, card3Y, cardWidth, cardHeight).fillAndStroke('#f8fafc', '#e2e8f0');
+                        doc.fontSize(9).fillColor('#64748b').text('Current Humidity', card2X + 10, card3Y + 10);
+                        doc.fontSize(16).fillColor('#dc2626').text(`${currentHumidity.toFixed(1)}%`, card2X + 10, card3Y + 28);
+                        doc.y = card3Y + cardHeight + 20;
+                        // COST BREAKDOWN
+                        doc.fontSize(12).fillColor('#dc2626').text('COST BREAKDOWN', 50);
+                        doc.moveDown(0.5);
+                        const costY = doc.y;
+                        doc.fontSize(10).fillColor('#64748b').text('Electricity Cost:', 50, costY);
+                        doc.fillColor('#000').text(`TZS ${electricityCost.toLocaleString()}`, 200, costY);
+                        doc.fillColor('#64748b').text('Depreciation Cost:', 50, costY + 18);
+                        doc.fillColor('#000').text(`TZS ${depreciationCost.toLocaleString()}`, 200, costY + 18);
+                        doc.fillColor('#64748b').text('Total Cost:', 50, costY + 36);
+                        doc.fontSize(12).fillColor('#dc2626').text(`TZS ${totalCost.toLocaleString()}`, 200, costY + 36);
+                        doc.y = costY + 60;
+                        // NOTES
+                        if (process.notes) {
+                            doc.fontSize(12).fillColor('#dc2626').text('NOTES', 50);
+                            doc.moveDown(0.5);
+                            doc.fontSize(10).fillColor('#000').text(process.notes, 50, doc.y, { width: 500 });
+                            doc.moveDown(1);
+                        }
+                        // Humidity Trend Chart (moved to page 1 if space, otherwise page 2)
+                        if (process.readings.length > 1 && doc.y < 550) {
+                            doc.fontSize(12).fillColor('#dc2626').text('HUMIDITY TREND', 50);
+                            doc.moveDown(0.5);
+                            const chartX = 100;
+                            const chartY = doc.y;
+                            const chartWidth = 380;
+                            const chartHeight = 100;
+                            // Get humidity values
+                            const humidityValues = process.readings.map(r => r.humidity);
+                            const minHumidity = Math.floor(Math.min(...humidityValues) / 5) * 5;
+                            const maxHumidity = Math.ceil(Math.max(...humidityValues) / 5) * 5;
+                            const humidityRange = maxHumidity - minHumidity || 10;
+                            // Draw axes
+                            doc.strokeColor('#64748b').lineWidth(2);
+                            doc.moveTo(chartX, chartY).lineTo(chartX, chartY + chartHeight).stroke(); // Y-axis
+                            doc.moveTo(chartX, chartY + chartHeight).lineTo(chartX + chartWidth, chartY + chartHeight).stroke(); // X-axis
+                            // Draw grid lines and Y-axis labels
+                            doc.strokeColor('#e2e8f0').lineWidth(0.5);
+                            for (let i = 0; i <= 4; i++) {
+                                const y = chartY + (i / 4) * chartHeight;
+                                const humidity = maxHumidity - (i / 4) * humidityRange;
+                                // Grid line
+                                doc.moveTo(chartX, y).lineTo(chartX + chartWidth, y).stroke();
+                                // Label
+                                doc.fontSize(7).fillColor('#64748b').text(`${humidity.toFixed(0)}%`, chartX - 35, y - 3, { width: 30, align: 'right' });
+                            }
+                            // Plot humidity line
+                            doc.strokeColor('#dc2626').lineWidth(2);
+                            process.readings.forEach((reading, index) => {
+                                const x = chartX + (index / Math.max(1, process.readings.length - 1)) * chartWidth;
+                                const y = chartY + chartHeight - ((reading.humidity - minHumidity) / humidityRange) * chartHeight;
+                                if (index === 0) {
+                                    doc.moveTo(x, y);
+                                }
+                                else {
+                                    doc.lineTo(x, y);
+                                }
+                            });
+                            doc.stroke();
+                            // Plot data points
+                            doc.fillColor('#dc2626');
+                            process.readings.forEach((reading, index) => {
+                                const x = chartX + (index / Math.max(1, process.readings.length - 1)) * chartWidth;
+                                const y = chartY + chartHeight - ((reading.humidity - minHumidity) / humidityRange) * chartHeight;
+                                doc.circle(x, y, 2.5).fill();
+                            });
+                            // Axis labels
+                            doc.fontSize(8).fillColor('#64748b');
+                            doc.text('Humidity (%)', 50, chartY + chartHeight / 2 - 5);
+                            doc.text(`Reading Progress (${process.readings.length} readings)`, chartX, chartY + chartHeight + 10, { width: chartWidth, align: 'center' });
+                            doc.y = chartY + chartHeight + 25;
+                        }
+                        // Start READINGS HISTORY on Page 1
+                        doc.fontSize(12).fillColor('#dc2626').text('READINGS HISTORY (' + process.readings.length + ')', 50);
+                        doc.moveDown(0.5);
+                        if (process.readings.length > 0) {
+                            // Table headers
+                            doc.fontSize(9).fillColor('#64748b');
+                            const tableTop = doc.y;
+                            const col1 = 70;
+                            const col2 = 235;
+                            const col3 = 360;
+                            const col4 = 475;
+                            doc.text('Time', col1, tableTop);
+                            doc.text('Electricity (U)', col2, tableTop);
+                            doc.text('Humidity (%)', col3, tableTop);
+                            doc.text('Notes', col4, tableTop);
+                            doc.moveDown(0.2);
+                            doc.strokeColor('#e2e8f0').lineWidth(0.5);
+                            doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+                            doc.moveDown(0.3);
+                            // Table rows
+                            doc.fontSize(9).fillColor('#1e293b');
+                            let isFirstPage = true;
+                            process.readings.forEach((reading, index) => {
+                                const y = doc.y;
+                                // Check if we need a new page
+                                if (y > 720) {
+                                    // Add page 2 if this is the first overflow
+                                    if (isFirstPage) {
+                                        doc.addPage();
+                                        isFirstPage = false;
+                                        doc.y = 50;
+                                    }
+                                }
+                                const readingTime = new Date(reading.readingTime).toLocaleString();
+                                doc.text(readingTime, col1, doc.y, { width: 155, lineBreak: false });
+                                doc.text(reading.electricityMeter.toFixed(2), col2, y, { lineBreak: false });
+                                doc.text(reading.humidity.toFixed(1), col3, y, { lineBreak: false });
+                                doc.text(reading.notes || '-', col4, y, { width: 70 });
+                                doc.moveDown(0.6);
+                            });
+                        }
+                        else {
+                            doc.fontSize(9).fillColor('#94a3b8').text('No readings recorded yet.');
+                        }
+                        // Footer at bottom of last page
+                        const footerY = doc.page.height - 50;
+                        doc.fontSize(8).fillColor('#94a3b8').text('U Design v1.0.0 • Developed by Vix', 50, footerY, { align: 'center', width: doc.page.width - 100 });
+                        console.log('[PDF] Calling doc.end()');
+                        doc.end();
+                    }
+                    catch (error) {
+                        console.error('[PDF] Error building PDF content:', error);
+                        reject(error);
+                    }
+                });
+            };
+            // Generate PDF and send response
+            const pdfBuffer = await generatePDF();
+            console.log(`[PDF] Sending PDF for ${process.batchNumber}: ${pdfBuffer.length} bytes`);
+            reply.type('application/pdf');
+            reply.header('Content-Disposition', `attachment; filename="UD - Drying Details (${process.batchNumber}).pdf"`);
+            return reply.send(pdfBuffer);
+        }
+        catch (error) {
+            console.error('[PDF] Error generating PDF:', error);
+            return reply.status(500).send({ error: 'Failed to generate PDF' });
+        }
+    });
     // Update reading
     fastify.put('/drying-readings/:id', async (request, reply) => {
         try {
             const { id } = request.params;
             const data = request.body;
+            // Get authenticated user info
+            const user = request.user;
+            const userName = user.firstName && user.lastName
+                ? `${user.firstName} ${user.lastName}`
+                : user.email;
+            // Convert datetime-local format to ISO while preserving exact time
+            const readingTimeISO = data.readingTime !== undefined
+                ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
+                : undefined;
             const reading = await prisma.dryingReading.update({
                 where: { id },
                 data: {
                     ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
                     ...(data.humidity !== undefined && { humidity: data.humidity }),
-                    ...(data.readingTime !== undefined && { readingTime: new Date(data.readingTime) }),
+                    ...(readingTimeISO !== undefined && { readingTime: readingTimeISO }),
                     ...(data.notes !== undefined && { notes: data.notes }),
-                    ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms })
+                    ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms }),
+                    updatedById: user.userId,
+                    updatedByName: userName
                 }
             });
             return reading;

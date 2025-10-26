@@ -27,6 +27,10 @@ import {
   Category as CategoryIcon,
   Settings as SettingsIcon
 } from '@mui/icons-material';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
 import { useState, useEffect } from 'react';
 import api from '../../lib/api';
 
@@ -37,7 +41,8 @@ const AssetSettings = () => {
   const [categoryForm, setCategoryForm] = useState({
     name: '',
     code: '',
-    description: ''
+    description: '',
+    parentId: ''
   });
   const [stats, setStats] = useState<any>(null);
 
@@ -64,17 +69,23 @@ const AssetSettings = () => {
     }
   };
 
-  const handleOpenDialog = (category?: any) => {
+  const handleOpenDialog = (category?: any, parentCategory?: any) => {
     if (category) {
       setEditingCategory(category);
       setCategoryForm({
         name: category.name,
         code: category.code || '',
-        description: category.description || ''
+        description: category.description || '',
+        parentId: category.parentId || ''
       });
     } else {
       setEditingCategory(null);
-      setCategoryForm({ name: '', code: '', description: '' });
+      setCategoryForm({
+        name: '',
+        code: '',
+        description: '',
+        parentId: parentCategory?.id || ''
+      });
     }
     setCategoryDialogOpen(true);
   };
@@ -82,7 +93,7 @@ const AssetSettings = () => {
   const handleCloseDialog = () => {
     setCategoryDialogOpen(false);
     setEditingCategory(null);
-    setCategoryForm({ name: '', code: '', description: '' });
+    setCategoryForm({ name: '', code: '', description: '', parentId: '' });
   };
 
   const handleSaveCategory = async () => {
@@ -236,55 +247,128 @@ const AssetSettings = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {categories.map((category) => (
-                <TableRow key={category.id} hover>
-                  <TableCell sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                    {category.name}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={category.code || 'N/A'}
-                      size="small"
-                      sx={{
-                        backgroundColor: '#fef2f2',
-                        color: '#dc2626',
-                        fontSize: '0.75rem',
-                        fontWeight: 700
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell sx={{ fontSize: '0.875rem', color: '#64748b' }}>
-                    {category.description || '-'}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={category._count?.assets || 0}
-                      size="small"
-                      sx={{
-                        backgroundColor: '#f1f5f9',
-                        color: '#475569',
-                        fontSize: '0.75rem',
-                        fontWeight: 600
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell sx={{ textAlign: 'center' }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleOpenDialog(category)}
-                      sx={{ color: '#f59e0b' }}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDeleteCategory(category.id)}
-                      sx={{ color: '#ef4444' }}
-                    >
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
+              {categories.filter(cat => !cat.parentId).map((category) => (
+                <>
+                  {/* Parent Category Row */}
+                  <TableRow key={category.id} hover sx={{ backgroundColor: '#fafafa' }}>
+                    <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                      {category.name}
+                      {category._count?.subcategories > 0 && (
+                        <Chip
+                          label={`${category._count.subcategories} sub`}
+                          size="small"
+                          sx={{ ml: 1, fontSize: '0.65rem', height: '18px' }}
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={category.code || 'N/A'}
+                        size="small"
+                        sx={{
+                          backgroundColor: '#fef2f2',
+                          color: '#dc2626',
+                          fontSize: '0.75rem',
+                          fontWeight: 700
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                      {category.description || '-'}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={category._count?.assets || 0}
+                        size="small"
+                        sx={{
+                          backgroundColor: '#f1f5f9',
+                          color: '#475569',
+                          fontSize: '0.75rem',
+                          fontWeight: 600
+                        }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ textAlign: 'center' }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenDialog(null, category)}
+                        sx={{ color: '#10b981' }}
+                        title="Add Subcategory"
+                      >
+                        <AddIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenDialog(category)}
+                        sx={{ color: '#f59e0b' }}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDeleteCategory(category.id)}
+                        sx={{ color: '#ef4444' }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+
+                  {/* Subcategory Rows */}
+                  {categories.filter(sub => sub.parentId === category.id).map((subcategory) => (
+                    <TableRow key={subcategory.id} hover>
+                      <TableCell sx={{ fontSize: '0.875rem', fontWeight: 500, pl: 6 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: '#94a3b8' }} />
+                          {subcategory.name}
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={subcategory.code || 'N/A'}
+                          size="small"
+                          sx={{
+                            backgroundColor: '#eff6ff',
+                            color: '#1e40af',
+                            fontSize: '0.75rem',
+                            fontWeight: 600
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ fontSize: '0.875rem', color: '#64748b' }}>
+                        {subcategory.description || '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={subcategory._count?.assets || 0}
+                          size="small"
+                          sx={{
+                            backgroundColor: '#f1f5f9',
+                            color: '#475569',
+                            fontSize: '0.75rem',
+                            fontWeight: 600
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell sx={{ textAlign: 'center' }}>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenDialog(subcategory)}
+                          sx={{ color: '#f59e0b' }}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => handleDeleteCategory(subcategory.id)}
+                          sx={{ color: '#ef4444' }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </>
               ))}
               {categories.length === 0 && (
                 <TableRow>
@@ -316,6 +400,23 @@ const AssetSettings = () => {
               placeholder="e.g., Hand Tools, Machinery"
               sx={fieldSx}
             />
+            <FormControl fullWidth sx={fieldSx}>
+              <InputLabel>Parent Category (Optional)</InputLabel>
+              <Select
+                value={categoryForm.parentId}
+                onChange={(e) => setCategoryForm(prev => ({ ...prev, parentId: e.target.value }))}
+                label="Parent Category (Optional)"
+              >
+                <MenuItem value="">
+                  <em>None (Root Category)</em>
+                </MenuItem>
+                {categories.filter(cat => !cat.parentId).map((cat) => (
+                  <MenuItem key={cat.id} value={cat.id}>
+                    {cat.name} ({cat.code})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
               required
               fullWidth

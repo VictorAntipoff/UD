@@ -94,7 +94,7 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
           timestamp: receipt.updatedAt,
           icon: <AssignmentIcon fontSize="small" />,
           color: '#f59e0b',
-          action: () => navigate('/management/wood-receipt')
+          action: () => navigate('/dashboard/management/wood-receipt')
         });
       });
 
@@ -108,7 +108,7 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
           timestamp: receipt.createdAt,
           icon: <LocalShippingIcon fontSize="small" />,
           color: '#3b82f6',
-          action: () => navigate('/management/wood-receipt')
+          action: () => navigate('/dashboard/management/wood-receipt')
         });
       });
 

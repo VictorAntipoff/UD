@@ -481,19 +481,6 @@ Generated on: ${new Date().toLocaleString()}`;
             >
               Wood Calculator
             </Typography>
-            {import.meta.env.DEV && (
-              <Tooltip title={`File: ${currentFile.split('/src/')[1]}`}>
-                <Chip
-                  label="Development"
-                  size="small"
-                  sx={{
-                    bgcolor: 'warning.light',
-                    color: 'warning.dark',
-                    fontWeight: 600
-                  }}
-                />
-              </Tooltip>
-            )}
           </Box>
         </Box>
 
