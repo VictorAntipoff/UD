@@ -668,6 +668,20 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                   <ListItemText primary="Admin Settings" />
                 </ListItem>
               )}
+
+              {hasPermission('admin-settings') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/settings/notifications')}
+                  selected={location.pathname === '/dashboard/settings/notifications'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/settings/notifications' ? colors.primary : colors.grey.main }}>
+                    <NotificationsIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Notification Settings" />
+                </ListItem>
+              )}
             </List>
           </Collapse>
             </>

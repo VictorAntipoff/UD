@@ -432,7 +432,9 @@ const NotificationCentre: FC = () => {
                   <ListItemText
                     primary={
                       <>
-                        {notification.title}
+                        <Typography component="span" sx={{ fontWeight: notification.isRead ? 400 : 600, color: notification.isRead ? 'text.primary' : '#1e293b' }}>
+                          {notification.title}
+                        </Typography>
                         {!notification.isRead && (
                           <Chip label="New" size="small" color="error" sx={{ height: 20, ml: 1 }} />
                         )}
@@ -448,16 +450,13 @@ const NotificationCentre: FC = () => {
                       </>
                     }
                     primaryTypographyProps={{
-                      variant: 'body1',
-                      sx: {
-                        fontWeight: notification.isRead ? 400 : 600,
-                        color: notification.isRead ? 'text.primary' : '#1e293b'
-                      }
+                      component: 'div',
+                      sx: { display: 'flex', alignItems: 'center' }
                     }}
                     secondaryTypographyProps={{
                       variant: 'body2',
-                      sx: { color: 'text.secondary', mt: 0.5 },
-                      component: 'span'
+                      component: 'div',
+                      sx: { color: 'text.secondary', mt: 0.5 }
                     }}
                   />
                   <ListItemSecondaryAction>

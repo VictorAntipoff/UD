@@ -8,7 +8,7 @@ import {
 } from '../pages/factory';
 import WoodTransfer from '../pages/factory/WoodTransfer';
 import InventoryReports from '../pages/factory/InventoryReports';
-import { UserSettings, AdminSettings } from '../pages/settings';
+import { UserSettings, AdminSettings, NotificationSettings } from '../pages/settings';
 import WoodTypeManagement from '../pages/management/WoodTypeManagement';
 import WarehouseManagement from '../pages/management/WarehouseManagement';
 import LoginPage from '../pages/auth/LoginPage';
@@ -110,6 +110,10 @@ export const routes: RouteObject[] = [
           {
             path: 'admin',
             element: <AdminSettings />
+          },
+          {
+            path: 'notifications',
+            element: <NotificationSettings />
           }
         ]
       },

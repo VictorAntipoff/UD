@@ -115,11 +115,13 @@ const WoodReceipt = () => {
   const isAdmin = user?.role === 'ADMIN';
   const { enqueueSnackbar } = useSnackbar();
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [receipts, setReceipts] = useState<WoodReceiptType[]>([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [loading, setLoading] = useState(false);
   const [newReceipt, setNewReceipt] = useState({
     wood_type_id: '',
+    warehouse_id: '',
     supplier: '',
     purchase_date: new Date().toISOString().split('T')[0],
     purchase_order: '',
@@ -143,8 +145,19 @@ const WoodReceipt = () => {
 
   useEffect(() => {
     fetchWoodTypes();
+    fetchWarehouses();
     fetchReceipts();
+    fetchNextLotNumber();
   }, []);
+
+  const fetchNextLotNumber = async () => {
+    try {
+      const response = await api.get('/management/wood-receipts/next-lot');
+      setNewReceipt(prev => ({ ...prev, lot_number: response.data.lotNumber }));
+    } catch (error) {
+      console.error('Error fetching next LOT number:', error);
+    }
+  };
 
   const fetchWoodTypes = async () => {
     try {
@@ -153,6 +166,16 @@ const WoodReceipt = () => {
     } catch (error) {
       console.error('Error fetching wood types:', error);
       enqueueSnackbar('Failed to fetch wood types', { variant: 'error' });
+    }
+  };
+
+  const fetchWarehouses = async () => {
+    try {
+      const response = await api.get('/management/warehouses');
+      setWarehouses(response.data || []);
+    } catch (error) {
+      console.error('Error fetching warehouses:', error);
+      enqueueSnackbar('Failed to fetch warehouses', { variant: 'error' });
     }
   };
 
@@ -198,6 +221,7 @@ const WoodReceipt = () => {
 
       const receiptData = {
         wood_type_id: newReceipt.wood_type_id,
+        warehouse_id: newReceipt.warehouse_id || null,
         supplier: newReceipt.supplier,
         receipt_date: newReceipt.purchase_date,
         lot_number: newReceipt.lot_number || null,
@@ -216,6 +240,7 @@ const WoodReceipt = () => {
       fetchReceipts();
       setNewReceipt({
         wood_type_id: '',
+        warehouse_id: '',
         supplier: '',
         purchase_date: new Date().toISOString().split('T')[0],
         purchase_order: '',
@@ -226,6 +251,8 @@ const WoodReceipt = () => {
         status: 'PENDING',
         lot_number: '',
       });
+      // Fetch next LOT number for the next receipt
+      fetchNextLotNumber();
     } catch (error: any) {
       console.error('Error creating receipt:', error);
       enqueueSnackbar(
@@ -241,6 +268,7 @@ const WoodReceipt = () => {
     setOpenDialog(false);
     setNewReceipt({
       wood_type_id: '',
+      warehouse_id: '',
       supplier: '',
       purchase_date: new Date().toISOString().split('T')[0],
       purchase_order: '',
@@ -319,10 +347,12 @@ const WoodReceipt = () => {
       
       const updateData = {
         wood_type_id: editingReceipt.wood_type_id,
+        warehouse_id: editingReceipt.warehouse_id || null,
         supplier: editingReceipt.supplier,
         receipt_date: editingReceipt.purchase_date,
         purchase_order: editingReceipt.purchase_order,
         lot_number: editingReceipt.lot_number,
+        wood_format: editingReceipt.wood_format,
         status: editingReceipt.status as ReceiptStatus,
         notes: editingReceipt.notes || null,
         ...(editingReceipt.total_volume_m3 ? { total_volume_m3: parseFloat(editingReceipt.total_volume_m3.toString()) } : {}),
@@ -331,7 +361,8 @@ const WoodReceipt = () => {
 
       console.log('Updating receipt with data:', updateData);
 
-      await api.put(`/management/wood-receipts/${editingReceipt.id}`, updateData);
+      const response = await api.put(`/management/wood-receipts/${editingReceipt.id}`, updateData);
+      console.log('Update response:', response.data);
 
       await fetchReceipts();
       enqueueSnackbar('Receipt updated successfully', { variant: 'success' });
@@ -339,8 +370,10 @@ const WoodReceipt = () => {
       setEditingReceipt(null);
     } catch (error: any) {
       console.error('Error updating receipt:', error);
+      console.error('Error response:', error.response);
+      const errorMessage = error.response?.data?.error || error.message || 'Unknown error';
       enqueueSnackbar(
-        `Failed to update receipt: ${error.message}`, 
+        `Failed to update receipt: ${errorMessage}`,
         { variant: 'error' }
       );
     } finally {
@@ -763,6 +796,26 @@ const WoodReceipt = () => {
             </Grid>
             <Grid item xs={12}>
               <TextField
+                select
+                fullWidth
+                label="Warehouse"
+                value={newReceipt.warehouse_id}
+                onChange={(e) => setNewReceipt(prev => ({ ...prev, warehouse_id: e.target.value }))}
+                helperText="Select warehouse for stock tracking"
+                sx={textFieldSx}
+              >
+                <MenuItem value="">
+                  <em>No Warehouse</em>
+                </MenuItem>
+                {warehouses.filter(w => w.status === 'ACTIVE').map((warehouse) => (
+                  <MenuItem key={warehouse.id} value={warehouse.id}>
+                    {warehouse.name} ({warehouse.code})
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
                 fullWidth
                 label="Supplier"
                 value={newReceipt.supplier}
@@ -790,12 +843,11 @@ const WoodReceipt = () => {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Purchase Order Number"
-                value={newReceipt.purchase_order}
+                label="Purchase Order Number (Optional)"
+                value={newReceipt.purchase_order || ''}
                 onChange={(e) => setNewReceipt(prev => ({ ...prev, purchase_order: e.target.value }))}
-                required
-                error={!newReceipt.purchase_order}
-                helperText={!newReceipt.purchase_order ? "Purchase Order Number is required" : ""}
+                placeholder="Can be added later"
+                helperText="Optional - can be updated after creation"
                 sx={textFieldSx}
               />
             </Grid>
@@ -804,12 +856,18 @@ const WoodReceipt = () => {
                 fullWidth
                 label="LOT Number"
                 value={newReceipt.lot_number}
-                onChange={(e) => setNewReceipt(prev => ({ ...prev, lot_number: e.target.value }))}
-                placeholder="Enter LOT Number (e.g., LOT-2025-001)"
-                required
-                error={!newReceipt.lot_number}
-                helperText={!newReceipt.lot_number ? "LOT Number is required for traceability" : ""}
-                sx={textFieldSx}
+                InputProps={{
+                  readOnly: true,
+                }}
+                disabled
+                helperText="Auto-generated and immutable for traceability"
+                sx={{
+                  ...textFieldSx,
+                  '& .MuiInputBase-input.Mui-disabled': {
+                    WebkitTextFillColor: '#1e293b',
+                    fontWeight: 600
+                  }
+                }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
@@ -817,7 +875,7 @@ const WoodReceipt = () => {
                 fullWidth
                 type="number"
                 label="Estimated Volume (CBM)"
-                value={newReceipt.total_volume_m3}
+                value={newReceipt.total_volume_m3 || ''}
                 onChange={(e) => setNewReceipt(prev => ({ ...prev, total_volume_m3: e.target.value }))}
                 InputProps={{
                   inputProps: { min: 0, step: 0.001 }
@@ -830,7 +888,7 @@ const WoodReceipt = () => {
                 fullWidth
                 type="number"
                 label={newReceipt.wood_format === 'SLEEPERS' ? 'Estimated Number of Sleepers' : 'Estimated Number of Planks'}
-                value={newReceipt.total_pieces}
+                value={newReceipt.total_pieces || ''}
                 onChange={(e) => setNewReceipt(prev => ({ ...prev, total_pieces: e.target.value }))}
                 InputProps={{
                   inputProps: { min: 0, step: 1 }
@@ -857,7 +915,7 @@ const WoodReceipt = () => {
               <TextField
                 fullWidth
                 label="Notes"
-                value={newReceipt.notes}
+                value={newReceipt.notes || ''}
                 onChange={(e) => setNewReceipt(prev => ({ ...prev, notes: e.target.value }))}
                 multiline
                 rows={3}
@@ -888,9 +946,7 @@ const WoodReceipt = () => {
             disabled={loading ||
               !newReceipt.wood_type_id ||
               !newReceipt.supplier ||
-              !newReceipt.purchase_date ||
-              !newReceipt.purchase_order ||
-              !newReceipt.lot_number
+              !newReceipt.purchase_date
             }
             variant="contained"
             sx={{
@@ -979,6 +1035,26 @@ const WoodReceipt = () => {
               </Grid>
               <Grid item xs={12}>
                 <TextField
+                  select
+                  fullWidth
+                  label="Warehouse"
+                  value={editingReceipt.warehouse_id || ''}
+                  onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, warehouse_id: e.target.value } : null)}
+                  helperText="Select warehouse for stock tracking"
+                  sx={textFieldSx}
+                >
+                  <MenuItem value="">
+                    <em>No Warehouse</em>
+                  </MenuItem>
+                  {warehouses.filter(w => w.status === 'ACTIVE').map((warehouse) => (
+                    <MenuItem key={warehouse.id} value={warehouse.id}>
+                      {warehouse.name} ({warehouse.code})
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
                   fullWidth
                   label="Supplier"
                   value={editingReceipt.supplier}
@@ -1002,10 +1078,11 @@ const WoodReceipt = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Purchase Order Number"
-                  value={editingReceipt.purchase_order}
+                  label="Purchase Order Number (Optional)"
+                  value={editingReceipt.purchase_order || ''}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, purchase_order: e.target.value } : null)}
-                  required
+                  placeholder="Can be added later"
+                  helperText="Optional"
                   sx={textFieldSx}
                 />
               </Grid>
@@ -1014,7 +1091,7 @@ const WoodReceipt = () => {
                   fullWidth
                   type="number"
                   label="Estimated Volume (CBM)"
-                  value={editingReceipt.total_volume_m3}
+                  value={editingReceipt.total_volume_m3 || ''}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, total_volume_m3: e.target.value } : null)}
                   InputProps={{
                     inputProps: { min: 0, step: 0.001 }
@@ -1027,7 +1104,7 @@ const WoodReceipt = () => {
                   fullWidth
                   type="number"
                   label={editingReceipt.wood_format === 'PLANKS' ? 'Estimated Number of Planks' : 'Estimated Number of Sleepers'}
-                  value={editingReceipt.total_pieces}
+                  value={editingReceipt.total_pieces || ''}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, total_pieces: e.target.value } : null)}
                   InputProps={{
                     inputProps: { min: 0, step: 1 }
@@ -1054,7 +1131,7 @@ const WoodReceipt = () => {
                 <TextField
                   fullWidth
                   label="Notes"
-                  value={editingReceipt.notes}
+                  value={editingReceipt.notes || ''}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, notes: e.target.value } : null)}
                   multiline
                   rows={3}
@@ -1098,7 +1175,7 @@ const WoodReceipt = () => {
           <Button
             variant="contained"
             onClick={handleUpdateReceipt}
-            disabled={loading || !editingReceipt?.wood_type_id || !editingReceipt?.supplier || !editingReceipt?.purchase_date || !editingReceipt?.purchase_order}
+            disabled={loading || !editingReceipt?.wood_type_id || !editingReceipt?.supplier || !editingReceipt?.purchase_date}
             sx={{
               backgroundColor: '#dc2626',
               color: '#fff',

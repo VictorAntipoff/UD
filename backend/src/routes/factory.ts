@@ -1691,6 +1691,151 @@ async function factoryRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'Failed to update approval' });
     }
   });
+
+  // Complete Processing - Update stock and send notifications
+  fastify.post('/receipts/complete/:lotNumber', async (request, reply) => {
+    try {
+      const { lotNumber } = request.params as { lotNumber: string };
+      const userId = (request as any).user?.userId;
+
+      if (!userId) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      // 1. Get receipt with warehouse
+      const receipt = await prisma.woodReceipt.findUnique({
+        where: { lotNumber },
+        include: {
+          woodType: true,
+          warehouse: true
+        }
+      });
+
+      if (!receipt) {
+        return reply.status(404).send({ error: 'Receipt not found' });
+      }
+
+      // 2. Get draft measurements
+      const draft = await prisma.receiptDraft.findFirst({
+        where: { receiptId: lotNumber },
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      if (!draft || !draft.measurements) {
+        return reply.status(400).send({ error: 'No measurements found for this receipt' });
+      }
+
+      // 3. Calculate total pieces and volume from measurements
+      const measurements = draft.measurements as any[];
+      const totalPieces = measurements.reduce((sum, m) => sum + (parseInt(m.qty) || 1), 0);
+      const totalVolumeM3 = measurements.reduce((sum, m) => sum + (parseFloat(m.m3) || 0), 0);
+
+      // Group measurements by thickness (for stock and notifications)
+      const stockByThickness = measurements.reduce((acc, m) => {
+        const thickness = `${m.thickness}"`;
+        if (!acc[thickness]) {
+          acc[thickness] = 0;
+        }
+        acc[thickness] += parseInt(m.qty) || 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      // 4. Update warehouse stock if warehouse exists and stock control is enabled
+      if (receipt.warehouseId && receipt.warehouse?.stockControlEnabled) {
+
+        // Update stock for each thickness
+        for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+          const qty = quantity as number; // Type cast from unknown to number
+          await prisma.stock.upsert({
+            where: {
+              warehouseId_woodTypeId_thickness: {
+                warehouseId: receipt.warehouseId,
+                woodTypeId: receipt.woodTypeId,
+                thickness: thickness
+              }
+            },
+            update: {
+              statusNotDried: { increment: qty }
+            },
+            create: {
+              warehouseId: receipt.warehouseId,
+              woodTypeId: receipt.woodTypeId,
+              thickness: thickness,
+              statusNotDried: qty,
+              statusUnderDrying: 0,
+              statusDried: 0,
+              statusDamaged: 0
+            }
+          });
+        }
+      }
+
+      // 5. Update receipt status to COMPLETED
+      const updatedReceipt = await prisma.woodReceipt.update({
+        where: { lotNumber },
+        data: {
+          status: 'COMPLETED',
+          actualPieces: totalPieces,
+          actualVolumeM3: totalVolumeM3,
+          receiptConfirmedAt: new Date()
+        }
+      });
+
+      // 6. Create notifications for subscribed users
+      const subscriptions = await prisma.notificationSubscription.findMany({
+        where: {
+          eventType: 'RECEIPT_COMPLETED',
+          inApp: true // Users who have in-app notifications enabled
+        }
+      });
+
+      // If no subscriptions exist, fallback to all admin users
+      let userIds: string[];
+      if (subscriptions.length === 0) {
+        const adminUsers = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true }
+        });
+        userIds = adminUsers.map(u => u.id);
+      } else {
+        userIds = subscriptions.map(s => s.userId);
+      }
+
+      // Build thickness breakdown for notification
+      const thicknessBreakdown = Object.entries(stockByThickness)
+        .map(([thickness, qty]) => `${thickness}: ${qty} pcs`)
+        .join(', ');
+
+      const warehouseInfo = receipt.warehouse
+        ? ` → ${receipt.warehouse.name}`
+        : '';
+
+      const notifications = userIds.map(userId => ({
+        userId,
+        type: 'RECEIPT_COMPLETED',
+        title: 'Wood Receipt Completed',
+        message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³). Breakdown: ${thicknessBreakdown}`,
+        linkUrl: `/dashboard/factory/receipt-processing?lot=${lotNumber}`,
+        isRead: false
+      }));
+
+      if (notifications.length > 0) {
+        await prisma.notification.createMany({
+          data: notifications
+        });
+      }
+
+      return {
+        success: true,
+        receipt: updatedReceipt,
+        stockUpdated: !!receipt.warehouseId && receipt.warehouse?.stockControlEnabled,
+        notificationsSent: notifications.length
+      };
+    } catch (error) {
+      console.error('Error completing receipt processing:', error);
+      return reply.status(500).send({ error: 'Failed to complete receipt processing' });
+    }
+  });
 }
 
 export default factoryRoutes; 

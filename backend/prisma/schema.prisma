@@ -12,28 +12,29 @@ datasource db {
 }
 
 model User {
-  id                    String            @id @default(uuid())
-  email                 String            @unique
+  id                    String                       @id @default(uuid())
+  email                 String                       @unique
   password              String
   firstName             String?
   lastName              String?
-  role                  String            @default("user")
-  isActive              Boolean           @default(true)
-  failedLoginAttempts   Int               @default(0)
+  role                  String                       @default("user")
+  isActive              Boolean                      @default(true)
+  failedLoginAttempts   Int                          @default(0)
   accountLockedAt       DateTime?
   lastFailedLoginAt     DateTime?
   permissions           Json?
-  projects              Project[]         @relation("ProjectOwner")
+  projects              Project[]                    @relation("ProjectOwner")
   factories             Factory[]
-  designs               Design[]          @relation("DesignCreator")
-  comments              Comment[]         @relation("CommentAuthor")
+  designs               Design[]                     @relation("DesignCreator")
+  comments              Comment[]                    @relation("CommentAuthor")
   calculations          WoodCalculation[]
   assignedWarehouses    WarehouseUser[]
-  createdTransfers      Transfer[]        @relation("TransferCreator")
-  approvedTransfers     Transfer[]        @relation("TransferApprover")
+  createdTransfers      Transfer[]                   @relation("TransferCreator")
+  approvedTransfers     Transfer[]                   @relation("TransferApprover")
   stockAdjustments      StockAdjustment[]
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  notificationSettings  NotificationSubscription[]
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
 
 }
 
@@ -179,6 +180,7 @@ model WoodCalculation {
 model WoodReceipt {
   id                  String   @id @default(uuid())
   woodTypeId          String
+  warehouseId         String?
   supplier            String
   receiptDate         DateTime
   lotNumber           String   @unique
@@ -196,10 +198,12 @@ model WoodReceipt {
   updatedAt           DateTime @updatedAt
 
   // Relations
-  woodType            WoodType @relation(fields: [woodTypeId], references: [id])
+  woodType            WoodType   @relation(fields: [woodTypeId], references: [id])
+  warehouse           Warehouse? @relation(fields: [warehouseId], references: [id])
 
   @@index([status])
   @@index([woodTypeId])
+  @@index([warehouseId])
   @@index([createdAt])
   @@index([lotNumber])
 }
@@ -557,6 +561,7 @@ model Warehouse {
   transfersTo         Transfer[]      @relation("TransferTo")
   stockAdjustments    StockAdjustment[]
   dryingProcesses     DryingProcess[]
+  woodReceipts        WoodReceipt[]
 
   @@index([code])
   @@index([status])
@@ -711,7 +716,7 @@ model StockAdjustment {
 model Notification {
   id          String    @id @default(uuid())
   userId      String    // User who should receive the notification
-  type        String    // TRANSFER_CREATED, TRANSFER_APPROVED, TRANSFER_REJECTED, etc.
+  type        String    // TRANSFER_CREATED, TRANSFER_APPROVED, TRANSFER_REJECTED, RECEIPT_COMPLETED, etc.
   title       String
   message     String
   linkUrl     String?   // Optional URL to navigate to when clicking notification
@@ -723,6 +728,36 @@ model Notification {
   @@index([isRead])
   @@index([createdAt])
   @@index([userId, isRead]) // Composite index for faster unread count queries
+}
+
+model NotificationEventType {
+  id          String   @id @default(uuid())
+  code        String   @unique // RECEIPT_COMPLETED, TRANSFER_CREATED, etc.
+  name        String   // Display name: "Receipt Completed"
+  description String   // "Notify when a wood receipt is completed"
+  category    String   // Factory, Inventory, Assets, CRM, etc.
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+model NotificationSubscription {
+  id          String   @id @default(uuid())
+  userId      String   // User who is subscribed
+  eventType   String   // RECEIPT_COMPLETED, TRANSFER_CREATED, etc.
+  inApp       Boolean  @default(true)  // Receive in-app notifications
+  email       Boolean  @default(false) // Receive email notifications
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventType])
+  @@index([userId])
+  @@index([eventType])
 }
 
 // ===== WEBSITE MANAGEMENT MODELS =====

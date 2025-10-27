@@ -84,6 +84,7 @@ interface SleeperMeasurement {
   thickness: number;
   width: number;
   length: number;
+  qty: number; // Quantity of pieces with this dimension
   m3: number;
   lastModifiedBy?: string;
   lastModifiedAt?: string;
@@ -94,10 +95,13 @@ interface ReceiptForm {
   woodType: string;
   woodTypeName: string;
   quantity: string;
+  expectedPieces?: string;
   supplier: string;
   date: string;
   status: string;
   purchaseOrder: string;
+  woodFormat?: string; // 'SLEEPERS' or 'PLANKS'
+  warehouseName?: string;
   lastModifiedBy?: string;
   lastModifiedAt?: string;
 }
@@ -117,6 +121,7 @@ const initialFormState: ReceiptForm = {
   woodType: '',
   woodTypeName: '',
   quantity: '',
+  expectedPieces: '',
   supplier: '',
   date: new Date().toISOString().split('T')[0],
   status: '',
@@ -186,7 +191,7 @@ const MobileMeasurements = ({
         border: '1px dashed #cbd5e1'
       }}>
         <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-          No sleepers added yet. Click "Add Sleeper" below to start.
+          No {formData.woodFormat === 'PLANKS' ? 'planks' : 'sleepers'} added yet. Click "Add {formData.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'}" below to start.
         </Typography>
       </Box>
     ) : (
@@ -499,7 +504,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3 }: ReceiptPDFProps) => (
       </View>
 
       <View style={pdfStyles.section}>
-        <Text style={pdfStyles.sectionTitle}>Sleeper Measurements</Text>
+        <Text style={pdfStyles.sectionTitle}>{formData.woodFormat === 'PLANKS' ? 'Plank Measurements' : 'Sleeper Measurements'}</Text>
         <View style={pdfStyles.table}>
           <View style={pdfStyles.tableHeader}>
             <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
@@ -570,24 +575,53 @@ const ReceiptPDF = ({ formData, measurements, totalM3 }: ReceiptPDFProps) => (
         </View>
       </View>
 
-      <View style={pdfStyles.result}>
-        <View style={pdfStyles.row}>
-          <Text style={pdfStyles.label}>Total Volume:</Text>
-          <Text style={[pdfStyles.value, pdfStyles.dimensionValue]}>
-            {totalM3.toFixed(4)} m³
-          </Text>
+      <View style={{ flexDirection: 'row', marginTop: 12, gap: 15 }}>
+        {/* Pieces Section */}
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 8, borderRadius: 3, border: '1px solid #e2e8f0' }}>
+          <Text style={{ fontSize: 9, fontWeight: 'bold', marginBottom: 6, color: '#475569' }}>PIECES SUMMARY</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+            <Text style={{ fontSize: 8, color: '#64748b' }}>Total Pieces:</Text>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+              {measurements.reduce((sum, m) => sum + (m.qty || 1), 0)}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+            <Text style={{ fontSize: 8, color: '#64748b' }}>Expected:</Text>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+              {formData.expectedPieces && formData.expectedPieces.trim() !== '' ? formData.expectedPieces : 'N/A'}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 3, borderTop: '1px solid #cbd5e1' }}>
+            <Text style={{ fontSize: 8, color: '#64748b' }}>Variance:</Text>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#dc2626' }}>
+              {formData.expectedPieces && formData.expectedPieces.trim() !== ''
+                ? `${(parseInt(formData.expectedPieces) - measurements.reduce((sum, m) => sum + (m.qty || 1), 0))}`
+                : 'N/A'}
+            </Text>
+          </View>
         </View>
-        <View style={pdfStyles.row}>
-          <Text style={pdfStyles.label}>Expected Volume:</Text>
-          <Text style={[pdfStyles.value, pdfStyles.dimensionValue]}>
-            {formData.quantity} m³
-          </Text>
-        </View>
-        <View style={pdfStyles.row}>
-          <Text style={pdfStyles.label}>Variance:</Text>
-          <Text style={[pdfStyles.value, pdfStyles.dimensionValue]}>
-            {(parseFloat(formData.quantity) - totalM3).toFixed(4)} m³
-          </Text>
+
+        {/* Volume Section */}
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 8, borderRadius: 3, border: '1px solid #e2e8f0' }}>
+          <Text style={{ fontSize: 9, fontWeight: 'bold', marginBottom: 6, color: '#475569' }}>VOLUME SUMMARY</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+            <Text style={{ fontSize: 8, color: '#64748b' }}>Total Volume:</Text>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+              {totalM3.toFixed(4)} m³
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
+            <Text style={{ fontSize: 8, color: '#64748b' }}>Expected:</Text>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+              {formData.quantity && formData.quantity.trim() !== '' ? `${formData.quantity} m³` : 'N/A'}
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 3, borderTop: '1px solid #cbd5e1' }}>
+            <Text style={{ fontSize: 8, color: '#64748b' }}>Variance:</Text>
+            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#dc2626' }}>
+              {formData.quantity && formData.quantity.trim() !== '' ? `${(parseFloat(formData.quantity) - totalM3).toFixed(4)} m³` : 'N/A'}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -605,16 +639,17 @@ const getSleeperSizeSummary = (measurements: SleeperMeasurement[]) => {
 
   measurements.forEach(m => {
     const sizeKey = `${m.thickness}" × ${m.width}" × ${m.length}'`;
+    const qty = m.qty || 1;
 
     if (sizeMap.has(sizeKey)) {
       const existing = sizeMap.get(sizeKey)!;
       sizeMap.set(sizeKey, {
-        count: existing.count + 1,
+        count: existing.count + qty,
         totalVolume: existing.totalVolume + m.m3
       });
     } else {
       sizeMap.set(sizeKey, {
-        count: 1,
+        count: qty,
         totalVolume: m.m3
       });
     }
@@ -836,15 +871,21 @@ const ReceiptProcessing = () => {
     const selectedLot = event.target.value;
     const selectedReceipt = receipts.find(receipt => receipt.lotNumber === selectedLot);
     if (selectedReceipt) {
+      console.log('Selected receipt data:', selectedReceipt);
+      console.log('estimatedPieces:', selectedReceipt.estimatedPieces);
+      console.log('estimatedVolumeM3:', selectedReceipt.estimatedVolumeM3);
       setFormData({
         receiptNumber: selectedLot,
         woodType: selectedReceipt.woodTypeId || '',
         woodTypeName: selectedReceipt.woodType?.name || '',
         quantity: selectedReceipt.estimatedVolumeM3?.toString() || '',
+        expectedPieces: selectedReceipt.estimatedPieces?.toString() || '',
         supplier: selectedReceipt.supplier || '',
         date: selectedReceipt.receiptDate ? new Date(selectedReceipt.receiptDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         status: selectedReceipt.status || 'PENDING',
         purchaseOrder: selectedReceipt.purchaseOrder || '',
+        woodFormat: selectedReceipt.woodFormat || 'SLEEPERS',
+        warehouseName: selectedReceipt.warehouse?.name || 'No Warehouse',
       });
     }
 
@@ -867,53 +908,59 @@ const ReceiptProcessing = () => {
     e.preventDefault();
     if (!validateForm()) return;
     try {
-      // Convert measurements to receipt items
-      const receiptItems = measurements.map(m => ({
-        length: m.length,
-        width: m.width,
-        height: m.thickness,
-        quantity: 1,
-        volume_m3: m.m3,
-        grade: 'A', // Default grade, adjust if needed
-        notes: m.lastModifiedBy ? `Last modified by ${m.lastModifiedBy} at ${m.lastModifiedAt}` : undefined
-      }));
+      if (isAdmin) {
+        // Admin completes the processing - calls our new endpoint
+        const response = await api.post(`/factory/receipts/complete/${formData.receiptNumber}`);
 
-      // Get the receipt by lot number first
-      const receiptsResponse = await api.get(`/management/wood-receipts`);
-      const receipt = receiptsResponse.data.find((r: any) => r.lotNumber === formData.receiptNumber);
+        const { stockUpdated, notificationsSent } = response.data;
 
-      if (!receipt) throw new Error('Receipt not found');
+        let successMessage = 'Receipt processed and completed successfully!';
+        if (stockUpdated) {
+          successMessage += ' Warehouse stock has been updated.';
+        }
+        if (notificationsSent > 0) {
+          successMessage += ` ${notificationsSent} notification(s) sent.`;
+        }
 
-      // Update the receipt status and save actual volume/pieces from measurements
-      // Admin can complete directly, users need approval (PENDING_APPROVAL)
-      const newStatus = isAdmin ? 'COMPLETED' : 'PENDING_APPROVAL';
-      await api.patch(`/management/wood-receipts/${receipt.id}`, {
-        status: newStatus,
-        actual_volume_m3: totalM3,
-        actual_pieces: measurements.length
-      });
+        enqueueSnackbar(successMessage, { variant: 'success' });
+      } else {
+        // Non-admin submits for approval (existing logic)
+        const receiptsResponse = await api.get(`/management/wood-receipts`);
+        const receipt = receiptsResponse.data.find((r: any) => r.lotNumber === formData.receiptNumber);
 
-      // Insert the measurements as receipt items
-      await api.post('/factory/receipt-items', {
-        items: receiptItems.map(item => ({
-          ...item,
-          receipt_id: receipt.id
-        }))
-      });
+        if (!receipt) throw new Error('Receipt not found');
 
-      // Delete the draft after processing
-      await api.delete(`/factory/drafts?receipt_id=${formData.receiptNumber}`);
+        await api.patch(`/management/wood-receipts/${receipt.id}`, {
+          status: 'PENDING_APPROVAL',
+          actual_volume_m3: totalM3,
+          actual_pieces: measurements.reduce((sum, m) => sum + (m.qty || 1), 0)
+        });
 
-      // Show appropriate success message
-      const successMessage = isAdmin
-        ? 'Receipt processed and completed successfully!'
-        : 'Receipt submitted for admin approval successfully!';
-      enqueueSnackbar(successMessage, { variant: 'success' });
+        enqueueSnackbar('Receipt submitted for admin approval successfully!', { variant: 'success' });
+      }
 
       setShowSuccess(true);
       await fetchReceipts();
-    } catch (error) {
+
+      // Reset form
+      setFormData({
+        receiptNumber: '',
+        woodType: '',
+        woodTypeName: '',
+        quantity: '',
+        expectedPieces: '',
+        supplier: '',
+        date: new Date().toISOString().split('T')[0],
+        status: '',
+        purchaseOrder: '',
+      });
+      setMeasurements([]);
+    } catch (error: any) {
       console.error('Error processing receipt:', error);
+      enqueueSnackbar(
+        error.response?.data?.error || 'Failed to process receipt',
+        { variant: 'error' }
+      );
     }
   };
 
@@ -940,6 +987,7 @@ const ReceiptProcessing = () => {
       thickness: 0,
       width: 0,
       length: 0,
+      qty: 1,
       m3: 0
     }]);
     // Focus on the new row's thickness input after state update and scroll into view
@@ -999,16 +1047,18 @@ const ReceiptProcessing = () => {
       if (m.id === id) {
         const newMeasurement = {
           ...m,
-          [field]: parseFloat(value) || 0,
+          [field]: field === 'qty' ? (parseInt(value) || 1) : (parseFloat(value) || 0),
           lastModifiedBy: currentUser?.email || 'Unknown User',
           lastModifiedAt: new Date().toISOString()
         };
-        if (field === 'thickness' || field === 'width' || field === 'length') {
-          newMeasurement.m3 = calculateM3(
+        // Recalculate m3 if any dimension or quantity changes
+        if (field === 'thickness' || field === 'width' || field === 'length' || field === 'qty') {
+          const singlePieceM3 = calculateM3(
             newMeasurement.thickness,
             newMeasurement.width,
             newMeasurement.length
           );
+          newMeasurement.m3 = singlePieceM3 * (newMeasurement.qty || 1);
         }
         return newMeasurement;
       }
@@ -1172,6 +1222,7 @@ const ReceiptProcessing = () => {
             thickness: item.height || 0, // height in the DB corresponds to thickness
             width: item.width || 0,
             length: item.length || 0,
+            qty: item.qty || 1,
             m3: item.volume_m3 || calculateM3(
               item.height || 0,
               item.width || 0,
@@ -1201,6 +1252,7 @@ const ReceiptProcessing = () => {
             thickness: parseFloat(m.thickness) || 0,
             width: parseFloat(m.width) || 0,
             length: parseFloat(m.length) || 0,
+            qty: parseInt(m.qty) || 1,
             m3: parseFloat(m.m3) || calculateM3(
               parseFloat(m.thickness) || 0,
               parseFloat(m.width) || 0,
@@ -1255,11 +1307,13 @@ const ReceiptProcessing = () => {
       receiptNumber: lotNumber || '',
       woodType: woodTypeObj?.id || (receipt as any).woodTypeId || receipt.wood_type_id || '',
       woodTypeName: woodTypeObj?.name || '',
-      quantity: String(receipt.quantity || ''),
+      quantity: String(receipt.quantity || receipt.estimatedVolumeM3 || ''),
+      expectedPieces: String(receipt.estimatedPieces || ''),
       supplier: receipt.supplier || '',
       date: receipt.createdAt?.split('T')[0] || '',
       status: receipt.status,
       purchaseOrder: receipt.purchaseOrder || '',
+      woodFormat: receipt.woodFormat || 'SLEEPERS',
     });
 
     // Load measurements for this receipt using LOT number
@@ -1273,6 +1327,7 @@ const ReceiptProcessing = () => {
             thickness: parseFloat(m.thickness) || 0,
             width: parseFloat(m.width) || 0,
             length: parseFloat(m.length) || 0,
+            qty: parseInt(m.qty) || 1,
             m3: parseFloat(m.m3) || 0,
             lastModifiedBy: m.lastModifiedBy || 'Unknown',
             lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
@@ -1678,6 +1733,16 @@ const ReceiptProcessing = () => {
                       <TextField
                         fullWidth
                         size="small"
+                        label="Warehouse"
+                        value={formData.warehouseName || 'No Warehouse'}
+                        InputProps={{ readOnly: true }}
+                        sx={textFieldSx}
+                      />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField
+                        fullWidth
+                        size="small"
                         label="Purchase Order"
                         value={formData.purchaseOrder}
                         InputProps={{ readOnly: true }}
@@ -1745,7 +1810,7 @@ const ReceiptProcessing = () => {
                 >
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: 'rgba(0, 0, 0, 0.87)' }}>
-                      Sleeper Measurements
+                      {formData.woodFormat === 'PLANKS' ? 'Plank Measurements' : 'Sleeper Measurements'}
                     </Typography>
                     <Box sx={{
                       display: 'flex',
@@ -1962,6 +2027,7 @@ const ReceiptProcessing = () => {
                               <TableCell align="center" sx={{ width: { xs: 90, sm: 100 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>
                                 {measurementUnit === 'imperial' ? 'Length (ft)' : 'Length (cm)'}
                               </TableCell>
+                              <TableCell align="center" sx={{ width: { xs: 70, sm: 80 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>Qty</TableCell>
                               <TableCell align="center" sx={{ width: { xs: 90, sm: 110 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>Vol (m³)</TableCell>
                               <TableCell align="center" sx={{ width: { xs: 90, sm: 100 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>Actions</TableCell>
                             </TableRow>
@@ -2023,19 +2089,40 @@ const ReceiptProcessing = () => {
                                   <CompactNumberTextField
                                     variant="outlined"
                                     size="small"
+                                    type="number"
                                     value={row.length || ''}
                                     onChange={(e) => {
-                                      if (e.target.value.length <= 5) handleMeasurementChange(row.id, 'length', e.target.value);
+                                      handleMeasurementChange(row.id, 'length', e.target.value);
                                     }}
                                     onKeyDown={(e) => handleKeyDown(e, row.id, 'length')}
+                                    onFocus={(e) => e.target.select()}
                                     inputProps={{
-                                      step: 0.1,
+                                      step: 0.001,
                                       min: 0.5,
-                                      max: 18,
-                                      maxLength: 5,
+                                      max: 99.999,
                                       'data-field': `length-${row.id}`
                                     }}
-                                    error={row.length < 0.5 || row.length > 18}
+                                    error={row.length < 0.5 || row.length > 99.999}
+                                    disabled={isReadOnly}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <CompactNumberTextField
+                                    variant="outlined"
+                                    size="small"
+                                    value={row.qty || ''}
+                                    onChange={(e) => {
+                                      if (e.target.value.length <= 4) handleMeasurementChange(row.id, 'qty', e.target.value);
+                                    }}
+                                    onKeyDown={(e) => handleKeyDown(e, row.id, 'qty')}
+                                    inputProps={{
+                                      step: 1,
+                                      min: 1,
+                                      max: 9999,
+                                      maxLength: 4,
+                                      'data-field': `qty-${row.id}`
+                                    }}
+                                    error={row.qty < 1}
                                     disabled={isReadOnly}
                                   />
                                 </TableCell>
@@ -2088,7 +2175,7 @@ const ReceiptProcessing = () => {
                         </Table>
                       </TableContainer>
 
-                      {/* Add Sleeper button */}
+                      {/* Add Sleeper/Plank button */}
                       {!isReadOnly && (
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
                           <Button
@@ -2103,7 +2190,7 @@ const ReceiptProcessing = () => {
                               },
                             }}
                           >
-                            Add Sleeper
+                            Add {formData.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'}
                           </Button>
                         </Box>
                       )}
@@ -2223,7 +2310,7 @@ const ReceiptProcessing = () => {
                         }
                       }}
                     >
-                      {isAdmin ? 'Complete Processing' : 'Submit for Approval'}
+                      {isAdmin ? 'Complete Receipt' : 'Submit for Approval'}
                     </Button>
                   </Box>
                 )}

@@ -11,12 +11,47 @@ async function managementRoutes(fastify: FastifyInstance) {
   // SECURITY: Protect all management routes with authentication
   fastify.addHook('onRequest', authenticateToken);
 
+  // Generate next LOT number
+  fastify.get('/wood-receipts/next-lot', async (request, reply) => {
+    try {
+      // Get the latest LOT number
+      const latestReceipt = await prisma.woodReceipt.findFirst({
+        orderBy: { lotNumber: 'desc' },
+        select: { lotNumber: true }
+      });
+
+      let nextNumber = 1;
+      const currentYear = new Date().getFullYear();
+
+      if (latestReceipt && latestReceipt.lotNumber) {
+        // Extract number from LOT-YYYY-XXX format
+        const match = latestReceipt.lotNumber.match(/LOT-(\d{4})-(\d+)/);
+        if (match) {
+          const year = parseInt(match[1]);
+          const number = parseInt(match[2]);
+
+          // If same year, increment; if new year, reset to 1
+          if (year === currentYear) {
+            nextNumber = number + 1;
+          }
+        }
+      }
+
+      const nextLotNumber = `LOT-${currentYear}-${String(nextNumber).padStart(3, '0')}`;
+      return { lotNumber: nextLotNumber };
+    } catch (error) {
+      console.error('Error generating next LOT number:', error);
+      return reply.status(500).send({ error: 'Failed to generate next LOT number' });
+    }
+  });
+
   // Get all wood receipts
   fastify.get('/wood-receipts', async (request, reply) => {
     try {
       const receipts = await prisma.woodReceipt.findMany({
         include: {
-          woodType: true
+          woodType: true,
+          warehouse: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -33,16 +68,42 @@ async function managementRoutes(fastify: FastifyInstance) {
     try {
       const data = request.body as any;
 
-      if (!data.wood_type_id || !data.supplier || !data.receipt_date || !data.lot_number) {
-        return reply.status(400).send({ error: 'Missing required fields: wood_type_id, supplier, receipt_date, and lot_number are required' });
+      if (!data.wood_type_id || !data.supplier || !data.receipt_date) {
+        return reply.status(400).send({ error: 'Missing required fields: wood_type_id, supplier, and receipt_date are required' });
+      }
+
+      // Auto-generate LOT number if not provided
+      let lotNumber = data.lot_number;
+      if (!lotNumber) {
+        const latestReceipt = await prisma.woodReceipt.findFirst({
+          orderBy: { lotNumber: 'desc' },
+          select: { lotNumber: true }
+        });
+
+        let nextNumber = 1;
+        const currentYear = new Date().getFullYear();
+
+        if (latestReceipt && latestReceipt.lotNumber) {
+          const match = latestReceipt.lotNumber.match(/LOT-(\d{4})-(\d+)/);
+          if (match) {
+            const year = parseInt(match[1]);
+            const number = parseInt(match[2]);
+            if (year === currentYear) {
+              nextNumber = number + 1;
+            }
+          }
+        }
+
+        lotNumber = `LOT-${currentYear}-${String(nextNumber).padStart(3, '0')}`;
       }
 
       const receipt = await prisma.woodReceipt.create({
         data: {
           woodTypeId: data.wood_type_id,
+          warehouseId: data.warehouse_id || null,
           supplier: data.supplier,
           receiptDate: new Date(data.receipt_date),
-          lotNumber: data.lot_number,
+          lotNumber: lotNumber,
           purchaseOrder: data.purchase_order || null,
           woodFormat: data.wood_format || 'SLEEPERS',
           notes: data.notes || null,
@@ -51,7 +112,8 @@ async function managementRoutes(fastify: FastifyInstance) {
           estimatedPieces: data.total_pieces || null
         },
         include: {
-          woodType: true
+          woodType: true,
+          warehouse: true
         }
       });
 
@@ -68,13 +130,16 @@ async function managementRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const data = request.body as any;
 
+      console.log('PUT /wood-receipts/:id - Received data:', JSON.stringify(data, null, 2));
+
       const receipt = await prisma.woodReceipt.update({
         where: { id },
         data: {
           woodTypeId: data.wood_type_id,
+          warehouseId: data.warehouse_id,
           supplier: data.supplier,
           receiptDate: data.receipt_date ? new Date(data.receipt_date) : undefined,
-          lotNumber: data.lot_number,
+          // LOT number is immutable - don't allow updates
           purchaseOrder: data.purchase_order,
           woodFormat: data.wood_format,
           status: data.status,
@@ -84,10 +149,12 @@ async function managementRoutes(fastify: FastifyInstance) {
           estimatedPieces: data.total_pieces
         },
         include: {
-          woodType: true
+          woodType: true,
+          warehouse: true
         }
       });
 
+      console.log('PUT /wood-receipts/:id - Update successful');
       return receipt;
     } catch (error) {
       console.error('Error updating wood receipt:', error);
@@ -105,7 +172,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       if (data.wood_type_id !== undefined) updateData.woodTypeId = data.wood_type_id;
       if (data.supplier !== undefined) updateData.supplier = data.supplier;
       if (data.receipt_date !== undefined) updateData.receiptDate = new Date(data.receipt_date);
-      if (data.lot_number !== undefined) updateData.lotNumber = data.lot_number;
+      // LOT number is immutable - ignore any attempts to update it
       if (data.purchase_order !== undefined) updateData.purchaseOrder = data.purchase_order;
       if (data.wood_format !== undefined) updateData.woodFormat = data.wood_format;
       if (data.status !== undefined) updateData.status = data.status;
@@ -943,6 +1010,137 @@ async function managementRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error fetching adjustments:', error);
       return reply.status(500).send({ error: 'Failed to fetch adjustments' });
+    }
+  });
+
+  // ===== NOTIFICATION SETTINGS =====
+
+  // Get all active users (for user selection)
+  fastify.get('/notification-settings/users', async (request, reply) => {
+    try {
+      const users = await prisma.user.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true
+        },
+        orderBy: [
+          { firstName: 'asc' },
+          { lastName: 'asc' },
+          { email: 'asc' }
+        ]
+      });
+
+      return users;
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      return reply.status(500).send({ error: 'Failed to fetch users' });
+    }
+  });
+
+  // Get all notification event types (grouped by category)
+  fastify.get('/notification-settings/event-types', async (request, reply) => {
+    try {
+      const eventTypes = await prisma.notificationEventType.findMany({
+        where: { isActive: true },
+        orderBy: [
+          { category: 'asc' },
+          { name: 'asc' }
+        ]
+      });
+
+      // Group by category
+      const grouped = eventTypes.reduce((acc: any, event) => {
+        if (!acc[event.category]) {
+          acc[event.category] = [];
+        }
+        acc[event.category].push(event);
+        return acc;
+      }, {});
+
+      return grouped;
+    } catch (error) {
+      console.error('Error fetching event types:', error);
+      return reply.status(500).send({ error: 'Failed to fetch event types' });
+    }
+  });
+
+  // Get notification preferences for a specific user
+  fastify.get('/notification-settings/user/:userId', async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string };
+
+      // Get all event types
+      const eventTypes = await prisma.notificationEventType.findMany({
+        where: { isActive: true }
+      });
+
+      // Get user's subscriptions
+      const subscriptions = await prisma.notificationSubscription.findMany({
+        where: { userId }
+      });
+
+      // Map event types with user's preferences
+      const preferences = eventTypes.map(event => {
+        const subscription = subscriptions.find(s => s.eventType === event.code);
+        return {
+          eventType: event.code,
+          eventName: event.name,
+          eventDescription: event.description,
+          category: event.category,
+          inApp: subscription?.inApp ?? false,
+          email: subscription?.email ?? false
+        };
+      });
+
+      return preferences;
+    } catch (error) {
+      console.error('Error fetching user preferences:', error);
+      return reply.status(500).send({ error: 'Failed to fetch user preferences' });
+    }
+  });
+
+  // Update notification preferences for a user
+  fastify.post('/notification-settings/user/:userId', async (request, reply) => {
+    try {
+      const { userId } = request.params as { userId: string };
+      const { preferences } = request.body as {
+        preferences: Array<{
+          eventType: string;
+          inApp: boolean;
+          email: boolean;
+        }>;
+      };
+
+      // Update or create subscriptions for each preference
+      for (const pref of preferences) {
+        await prisma.notificationSubscription.upsert({
+          where: {
+            userId_eventType: {
+              userId,
+              eventType: pref.eventType
+            }
+          },
+          update: {
+            inApp: pref.inApp,
+            email: pref.email
+          },
+          create: {
+            userId,
+            eventType: pref.eventType,
+            inApp: pref.inApp,
+            email: pref.email
+          }
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating notification preferences:', error);
+      return reply.status(500).send({ error: 'Failed to update notification preferences' });
     }
   });
 }
