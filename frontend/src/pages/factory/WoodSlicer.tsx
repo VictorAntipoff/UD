@@ -1151,7 +1151,9 @@ const WoodSlicer = () => {
 
       setAvailableReceipts(enrichedReceipts);
 
+      // Only show SLEEPERS format receipts (slicing not applicable for PLANKS)
       const lots = enrichedReceipts
+        .filter((r: any) => r.woodFormat === 'SLEEPERS')
         .map((r: any) => r.lotNumber)
         .filter((lot: string | null) => lot != null && lot !== '')
         .filter((lot: string, index: number, self: string[]) => self.indexOf(lot) === index)
@@ -1177,6 +1179,18 @@ const WoodSlicer = () => {
       const receipt = receipts.find((r: any) => r.lotNumber === lot);
 
       if (receipt) {
+        // Check if receipt is PLANKS format - slicing not applicable
+        if (receipt.woodFormat === 'PLANKS') {
+          setError('This LOT contains planks (not sleepers). Slicing operation is not applicable for plank receipts.');
+          setLotNumber('');
+          setLotDetails(null);
+          setSupplierName('');
+          setSelectedWoodType(null);
+          setAvailableSleepers([]);
+          setUsedSleeperNumbers(new Set());
+          return;
+        }
+
         setLotDetails(receipt);
         setSupplierName(receipt.supplier || '');
 
@@ -1785,6 +1799,11 @@ const WoodSlicer = () => {
         setStartTime(data.start_time);
         setOperationNotes(data.notes || '');
         setShowLoadDialog(false);
+
+        // Fetch LOT details to populate supplier and other info
+        if (data.lot_number) {
+          await fetchLotDetails(data.lot_number);
+        }
 
         console.log('State after load - plankSizes:', data.plank_sizes?.length);
       }

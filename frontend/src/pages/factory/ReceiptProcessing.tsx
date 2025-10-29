@@ -1314,6 +1314,7 @@ const ReceiptProcessing = () => {
       status: receipt.status,
       purchaseOrder: receipt.purchaseOrder || '',
       woodFormat: receipt.woodFormat || 'SLEEPERS',
+      warehouseName: (receipt as any).warehouse?.name || 'No Warehouse',
     });
 
     // Load measurements for this receipt using LOT number

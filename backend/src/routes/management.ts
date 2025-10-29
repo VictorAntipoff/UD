@@ -251,6 +251,19 @@ async function managementRoutes(fastify: FastifyInstance) {
         }
       });
 
+      // Get receipt processing history for this LOT
+      const receiptHistory = await prisma.receiptHistory.findMany({
+        where: { receiptId: lotNumber },
+        orderBy: {
+          timestamp: 'asc'
+        }
+      });
+
+      // Get LOT cost information
+      const lotCost = await prisma.lotCost.findUnique({
+        where: { lotNumber }
+      });
+
       // Enrich wood receipts with draft data
       const enrichedWoodReceipts = await Promise.all(
         woodReceipts.map(async (receipt) => {
@@ -263,13 +276,34 @@ async function managementRoutes(fastify: FastifyInstance) {
           const draft = drafts.find(d => d.receiptId === lotNumber);
           if (draft && draft.measurements) {
             const measurements = draft.measurements as any[];
-            actualPieces = measurements.length;
+
+            // Calculate total pieces by summing all qty fields
+            actualPieces = measurements.reduce((sum: number, m: any) => {
+              return sum + (parseInt(m.qty) || 1);
+            }, 0);
+
+            // Calculate total volume
             actualVolumeM3 = measurements.reduce((sum: number, m: any) => {
               const thickness = parseFloat(m.thickness) || 0;
               const width = parseFloat(m.width) || 0;
               const length = parseFloat(m.length) || 0;
               const qty = parseInt(m.qty) || 1;
-              return sum + ((thickness / 100) * (width / 100) * (length / 100) * qty);
+
+              // Detect unit system: if thickness and width are small (< 50), assume imperial (inches/feet)
+              // Otherwise assume metric (cm)
+              let volumeM3;
+              if (thickness < 50 && width < 50) {
+                // Imperial: thickness and width in inches, length in feet
+                const thicknessM = thickness * 0.0254; // inch to meter
+                const widthM = width * 0.0254; // inch to meter
+                const lengthM = length * 0.3048; // feet to meter
+                volumeM3 = thicknessM * widthM * lengthM * qty;
+              } else {
+                // Metric: all in cm
+                volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+              }
+
+              return sum + volumeM3;
             }, 0);
 
             // Get the last user who worked on this receipt
@@ -348,11 +382,97 @@ async function managementRoutes(fastify: FastifyInstance) {
           drying: [],
           qualityControl: [],
           inventory: []
-        }
+        },
+        history: receiptHistory.map(h => ({
+          id: h.id,
+          userId: h.userId,
+          userName: h.userName,
+          action: h.action,
+          details: h.details,
+          timestamp: h.timestamp
+        })),
+        cost: lotCost ? {
+          purchasePrice: lotCost.purchasePrice,
+          purchasePriceType: lotCost.purchasePriceType,
+          purchasePriceIncVat: lotCost.purchasePriceIncVat,
+          transportPrice: lotCost.transportPrice,
+          transportPriceType: lotCost.transportPriceType,
+          transportPriceIncVat: lotCost.transportPriceIncVat,
+          slicingExpenses: lotCost.slicingExpenses,
+          slicingExpensesType: lotCost.slicingExpensesType,
+          slicingExpensesIncVat: lotCost.slicingExpensesIncVat,
+          otherExpenses: lotCost.otherExpenses,
+          otherExpensesType: lotCost.otherExpensesType,
+          otherExpensesIncVat: lotCost.otherExpensesIncVat,
+          notes: lotCost.notes
+        } : null
       };
     } catch (error) {
       console.error('Error fetching LOT traceability:', error);
       return reply.status(500).send({ error: 'Failed to fetch LOT traceability' });
+    }
+  });
+
+  // Get LOT cost information
+  fastify.get('/lot-cost/:lotNumber', async (request, reply) => {
+    try {
+      const { lotNumber } = request.params as { lotNumber: string };
+
+      const lotCost = await prisma.lotCost.findUnique({
+        where: { lotNumber }
+      });
+
+      return lotCost || {
+        lotNumber,
+        purchasePrice: null,
+        purchasePriceType: 'LUMPSUM',
+        transportPrice: null,
+        transportPriceType: 'LUMPSUM',
+        slicingExpenses: null,
+        slicingExpensesType: 'LUMPSUM',
+        otherExpenses: null,
+        otherExpensesType: 'LUMPSUM',
+        notes: null
+      };
+    } catch (error) {
+      console.error('Error fetching LOT cost:', error);
+      return reply.status(500).send({ error: 'Failed to fetch LOT cost' });
+    }
+  });
+
+  // Update LOT cost information
+  fastify.put('/lot-cost/:lotNumber', async (request, reply) => {
+    try {
+      const { lotNumber } = request.params as { lotNumber: string };
+      const data = request.body as {
+        purchasePrice?: number;
+        purchasePriceType?: string;
+        purchasePriceIncVat?: boolean;
+        transportPrice?: number;
+        transportPriceType?: string;
+        transportPriceIncVat?: boolean;
+        slicingExpenses?: number;
+        slicingExpensesType?: string;
+        slicingExpensesIncVat?: boolean;
+        otherExpenses?: number;
+        otherExpensesType?: string;
+        otherExpensesIncVat?: boolean;
+        notes?: string;
+      };
+
+      const lotCost = await prisma.lotCost.upsert({
+        where: { lotNumber },
+        update: data,
+        create: {
+          lotNumber,
+          ...data
+        }
+      });
+
+      return lotCost;
+    } catch (error) {
+      console.error('Error updating LOT cost:', error);
+      return reply.status(500).send({ error: 'Failed to update LOT cost' });
     }
   });
 

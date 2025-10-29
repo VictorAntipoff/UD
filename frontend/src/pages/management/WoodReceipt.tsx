@@ -20,7 +20,16 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  DialogContentText
+  DialogContentText,
+  Switch,
+  FormControlLabel,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemAvatar,
+  ListItemText,
+  Avatar,
+  Checkbox
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -30,6 +39,10 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import LockIcon from '@mui/icons-material/Lock';
+import HistoryIcon from '@mui/icons-material/History';
+import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import SendIcon from '@mui/icons-material/Send';
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
@@ -38,6 +51,9 @@ import type { WoodReceipt as WoodReceiptType } from '../../types/wood-receipt';
 import { colors } from '../../theme/colors';
 import { styled } from '@mui/material/styles';
 import { CircularProgress } from '@mui/material';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { format } from 'date-fns';
 
 interface PostgrestError {
   code: string;
@@ -140,6 +156,27 @@ const WoodReceipt = () => {
   const [traceabilityDialogOpen, setTraceabilityDialogOpen] = useState(false);
   const [traceabilityData, setTraceabilityData] = useState<any>(null);
   const [loadingTraceability, setLoadingTraceability] = useState(false);
+  const [editingCost, setEditingCost] = useState(false);
+  const [costData, setCostData] = useState<any>({
+    purchasePrice: '',
+    purchasePriceType: 'LUMPSUM',
+    purchasePriceIncVat: false,
+    transportPrice: '',
+    transportPriceType: 'LUMPSUM',
+    transportPriceIncVat: false,
+    slicingExpenses: '',
+    slicingExpensesType: 'LUMPSUM',
+    slicingExpensesIncVat: false,
+    otherExpenses: '',
+    otherExpensesType: 'LUMPSUM',
+    otherExpensesIncVat: false,
+    notes: ''
+  });
+  const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [sendingNotification, setSendingNotification] = useState(false);
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -414,6 +451,714 @@ const WoodReceipt = () => {
     }
   };
 
+  const handleSaveCost = async () => {
+    if (!traceabilityData?.lotNumber) return;
+
+    try {
+      await api.put(`/management/lot-cost/${traceabilityData.lotNumber}`, {
+        purchasePrice: costData.purchasePrice ? parseFloat(costData.purchasePrice) : null,
+        purchasePriceType: costData.purchasePriceType,
+        purchasePriceIncVat: costData.purchasePriceIncVat,
+        transportPrice: costData.transportPrice ? parseFloat(costData.transportPrice) : null,
+        transportPriceType: costData.transportPriceType,
+        transportPriceIncVat: costData.transportPriceIncVat,
+        slicingExpenses: costData.slicingExpenses ? parseFloat(costData.slicingExpenses) : null,
+        slicingExpensesType: costData.slicingExpensesType,
+        slicingExpensesIncVat: costData.slicingExpensesIncVat,
+        otherExpenses: costData.otherExpenses ? parseFloat(costData.otherExpenses) : null,
+        otherExpensesType: costData.otherExpensesType,
+        otherExpensesIncVat: costData.otherExpensesIncVat,
+        notes: costData.notes || null
+      });
+
+      enqueueSnackbar('LOT cost information saved successfully', { variant: 'success' });
+      setEditingCost(false);
+
+      // Refresh traceability data to get updated cost
+      const response = await api.get(`/management/lot-traceability/${traceabilityData.lotNumber}`);
+      setTraceabilityData(response.data);
+
+      // Update cost data state with the saved values
+      if (response.data.cost) {
+        setCostData({
+          purchasePrice: response.data.cost.purchasePrice || '',
+          purchasePriceType: response.data.cost.purchasePriceType || 'LUMPSUM',
+          purchasePriceIncVat: response.data.cost.purchasePriceIncVat || false,
+          transportPrice: response.data.cost.transportPrice || '',
+          transportPriceType: response.data.cost.transportPriceType || 'LUMPSUM',
+          transportPriceIncVat: response.data.cost.transportPriceIncVat || false,
+          slicingExpenses: response.data.cost.slicingExpenses || '',
+          slicingExpensesType: response.data.cost.slicingExpensesType || 'LUMPSUM',
+          slicingExpensesIncVat: response.data.cost.slicingExpensesIncVat || false,
+          otherExpenses: response.data.cost.otherExpenses || '',
+          otherExpensesType: response.data.cost.otherExpensesType || 'LUMPSUM',
+          otherExpensesIncVat: response.data.cost.otherExpensesIncVat || false,
+          notes: response.data.cost.notes || ''
+        });
+      }
+    } catch (error: any) {
+      console.error('Error saving LOT cost:', error);
+      enqueueSnackbar(`Failed to save cost information: ${error.message}`, { variant: 'error' });
+    }
+  };
+
+  const generateLotCostingPDF = () => {
+    if (!traceabilityData) return;
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    let currentPage = 1;
+
+    // Extract data FIRST (before helper functions that use it)
+    const lotNumber = traceabilityData.lotNumber || 'N/A';
+    const woodReceipt = traceabilityData.stages?.woodReceipts?.[0] || traceabilityData.stages?.woodReceipt?.[0] || {};
+    const woodType = woodReceipt.woodType || 'N/A';
+    const supplier = woodReceipt.supplier || 'N/A';
+    const receiptDate = woodReceipt.receiptDate
+      ? format(new Date(woodReceipt.receiptDate), 'PP')
+      : 'N/A';
+    const totalM3 = woodReceipt.actualVolumeM3 || 0;
+    const totalPieces = woodReceipt.actualPieces || 0;
+    const status = woodReceipt.status || 'N/A';
+
+    // Helper function to add header
+    const addHeader = () => {
+      // Add logo with correct aspect ratio (2486:616 = ~4.04:1)
+      const logo = new Image();
+      logo.src = '/src/assets/images/logo.png';
+      doc.addImage(logo, 'PNG', 14, 6, 28, 7); // Fixed: 28/7 = 4:1 ratio
+
+      // Title
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(220, 38, 38);
+      doc.text('LOT Traceability Report', pageWidth / 2, 11, { align: 'center' });
+
+      // Timestamp and version
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth - 14, 9, { align: 'right' });
+      doc.text('v5.0', pageWidth - 14, 12, { align: 'right' });
+
+      // Gray line
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(14, 16, pageWidth - 14, 16);
+    };
+
+    // Helper function to add footer
+    const addFooter = (pageNum: number, totalPages: number) => {
+      const footerY = pageHeight - 12;
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(14, footerY, pageWidth - 14, footerY);
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('This is a computer-generated document. No signature required.', pageWidth / 2, footerY + 4, { align: 'center' });
+      doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - 14, footerY + 4, { align: 'right' });
+    };
+
+    // Helper function to check if new page is needed
+    const checkPageBreak = (requiredSpace: number): number => {
+      if (startY + requiredSpace > pageHeight - 25) {
+        currentPage++;
+        doc.addPage();
+        addHeader();
+        return 20; // Reset startY to top of new page
+      }
+      return startY;
+    };
+
+    // Helper function to add section header with clean style
+    const addSectionHeader = (title: string) => {
+      startY = checkPageBreak(10);
+
+      // Simple red line on the left
+      doc.setDrawColor(220, 38, 38);
+      doc.setLineWidth(2);
+      doc.line(14, startY, 14, startY + 6);
+
+      // Section title
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(title, 18, startY + 4);
+
+      // Light bottom border
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(14, startY + 7, pageWidth - 14, startY + 7);
+
+      startY += 11;
+    };
+
+    // Start first page
+    addHeader();
+    let startY = 20;
+
+    // LOT Information Section
+    addSectionHeader('LOT Information');
+
+    // LOT info box - clean white background
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(14, startY, pageWidth - 28, 30, 1, 1, 'FD');
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+
+    // Left column - cleaner layout
+    const leftX = 18;
+    const valueX = 50;
+    const rightX = 108;
+    const rightValueX = 140;
+    let infoY = startY + 7;
+
+    doc.text('LOT Number:', leftX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(lotNumber, valueX, infoY);
+
+    infoY += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Wood Type:', leftX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(woodType, valueX, infoY);
+
+    infoY += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Supplier:', leftX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(supplier, valueX, infoY);
+
+    infoY += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Status:', leftX, infoY);
+    doc.setFont('helvetica', 'bold');
+    if (status === 'COMPLETED') {
+      doc.setTextColor(22, 163, 74);
+    } else {
+      doc.setTextColor(220, 38, 38);
+    }
+    doc.text(status, valueX, infoY);
+
+    // Right column
+    infoY = startY + 7;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Receipt Date:', rightX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(receiptDate, rightValueX, infoY);
+
+    infoY += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Total Volume:', rightX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`${totalM3.toFixed(3)} m³`, rightValueX, infoY);
+
+    infoY += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Total Pieces:', rightX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(totalPieces.toString(), rightValueX, infoY);
+
+    infoY += 5.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Report Date:', rightX, infoY);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(format(new Date(), 'PP'), rightValueX, infoY);
+
+    startY += 35;
+
+    // Wood Receipt Information Section
+    addSectionHeader('Wood Receipt Details');
+
+    const receiptRows: any[] = [];
+    const allReceipts = traceabilityData.stages?.woodReceipts || (woodReceipt.id ? [woodReceipt] : []);
+
+    if (allReceipts.length > 0) {
+      allReceipts.forEach((receipt: any) => {
+        const isDraft = receipt.status !== 'COMPLETED';
+        const volumeText = receipt.actualVolumeM3
+          ? `${receipt.actualVolumeM3.toFixed(3)} m³${isDraft ? ' (Draft)' : ''}`
+          : 'N/A';
+        const piecesText = receipt.actualPieces
+          ? `${receipt.actualPieces}${isDraft ? ' (Draft)' : ''}`
+          : 'N/A';
+        const estVolumeText = receipt.estimatedVolumeM3
+          ? `${receipt.estimatedVolumeM3.toFixed(3)} m³`
+          : 'N/A';
+        const estPiecesText = receipt.estimatedPieces?.toString() || 'N/A';
+
+        receiptRows.push([
+          receipt.woodType || 'N/A',
+          receipt.supplier || 'N/A',
+          receipt.receiptDate ? format(new Date(receipt.receiptDate), 'PP') : 'N/A',
+          estVolumeText,
+          volumeText,
+          estPiecesText,
+          piecesText,
+          receipt.status || 'N/A'
+        ]);
+      });
+
+      autoTable(doc, {
+        startY,
+        head: [['Wood', 'Supplier', 'Date', 'Est.Vol', 'Act.Vol', 'Est.Pcs', 'Act.Pcs', 'Status']],
+        body: receiptRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [30, 41, 59],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        bodyStyles: {
+          textColor: [71, 85, 105],
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        margin: { left: 14, right: 14 },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { cellWidth: 25 },
+          2: { cellWidth: 22 },
+          3: { cellWidth: 18 },
+          4: { cellWidth: 20 },
+          5: { cellWidth: 15 },
+          6: { cellWidth: 17 },
+          7: { cellWidth: 'auto' }
+        }
+      });
+
+      startY = (doc as any).lastAutoTable.finalY + 6;
+    } else {
+      startY += 3;
+    }
+
+    // Slicing Operations Section
+    const slicingOps = traceabilityData.stages?.slicing || [];
+    if (slicingOps.length > 0) {
+      addSectionHeader('Slicing Operations');
+
+      const slicingRows: any[] = [];
+      slicingOps.forEach((op: any, index: number) => {
+        slicingRows.push([
+          `OP-${(index + 1).toString().padStart(3, '0')}`,
+          op.startTime ? format(new Date(op.startTime), 'PP p') : 'N/A',
+          op.endTime ? format(new Date(op.endTime), 'PP p') : 'In Progress',
+          op.status || 'N/A'
+        ]);
+      });
+
+      autoTable(doc, {
+        startY,
+        head: [['Serial', 'Start', 'End', 'Status']],
+        body: slicingRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [30, 41, 59],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        bodyStyles: {
+          textColor: [71, 85, 105],
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      startY = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // Drying Processes Section (if available)
+    const dryingProcesses = traceabilityData.stages?.dryingProcesses || [];
+    if (dryingProcesses.length > 0) {
+      addSectionHeader('Drying Processes');
+
+      const dryingRows: any[] = [];
+      dryingProcesses.forEach((batch: any) => {
+        dryingRows.push([
+          batch.batchNumber || 'N/A',
+          batch.startDate ? format(new Date(batch.startDate), 'PP p') : 'N/A',
+          batch.endDate ? format(new Date(batch.endDate), 'PP p') : 'In Progress',
+          batch.status || 'N/A'
+        ]);
+      });
+
+      autoTable(doc, {
+        startY,
+        head: [['Batch', 'Start', 'End', 'Status']],
+        body: dryingRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [30, 41, 59],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        bodyStyles: {
+          textColor: [71, 85, 105],
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      startY = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // Activity History Section
+    const history = traceabilityData.history || [];
+    if (history.length > 0) {
+      addSectionHeader('Activity History');
+
+      const historyRows: any[] = [];
+      // Limit to last 5 history items to save space
+      history.slice(-5).forEach((item: any) => {
+        historyRows.push([
+          item.timestamp ? format(new Date(item.timestamp), 'PP p') : 'N/A',
+          item.userName || 'N/A',
+          item.action || 'N/A',
+          item.details || ''
+        ]);
+      });
+
+      autoTable(doc, {
+        startY,
+        head: [['Time', 'User', 'Action', 'Details']],
+        body: historyRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [30, 41, 59],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        bodyStyles: {
+          textColor: [71, 85, 105],
+          fontSize: 7,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        margin: { left: 14, right: 14 },
+        columnStyles: {
+          0: { cellWidth: 35 },
+          1: { cellWidth: 25 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 'auto' }
+        }
+      });
+
+      startY = (doc as any).lastAutoTable.finalY + 6;
+    }
+
+    // Cost Breakdown Section
+    const hasCostData = costData.purchasePrice || costData.transportPrice ||
+                        costData.slicingExpenses || costData.otherExpenses;
+
+    if (hasCostData) {
+      addSectionHeader('Cost Breakdown');
+
+      // Prepare cost data
+      const costRows: any[] = [];
+
+      if (costData.purchasePrice) {
+        const amount = parseFloat(costData.purchasePrice);
+        const total = costData.purchasePriceType === 'PER_M3' ? amount * totalM3 : amount;
+        const baseAmount = costData.purchasePriceIncVat ? total / 1.18 : total;
+        costRows.push([
+          'Purchase Price',
+          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          costData.purchasePriceType === 'PER_M3' ? 'Per m³' : 'Per Lot',
+          costData.purchasePriceIncVat ? 'Inc VAT' : 'Exc VAT',
+          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ]);
+      }
+
+      if (costData.transportPrice) {
+        const amount = parseFloat(costData.transportPrice);
+        const total = costData.transportPriceType === 'PER_M3' ? amount * totalM3 : amount;
+        const baseAmount = costData.transportPriceIncVat ? total / 1.18 : total;
+        costRows.push([
+          'Transport Price',
+          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          costData.transportPriceType === 'PER_M3' ? 'Per m³' : 'Per Lot',
+          costData.transportPriceIncVat ? 'Inc VAT' : 'Exc VAT',
+          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ]);
+      }
+
+      if (costData.slicingExpenses) {
+        const amount = parseFloat(costData.slicingExpenses);
+        const total = costData.slicingExpensesType === 'PER_M3' ? amount * totalM3 : amount;
+        const baseAmount = costData.slicingExpensesIncVat ? total / 1.18 : total;
+        costRows.push([
+          'Slicing Expenses',
+          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          costData.slicingExpensesType === 'PER_M3' ? 'Per m³' : 'Per Lot',
+          costData.slicingExpensesIncVat ? 'Inc VAT' : 'Exc VAT',
+          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ]);
+      }
+
+      if (costData.otherExpenses) {
+        const amount = parseFloat(costData.otherExpenses);
+        const total = costData.otherExpensesType === 'PER_M3' ? amount * totalM3 : amount;
+        const baseAmount = costData.otherExpensesIncVat ? total / 1.18 : total;
+        costRows.push([
+          'Other Expenses',
+          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          costData.otherExpensesType === 'PER_M3' ? 'Per m³' : 'Per Lot',
+          costData.otherExpensesIncVat ? 'Inc VAT' : 'Exc VAT',
+          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        ]);
+      }
+
+      if (costRows.length > 0) {
+        autoTable(doc, {
+          startY,
+          head: [['Item', 'Unit Price', 'Type', 'VAT', 'Total (Exc VAT)']],
+          body: costRows,
+          theme: 'grid',
+          headStyles: {
+            fillColor: [248, 250, 252],
+            textColor: [30, 41, 59],
+            fontStyle: 'bold',
+            fontSize: 7.5,
+            cellPadding: 2.5,
+            lineColor: [226, 232, 240],
+            lineWidth: 0.1
+          },
+          bodyStyles: {
+            textColor: [71, 85, 105],
+            fontSize: 7.5,
+            cellPadding: 2.5,
+            lineColor: [226, 232, 240],
+            lineWidth: 0.1
+          },
+          margin: { left: 14, right: 14 }
+        });
+
+        startY = (doc as any).lastAutoTable.finalY + 6;
+      }
+
+      // Calculate totals
+      const purchasePrice = parseFloat(costData.purchasePrice || '0');
+      const transportPrice = parseFloat(costData.transportPrice || '0');
+      const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
+      const otherExpenses = parseFloat(costData.otherExpenses || '0');
+
+      let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+      let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
+      let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
+      let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
+
+      if (costData.purchasePriceIncVat) purchaseTotal = purchaseTotal / 1.18;
+      if (costData.transportPriceIncVat) transportTotal = transportTotal / 1.18;
+      if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
+      if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
+
+      const subtotal = purchaseTotal + transportTotal + slicingTotal + otherTotal;
+      const vat = subtotal * 0.18;
+      const total = subtotal + vat;
+
+      // Clean Summary boxes
+      startY += 2;
+
+      // White boxes with clean borders
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(14, startY, 58, 16, 1, 1, 'FD');
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Subtotal (Exc VAT)', 17, startY + 5);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(`TZS ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 17, startY + 12);
+
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(75, startY, 58, 16, 1, 1, 'FD');
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('VAT (18%)', 78, startY + 5);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text(`TZS ${vat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 78, startY + 12);
+
+      doc.setFillColor(220, 38, 38);
+      doc.setDrawColor(220, 38, 38);
+      doc.setLineWidth(1);
+      doc.roundedRect(136, startY, 58, 16, 1, 1, 'FD');
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(255, 255, 255);
+      doc.text('TOTAL (Inc VAT)', 139, startY + 5);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`TZS ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 139, startY + 12);
+
+      startY += 20;
+
+      // Notes section
+      if (costData.notes) {
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('Notes:', 14, startY);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        const splitNotes = doc.splitTextToSize(costData.notes, pageWidth - 28);
+        doc.text(splitNotes, 14, startY + 4);
+      }
+    }
+
+    // Add footers to all pages
+    const totalPages = currentPage;
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      addFooter(i, totalPages);
+    }
+
+    // Save PDF
+    const receiptDateStr = woodReceipt.receiptDate
+      ? format(new Date(woodReceipt.receiptDate), 'yyyy-MM-dd')
+      : format(new Date(), 'yyyy-MM-dd');
+    const filename = `${lotNumber} (${woodType}) Traceability - ${receiptDateStr}.pdf`;
+    doc.save(filename);
+
+    enqueueSnackbar('PDF generated successfully', { variant: 'success' });
+  };
+
+  // Fetch users for notification
+  const fetchUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const response = await api.get('/users');
+      setUsers(response.data.filter((user: any) => user.isActive));
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      enqueueSnackbar('Failed to load users', { variant: 'error' });
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  // Send notification to selected users
+  const handleSendNotification = async () => {
+    if (selectedUsers.length === 0) {
+      enqueueSnackbar('Please select at least one user', { variant: 'warning' });
+      return;
+    }
+
+    if (!traceabilityData?.lotNumber) {
+      enqueueSnackbar('No LOT data available', { variant: 'warning' });
+      return;
+    }
+
+    try {
+      setSendingNotification(true);
+
+      const woodType = traceabilityData.woodReceipts?.[0]?.wood?.type || 'Wood';
+      const message = `LOT ${traceabilityData.lotNumber} (${woodType}) - Traceability report is ready for review`;
+
+      // Send notification to each selected user
+      const promises = selectedUsers.map(userId =>
+        api.post('/notifications/send', {
+          receiverId: userId,
+          title: 'LOT Traceability Report',
+          message,
+          type: 'LOT_TRACEABILITY',
+          linkUrl: `/management/wood-receipt?lot=${traceabilityData.lotNumber}`
+        })
+      );
+
+      await Promise.all(promises);
+
+      enqueueSnackbar(`Notification sent to ${selectedUsers.length} user(s)`, { variant: 'success' });
+      setNotificationDialogOpen(false);
+      setSelectedUsers([]);
+    } catch (error) {
+      console.error('Error sending notifications:', error);
+      enqueueSnackbar('Failed to send notifications', { variant: 'error' });
+    } finally {
+      setSendingNotification(false);
+    }
+  };
+
+  // Handle opening notification dialog
+  const handleOpenNotificationDialog = () => {
+    if (!traceabilityData?.lotNumber) {
+      enqueueSnackbar('No LOT data available', { variant: 'warning' });
+      return;
+    }
+    setNotificationDialogOpen(true);
+    fetchUsers();
+  };
+
+  // Toggle user selection
+  const handleToggleUser = (userId: string) => {
+    setSelectedUsers(prev =>
+      prev.includes(userId)
+        ? prev.filter(id => id !== userId)
+        : [...prev, userId]
+    );
+  };
+
   const handleLotClick = async (lotNumber: string) => {
     if (!lotNumber) {
       enqueueSnackbar('No LOT number available', { variant: 'warning' });
@@ -426,6 +1171,43 @@ const WoodReceipt = () => {
 
       const response = await api.get(`/management/lot-traceability/${lotNumber}`);
       setTraceabilityData(response.data);
+
+      // Initialize cost data
+      if (response.data.cost) {
+        setCostData({
+          purchasePrice: response.data.cost.purchasePrice || '',
+          purchasePriceType: response.data.cost.purchasePriceType || 'LUMPSUM',
+          purchasePriceIncVat: response.data.cost.purchasePriceIncVat || false,
+          transportPrice: response.data.cost.transportPrice || '',
+          transportPriceType: response.data.cost.transportPriceType || 'LUMPSUM',
+          transportPriceIncVat: response.data.cost.transportPriceIncVat || false,
+          slicingExpenses: response.data.cost.slicingExpenses || '',
+          slicingExpensesType: response.data.cost.slicingExpensesType || 'LUMPSUM',
+          slicingExpensesIncVat: response.data.cost.slicingExpensesIncVat || false,
+          otherExpenses: response.data.cost.otherExpenses || '',
+          otherExpensesType: response.data.cost.otherExpensesType || 'LUMPSUM',
+          otherExpensesIncVat: response.data.cost.otherExpensesIncVat || false,
+          notes: response.data.cost.notes || ''
+        });
+        setEditingCost(false); // Costs exist, start in view mode
+      } else {
+        setCostData({
+          purchasePrice: '',
+          purchasePriceType: 'LUMPSUM',
+          purchasePriceIncVat: false,
+          transportPrice: '',
+          transportPriceType: 'LUMPSUM',
+          transportPriceIncVat: false,
+          slicingExpenses: '',
+          slicingExpensesType: 'LUMPSUM',
+          slicingExpensesIncVat: false,
+          otherExpenses: '',
+          otherExpensesType: 'LUMPSUM',
+          otherExpensesIncVat: false,
+          notes: ''
+        });
+        setEditingCost(true); // No costs yet, start in edit mode
+      }
     } catch (error: any) {
       console.error('Error fetching LOT traceability:', error);
       enqueueSnackbar(
@@ -1383,18 +2165,28 @@ const WoodReceipt = () => {
                           </Grid>
                           <Grid item xs={3}>
                             <Typography variant="caption" sx={{ color: '#059669', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
-                              Actual Volume
+                              {receipt.status === 'COMPLETED' ? 'Actual Volume' : 'Current Volume'}
                             </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#059669', mt: 0.5 }}>
-                              {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(3) : 'N/A'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: receipt.status === 'COMPLETED' ? '#059669' : '#ea580c', mt: 0.5 }}>
+                              {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(3) : '0.000'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
+                              {receipt.status !== 'COMPLETED' && (
+                                <Typography component="span" sx={{ ml: 1, fontSize: '0.65rem', color: '#ea580c', fontWeight: 600, textTransform: 'uppercase' }}>
+                                  (Draft)
+                                </Typography>
+                              )}
                             </Typography>
                           </Grid>
                           <Grid item xs={3}>
                             <Typography variant="caption" sx={{ color: '#059669', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.5px' }}>
-                              Actual Pieces
+                              {receipt.status === 'COMPLETED' ? 'Actual Pieces' : 'Current Pieces'}
                             </Typography>
-                            <Typography variant="body1" sx={{ fontWeight: 700, color: '#059669', mt: 0.5 }}>
-                              {receipt.actualPieces || 'N/A'}
+                            <Typography variant="body1" sx={{ fontWeight: 700, color: receipt.status === 'COMPLETED' ? '#059669' : '#ea580c', mt: 0.5 }}>
+                              {receipt.actualPieces || '0'}
+                              {receipt.status !== 'COMPLETED' && (
+                                <Typography component="span" sx={{ ml: 1, fontSize: '0.65rem', color: '#ea580c', fontWeight: 600, textTransform: 'uppercase' }}>
+                                  (Draft)
+                                </Typography>
+                              )}
                             </Typography>
                           </Grid>
                           <Grid item xs={3}>
@@ -1450,6 +2242,75 @@ const WoodReceipt = () => {
                   <Paper elevation={0} sx={{ p: 3, backgroundColor: '#fef2f2', border: '1px dashed #fca5a5', borderRadius: 2 }}>
                     <Typography variant="body2" sx={{ color: '#dc2626', fontStyle: 'italic', textAlign: 'center' }}>
                       No wood receipts found for this LOT
+                    </Typography>
+                  </Paper>
+                )}
+              </Box>
+
+              {/* Receipt Processing History Section */}
+              <Box>
+                <Box sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1.5,
+                  mb: 2,
+                  pb: 1.5,
+                  borderBottom: '2px solid #0891b2'
+                }}>
+                  <HistoryIcon sx={{ color: '#0891b2', fontSize: '1.75rem' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, color: '#0891b2', fontSize: '1.125rem' }}>
+                    Receipt Processing History
+                  </Typography>
+                  <Chip
+                    label={traceabilityData.history?.length || 0}
+                    size="small"
+                    sx={{ backgroundColor: '#0891b2', color: '#fff', fontWeight: 700 }}
+                  />
+                </Box>
+                {traceabilityData.history && traceabilityData.history.length > 0 ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    {traceabilityData.history.map((historyItem: any, index: number) => (
+                      <Paper
+                        key={historyItem.id}
+                        elevation={0}
+                        sx={{
+                          p: 2,
+                          borderLeft: '4px solid #0891b2',
+                          backgroundColor: '#f0f9ff',
+                          border: '1px solid #bae6fd',
+                          borderRadius: 1.5
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#0e7490', fontSize: '0.875rem' }}>
+                              {historyItem.action}
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.8rem', mt: 0.5 }}>
+                              {historyItem.details}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={new Date(historyItem.timestamp).toLocaleString()}
+                            size="small"
+                            sx={{
+                              backgroundColor: '#e0f2fe',
+                              color: '#075985',
+                              fontWeight: 500,
+                              fontSize: '0.7rem'
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                          By: {historyItem.userName}
+                        </Typography>
+                      </Paper>
+                    ))}
+                  </Box>
+                ) : (
+                  <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 2 }}>
+                    <Typography variant="body2" sx={{ color: '#94a3b8', fontStyle: 'italic' }}>
+                      No processing history available for this LOT
                     </Typography>
                   </Paper>
                 )}
@@ -1644,10 +2505,657 @@ const WoodReceipt = () => {
                   </Paper>
                 )}
               </Box>
+
+              {/* Cost Tracking Section - Admin Only */}
+              {user?.role === 'ADMIN' && (
+                <Box sx={{ mt: 3 }}>
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    mb: 2,
+                    pb: 1.5,
+                    borderBottom: '2px solid #16a34a'
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                      <AttachMoneyIcon sx={{ color: '#16a34a', fontSize: '1.75rem' }} />
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: '#16a34a', fontSize: '1.125rem' }}>
+                        Cost Tracking
+                      </Typography>
+                    </Box>
+                    {!editingCost ? (
+                      <Button
+                        size="small"
+                        startIcon={<EditIcon />}
+                        onClick={() => setEditingCost(true)}
+                        sx={{
+                          textTransform: 'none',
+                          color: '#16a34a',
+                          borderColor: '#16a34a',
+                          '&:hover': {
+                            backgroundColor: '#f0fdf4',
+                            borderColor: '#15803d'
+                          }
+                        }}
+                        variant="outlined"
+                      >
+                        Edit Costs
+                      </Button>
+                    ) : (
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            setEditingCost(false);
+                            if (traceabilityData.cost) {
+                              setCostData({
+                                purchasePrice: traceabilityData.cost.purchasePrice || '',
+                                transportPrice: traceabilityData.cost.transportPrice || '',
+                                slicingExpenses: traceabilityData.cost.slicingExpenses || '',
+                                otherExpenses: traceabilityData.cost.otherExpenses || '',
+                                costType: traceabilityData.cost.costType || 'PER_LOT',
+                                notes: traceabilityData.cost.notes || ''
+                              });
+                            }
+                          }}
+                          sx={{ textTransform: 'none' }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={handleSaveCost}
+                          sx={{
+                            textTransform: 'none',
+                            backgroundColor: '#16a34a',
+                            '&:hover': {
+                              backgroundColor: '#15803d'
+                            }
+                          }}
+                        >
+                          Save
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                  <Paper elevation={0} sx={{ p: 3, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 2 }}>
+                    <Grid container spacing={3}>
+                      {/* Purchase Price */}
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Purchase Price"
+                          value={costData.purchasePrice}
+                          onChange={(e) => setCostData({ ...costData, purchasePrice: e.target.value })}
+                          disabled={!editingCost}
+                          type="number"
+                          InputProps={{
+                            startAdornment: <Typography sx={{ mr: 1, color: '#64748b', fontWeight: 600 }}>TZS</Typography>,
+                            endAdornment: (
+                              <Box sx={{ display: 'flex', gap: 1, ml: 1, pl: 1, borderLeft: '1px solid #e2e8f0' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: costData.purchasePriceType === 'LUMPSUM' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per Lot
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.purchasePriceType === 'PER_M3'}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, purchasePriceType: e.target.checked ? 'PER_M3' : 'LUMPSUM' })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.purchasePriceType === 'PER_M3' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per m³
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ width: '1px', backgroundColor: '#e2e8f0' }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: !costData.purchasePriceIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Exc VAT
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.purchasePriceIncVat || false}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, purchasePriceIncVat: e.target.checked })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.purchasePriceIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Inc VAT
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )
+                          }}
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              backgroundColor: '#fff',
+                              pr: 1
+                            }
+                          }}
+                        />
+                      </Grid>
+
+                      {/* Transport Price */}
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Transport Price"
+                          value={costData.transportPrice}
+                          onChange={(e) => setCostData({ ...costData, transportPrice: e.target.value })}
+                          disabled={!editingCost}
+                          type="number"
+                          InputProps={{
+                            startAdornment: <Typography sx={{ mr: 1, color: '#64748b', fontWeight: 600 }}>TZS</Typography>,
+                            endAdornment: (
+                              <Box sx={{ display: 'flex', gap: 1, ml: 1, pl: 1, borderLeft: '1px solid #e2e8f0' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: costData.transportPriceType === 'LUMPSUM' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per Lot
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.transportPriceType === 'PER_M3'}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, transportPriceType: e.target.checked ? 'PER_M3' : 'LUMPSUM' })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.transportPriceType === 'PER_M3' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per m³
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ width: '1px', backgroundColor: '#e2e8f0' }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: !costData.transportPriceIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Exc VAT
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.transportPriceIncVat || false}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, transportPriceIncVat: e.target.checked })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.transportPriceIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Inc VAT
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )
+                          }}
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              backgroundColor: '#fff',
+                              pr: 1
+                            }
+                          }}
+                        />
+                      </Grid>
+
+                      {/* Slicing Expenses */}
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Slicing Expenses"
+                          value={costData.slicingExpenses}
+                          onChange={(e) => setCostData({ ...costData, slicingExpenses: e.target.value })}
+                          disabled={!editingCost}
+                          type="number"
+                          InputProps={{
+                            startAdornment: <Typography sx={{ mr: 1, color: '#64748b', fontWeight: 600 }}>TZS</Typography>,
+                            endAdornment: (
+                              <Box sx={{ display: 'flex', gap: 1, ml: 1, pl: 1, borderLeft: '1px solid #e2e8f0' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: costData.slicingExpensesType === 'LUMPSUM' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per Lot
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.slicingExpensesType === 'PER_M3'}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, slicingExpensesType: e.target.checked ? 'PER_M3' : 'LUMPSUM' })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.slicingExpensesType === 'PER_M3' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per m³
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ width: '1px', backgroundColor: '#e2e8f0' }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: !costData.slicingExpensesIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Exc VAT
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.slicingExpensesIncVat || false}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, slicingExpensesIncVat: e.target.checked })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.slicingExpensesIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Inc VAT
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )
+                          }}
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              backgroundColor: '#fff',
+                              pr: 1
+                            }
+                          }}
+                        />
+                      </Grid>
+
+                      {/* Other Expenses */}
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          fullWidth
+                          label="Other Expenses"
+                          value={costData.otherExpenses}
+                          onChange={(e) => setCostData({ ...costData, otherExpenses: e.target.value })}
+                          disabled={!editingCost}
+                          type="number"
+                          InputProps={{
+                            startAdornment: <Typography sx={{ mr: 1, color: '#64748b', fontWeight: 600 }}>TZS</Typography>,
+                            endAdornment: (
+                              <Box sx={{ display: 'flex', gap: 1, ml: 1, pl: 1, borderLeft: '1px solid #e2e8f0' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: costData.otherExpensesType === 'LUMPSUM' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per Lot
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.otherExpensesType === 'PER_M3'}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, otherExpensesType: e.target.checked ? 'PER_M3' : 'LUMPSUM' })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.otherExpensesType === 'PER_M3' ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Per m³
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ width: '1px', backgroundColor: '#e2e8f0' }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <Typography variant="caption" sx={{
+                                    color: !costData.otherExpensesIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Exc VAT
+                                  </Typography>
+                                  <Switch
+                                    size="small"
+                                    checked={costData.otherExpensesIncVat || false}
+                                    onChange={(e) => editingCost && setCostData({ ...costData, otherExpensesIncVat: e.target.checked })}
+                                    disabled={!editingCost}
+                                    sx={{
+                                      width: 34,
+                                      height: 18,
+                                      p: 0,
+                                      '& .MuiSwitch-switchBase': {
+                                        padding: 0,
+                                        margin: '2px',
+                                        '&.Mui-checked': {
+                                          transform: 'translateX(16px)',
+                                          '& + .MuiSwitch-track': { backgroundColor: '#16a34a' },
+                                        },
+                                      },
+                                      '& .MuiSwitch-thumb': { width: 14, height: 14 },
+                                      '& .MuiSwitch-track': { borderRadius: 9 },
+                                    }}
+                                  />
+                                  <Typography variant="caption" sx={{
+                                    color: costData.otherExpensesIncVat ? '#16a34a' : '#94a3b8',
+                                    fontWeight: 600,
+                                    fontSize: '0.65rem'
+                                  }}>
+                                    Inc VAT
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )
+                          }}
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              backgroundColor: '#fff',
+                              pr: 1
+                            }
+                          }}
+                        />
+                      </Grid>
+
+                      {/* Summary Boxes */}
+                      <Grid item xs={12}>
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={4}>
+                            <Paper elevation={0} sx={{ p: 2, backgroundColor: '#fef3c7', border: '2px solid #fbbf24', borderRadius: 2 }}>
+                              <Typography variant="caption" sx={{ color: '#92400e', fontWeight: 600, fontSize: '0.75rem' }}>
+                                SUBTOTAL (Excluding VAT)
+                              </Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#92400e', mt: 0.5 }}>
+                                TZS {(() => {
+                                  const totalM3 = traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0;
+                                  const purchasePrice = parseFloat(costData.purchasePrice || '0');
+                                  const transportPrice = parseFloat(costData.transportPrice || '0');
+                                  const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
+                                  const otherExpenses = parseFloat(costData.otherExpenses || '0');
+
+                                  // Calculate totals based on Per Lot or Per m³
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
+                                  let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
+                                  let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
+
+                                  // If Inc VAT is checked, extract the base amount (divide by 1.18)
+                                  if (costData.purchasePriceIncVat) purchaseTotal = purchaseTotal / 1.18;
+                                  if (costData.transportPriceIncVat) transportTotal = transportTotal / 1.18;
+                                  if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
+                                  if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
+
+                                  return (purchaseTotal + transportTotal + slicingTotal + otherTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                })()}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                                Total for LOT ({(traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0).toFixed(2)} m³)
+                              </Typography>
+                            </Paper>
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <Paper elevation={0} sx={{ p: 2, backgroundColor: '#dbeafe', border: '2px solid #3b82f6', borderRadius: 2 }}>
+                              <Typography variant="caption" sx={{ color: '#1e40af', fontWeight: 600, fontSize: '0.75rem' }}>
+                                VAT (18%)
+                              </Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e40af', mt: 0.5 }}>
+                                TZS {(() => {
+                                  const totalM3 = traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0;
+                                  const purchasePrice = parseFloat(costData.purchasePrice || '0');
+                                  const transportPrice = parseFloat(costData.transportPrice || '0');
+                                  const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
+                                  const otherExpenses = parseFloat(costData.otherExpenses || '0');
+
+                                  // Calculate totals based on Per Lot or Per m³
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
+                                  let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
+                                  let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
+
+                                  // If Inc VAT is checked, extract the base amount (divide by 1.18)
+                                  if (costData.purchasePriceIncVat) purchaseTotal = purchaseTotal / 1.18;
+                                  if (costData.transportPriceIncVat) transportTotal = transportTotal / 1.18;
+                                  if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
+                                  if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
+
+                                  const subtotal = purchaseTotal + transportTotal + slicingTotal + otherTotal;
+                                  return (subtotal * 0.18).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                })()}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                                18% of subtotal
+                              </Typography>
+                            </Paper>
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <Paper elevation={0} sx={{ p: 2, backgroundColor: '#dcfce7', border: '2px solid #16a34a', borderRadius: 2 }}>
+                              <Typography variant="caption" sx={{ color: '#15803d', fontWeight: 600, fontSize: '0.75rem' }}>
+                                TOTAL (Including VAT)
+                              </Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#15803d', mt: 0.5 }}>
+                                TZS {(() => {
+                                  const totalM3 = traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0;
+                                  const purchasePrice = parseFloat(costData.purchasePrice || '0');
+                                  const transportPrice = parseFloat(costData.transportPrice || '0');
+                                  const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
+                                  const otherExpenses = parseFloat(costData.otherExpenses || '0');
+
+                                  // Calculate totals based on Per Lot or Per m³
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
+                                  let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
+                                  let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
+
+                                  // If Inc VAT is checked, extract the base amount (divide by 1.18)
+                                  if (costData.purchasePriceIncVat) purchaseTotal = purchaseTotal / 1.18;
+                                  if (costData.transportPriceIncVat) transportTotal = transportTotal / 1.18;
+                                  if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
+                                  if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
+
+                                  const subtotal = purchaseTotal + transportTotal + slicingTotal + otherTotal;
+                                  return (subtotal * 1.18).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                })()}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                                Grand total for LOT
+                              </Typography>
+                            </Paper>
+                          </Grid>
+                        </Grid>
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          multiline
+                          rows={2}
+                          label="Notes"
+                          value={costData.notes}
+                          onChange={(e) => setCostData({ ...costData, notes: e.target.value })}
+                          disabled={!editingCost}
+                          placeholder="Additional notes about costs..."
+                          sx={{
+                            '& .MuiOutlinedInput-root': {
+                              backgroundColor: '#fff'
+                            }
+                          }}
+                        />
+                      </Grid>
+
+                    </Grid>
+                  </Paper>
+                </Box>
+              )}
             </Box>
           ) : null}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2 }}>
+        <DialogActions sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              startIcon={<PictureAsPdfIcon />}
+              onClick={generateLotCostingPDF}
+              sx={{
+                textTransform: 'none',
+                color: '#dc2626',
+                borderColor: '#dc2626',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                px: 3,
+                py: 1,
+                '&:hover': {
+                  backgroundColor: '#fef2f2',
+                  borderColor: '#b91c1c'
+                }
+              }}
+              variant="outlined"
+            >
+              Generate PDF
+            </Button>
+            <Button
+              startIcon={<SendIcon />}
+              onClick={handleOpenNotificationDialog}
+              sx={{
+                textTransform: 'none',
+                color: '#2563eb',
+                borderColor: '#2563eb',
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                px: 3,
+                py: 1,
+                '&:hover': {
+                  backgroundColor: '#eff6ff',
+                  borderColor: '#1d4ed8'
+                }
+              }}
+              variant="outlined"
+            >
+              Send Notification
+            </Button>
+          </Box>
           <Button
             onClick={() => setTraceabilityDialogOpen(false)}
             sx={{
@@ -1664,6 +3172,94 @@ const WoodReceipt = () => {
             }}
           >
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Notification Dialog */}
+      <Dialog
+        open={notificationDialogOpen}
+        onClose={() => setNotificationDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Send Notification
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Select users to notify about LOT {traceabilityData?.lotNumber}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          {loadingUsers ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={32} />
+            </Box>
+          ) : users.length === 0 ? (
+            <Typography color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+              No users available
+            </Typography>
+          ) : (
+            <List sx={{ width: '100%', bgcolor: 'background.paper' }}>
+              {users.map((user) => (
+                <ListItem
+                  key={user.id}
+                  disablePadding
+                >
+                  <ListItemButton
+                    onClick={() => handleToggleUser(user.id)}
+                    dense
+                  >
+                    <Checkbox
+                      edge="start"
+                      checked={selectedUsers.includes(user.id)}
+                      tabIndex={-1}
+                      disableRipple
+                      sx={{ mr: 1 }}
+                    />
+                    <ListItemAvatar>
+                      <Avatar sx={{ bgcolor: '#dc2626' }}>
+                        {user.firstName?.[0]}{user.lastName?.[0]}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={`${user.firstName} ${user.lastName}`}
+                      secondary={`${user.email} • ${user.role}`}
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setNotificationDialogOpen(false);
+              setSelectedUsers([]);
+            }}
+            disabled={sendingNotification}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSendNotification}
+            variant="contained"
+            disabled={sendingNotification || selectedUsers.length === 0}
+            sx={{
+              bgcolor: '#dc2626',
+              '&:hover': {
+                bgcolor: '#b91c1c'
+              }
+            }}
+          >
+            {sendingNotification ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} />
+                Sending...
+              </>
+            ) : (
+              `Send to ${selectedUsers.length} user${selectedUsers.length !== 1 ? 's' : ''}`
+            )}
           </Button>
         </DialogActions>
       </Dialog>

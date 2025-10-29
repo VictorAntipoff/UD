@@ -326,6 +326,28 @@ model ReceiptHistory {
   @@index([timestamp])
 }
 
+model LotCost {
+  id                      String   @id @default(uuid())
+  lotNumber               String   @unique
+  purchasePrice           Float?   // Purchase price
+  purchasePriceType       String   @default("LUMPSUM") // LUMPSUM or PER_M3
+  purchasePriceIncVat     Boolean  @default(false) // Whether purchase price includes VAT
+  transportPrice          Float?   // Transportation/shipping price
+  transportPriceType      String   @default("LUMPSUM") // LUMPSUM or PER_M3
+  transportPriceIncVat    Boolean  @default(false) // Whether transport price includes VAT
+  slicingExpenses         Float?   // Slicing operation expenses
+  slicingExpensesType     String   @default("LUMPSUM") // LUMPSUM or PER_M3
+  slicingExpensesIncVat   Boolean  @default(false) // Whether slicing expenses include VAT
+  otherExpenses           Float?   // Other miscellaneous expenses
+  otherExpensesType       String   @default("LUMPSUM") // LUMPSUM or PER_M3
+  otherExpensesIncVat     Boolean  @default(false) // Whether other expenses include VAT
+  notes                   String?  // Additional notes about costs
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([lotNumber])
+}
+
 model Approval {
   id              String    @id @default(uuid())
   operationId     String
