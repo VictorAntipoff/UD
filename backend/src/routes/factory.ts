@@ -672,6 +672,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
           woodType: true,
           readings: {
             orderBy: { readingTime: 'asc' }
+          },
+          items: {
+            include: {
+              woodType: true,
+              sourceWarehouse: true
+            }
           }
         },
         orderBy: { createdAt: 'desc' }
@@ -695,6 +701,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
           woodType: true,
           readings: {
             orderBy: { readingTime: 'asc' }
+          },
+          items: {
+            include: {
+              woodType: true,
+              sourceWarehouse: true
+            }
           }
         }
       });
@@ -714,17 +726,28 @@ async function factoryRoutes(fastify: FastifyInstance) {
   fastify.post('/drying-processes', async (request, reply) => {
     try {
       const data = request.body as {
-        woodTypeId: string;
-        thickness: number;
+        // OLD FORMAT (single wood - backward compatible)
+        woodTypeId?: string;
+        thickness?: number;
         thicknessUnit?: string;
-        pieceCount: number;
+        pieceCount?: number;
+        useStock?: boolean;
+        warehouseId?: string;
+        stockThickness?: string;
+
+        // NEW FORMAT (multiple woods)
+        items?: Array<{
+          woodTypeId: string;
+          thickness: string;
+          pieceCount: number;
+          warehouseId: string;
+        }>;
+
+        // Common fields
         startingHumidity?: number;
         startingElectricityUnits?: number;
         startTime: string;
         notes?: string;
-        useStock?: boolean;
-        warehouseId?: string;
-        stockThickness?: string;
       };
 
       // Get authenticated user info
@@ -733,44 +756,90 @@ async function factoryRoutes(fastify: FastifyInstance) {
         ? `${user.firstName} ${user.lastName}`
         : user.email;
 
+      // Determine if using old or new format
+      const isMultiWood = data.items && data.items.length > 0;
+
       // Validate required fields
-      if (!data.woodTypeId || !data.thickness || !data.pieceCount || !data.startTime) {
-        return reply.status(400).send({ error: 'Missing required fields' });
+      if (!isMultiWood && (!data.woodTypeId || !data.thickness || !data.pieceCount)) {
+        return reply.status(400).send({ error: 'Missing required fields for single wood process' });
+      }
+      if (isMultiWood && (!data.items || data.items.length === 0)) {
+        return reply.status(400).send({ error: 'Missing items for multi-wood process' });
+      }
+      if (!data.startTime) {
+        return reply.status(400).send({ error: 'Missing start time' });
       }
 
       // Generate unique batch number (format: UD-DRY-00001)
       const count = await prisma.dryingProcess.count();
       const batchNumber = `UD-DRY-${String(count + 1).padStart(5, '0')}`;
 
-      // Use transaction if updating stock
+      // Use transaction for stock updates with increased timeout for Neon DB
       const process = await prisma.$transaction(async (tx) => {
         // Create the drying process
         const createdProcess = await tx.dryingProcess.create({
           data: {
             batchNumber,
-            woodTypeId: data.woodTypeId,
-            thickness: data.thickness,
-            thicknessUnit: data.thicknessUnit || 'mm',
-            pieceCount: data.pieceCount,
+            // OLD FIELDS - only for backward compatibility
+            ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
+            ...(data.thickness && { thickness: data.thickness }),
+            ...(data.thicknessUnit && { thicknessUnit: data.thicknessUnit }),
+            ...(data.pieceCount && { pieceCount: data.pieceCount }),
+            ...(data.warehouseId && { sourceWarehouseId: data.warehouseId }),
+            ...(data.stockThickness && { stockThickness: data.stockThickness }),
+
             startingHumidity: data.startingHumidity,
             startingElectricityUnits: data.startingElectricityUnits,
             startTime: new Date(data.startTime),
             notes: data.notes || '',
             status: 'IN_PROGRESS',
-            useStock: data.useStock || false,
-            sourceWarehouseId: data.warehouseId || null,
-            stockThickness: data.stockThickness || null,
+            useStock: isMultiWood || data.useStock || false,
             createdById: user.userId,
             createdByName: userName
-          },
-          include: {
-            woodType: true,
-            readings: true
           }
         });
 
-        // If using stock, update the warehouse stock
-        if (data.useStock && data.warehouseId && data.stockThickness) {
+        // If multi-wood, create items and update stock for each
+        if (isMultiWood && data.items) {
+          for (const item of data.items) {
+            // Validate stock availability
+            const stock = await tx.stock.findFirst({
+              where: {
+                warehouseId: item.warehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness
+              }
+            });
+
+            if (!stock || stock.statusNotDried < item.pieceCount) {
+              throw new Error(`Insufficient stock for wood type at thickness ${item.thickness}`);
+            }
+
+            // Create drying process item
+            await tx.dryingProcessItem.create({
+              data: {
+                dryingProcessId: createdProcess.id,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.pieceCount,
+                sourceWarehouseId: item.warehouseId
+              }
+            });
+
+            // Update stock: NotDried -> UnderDrying
+            await tx.stock.update({
+              where: {
+                id: stock.id
+              },
+              data: {
+                statusNotDried: { decrement: item.pieceCount },
+                statusUnderDrying: { increment: item.pieceCount }
+              }
+            });
+          }
+        }
+        // OLD FORMAT - single wood stock update
+        else if (data.useStock && data.warehouseId && data.stockThickness && data.woodTypeId) {
           await tx.stock.updateMany({
             where: {
               warehouseId: data.warehouseId,
@@ -778,19 +847,39 @@ async function factoryRoutes(fastify: FastifyInstance) {
               thickness: data.stockThickness
             },
             data: {
-              statusNotDried: { decrement: data.pieceCount },
-              statusUnderDrying: { increment: data.pieceCount }
+              statusNotDried: { decrement: data.pieceCount! },
+              statusUnderDrying: { increment: data.pieceCount! }
             }
           });
         }
 
-        return createdProcess;
+        // Fetch complete process with relations
+        const completeProcess = await tx.dryingProcess.findUnique({
+          where: { id: createdProcess.id },
+          include: {
+            woodType: true,
+            readings: true,
+            items: {
+              include: {
+                woodType: true,
+                sourceWarehouse: true
+              }
+            }
+          }
+        });
+
+        return completeProcess;
+      }, {
+        maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
+        timeout: 30000, // Transaction timeout 30 seconds
       });
 
       return process;
     } catch (error) {
       console.error('Error creating drying process:', error);
-      return reply.status(500).send({ error: 'Failed to create drying process' });
+      return reply.status(500).send({
+        error: error instanceof Error ? error.message : 'Failed to create drying process'
+      });
     }
   });
 
@@ -875,25 +964,65 @@ async function factoryRoutes(fastify: FastifyInstance) {
           }
         });
 
-        // If completing the process and it uses stock, update warehouse stock
-        if (data.status === 'COMPLETED' &&
-            currentProcess?.useStock &&
-            currentProcess?.sourceWarehouseId &&
-            currentProcess?.stockThickness) {
-          await tx.stock.updateMany({
-            where: {
-              warehouseId: currentProcess.sourceWarehouseId,
-              woodTypeId: currentProcess.woodTypeId,
-              thickness: currentProcess.stockThickness
-            },
-            data: {
-              statusUnderDrying: { decrement: currentProcess.pieceCount },
-              statusDried: { increment: currentProcess.pieceCount }
-            }
+        // If completing the process, update warehouse stock
+        if (data.status === 'COMPLETED' && currentProcess?.useStock) {
+          // Check if it's a multi-wood process (has items)
+          const processItems = await tx.dryingProcessItem.findMany({
+            where: { dryingProcessId: id }
           });
+
+          if (processItems.length > 0) {
+            // MULTI-WOOD: Update stock for each item
+            for (const item of processItems) {
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: item.sourceWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                },
+                data: {
+                  statusUnderDrying: { decrement: item.pieceCount },
+                  statusDried: { increment: item.pieceCount }
+                }
+              });
+            }
+          } else if (currentProcess.sourceWarehouseId && currentProcess.stockThickness && currentProcess.woodTypeId) {
+            // OLD SINGLE-WOOD: Update stock using old fields
+            await tx.stock.updateMany({
+              where: {
+                warehouseId: currentProcess.sourceWarehouseId,
+                woodTypeId: currentProcess.woodTypeId,
+                thickness: currentProcess.stockThickness
+              },
+              data: {
+                statusUnderDrying: { decrement: currentProcess.pieceCount! },
+                statusDried: { increment: currentProcess.pieceCount! }
+              }
+            });
+          }
         }
 
-        return updatedProcess;
+        // Fetch updated process with all relations
+        const completeProcess = await tx.dryingProcess.findUnique({
+          where: { id },
+          include: {
+            woodType: true,
+            readings: {
+              orderBy: { readingTime: 'asc' }
+            },
+            items: {
+              include: {
+                woodType: true,
+                sourceWarehouse: true
+              }
+            }
+          }
+        });
+
+        return completeProcess;
+      }, {
+        maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
+        timeout: 30000, // Transaction timeout 30 seconds
       });
 
       return process;

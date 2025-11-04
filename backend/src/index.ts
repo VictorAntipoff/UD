@@ -455,20 +455,42 @@ const setupServer = async () => {
   await app.register(healthRoutes, { prefix: '/api' });
 };
 
-// Start server
+// Start server with retry logic for Neon cold starts
 const startServer = async () => {
-  try {
-    await prismaClient.$connect();
-    console.log('✅ Database connected');
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 10000; // 10 seconds
 
-    await setupServer();
-    await app.listen({ port: PORT, host: '0.0.0.0' });
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-  } catch (error) {
-    console.error('❌ Failed to start server:', error);
-    await prismaClient.$disconnect();
-    process.exit(1);
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      console.log(`🔄 Connecting to database (attempt ${attempt}/${MAX_RETRIES})...`);
+      if (attempt === 1) {
+        console.log('⏳ Note: First connection may take 30-60 seconds on Neon free tier (cold start)');
+      }
+
+      await prismaClient.$connect();
+      console.log('✅ Database connected');
+
+      await setupServer();
+      await app.listen({ port: PORT, host: '0.0.0.0' });
+      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+      return; // Success, exit function
+    } catch (error: any) {
+      console.error(`❌ Connection attempt ${attempt} failed:`, error.message);
+
+      if (attempt < MAX_RETRIES) {
+        console.log(`⏳ Waiting ${RETRY_DELAY/1000}s before retry...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      } else {
+        console.error('❌ Failed to start server after all retries');
+        console.error('💡 Troubleshooting:');
+        console.error('   1. Check if your Neon database is active at https://console.neon.tech');
+        console.error('   2. Verify DATABASE_URL in .env file');
+        console.error('   3. Check your internet connection');
+        await prismaClient.$disconnect();
+        process.exit(1);
+      }
+    }
   }
 };
 

@@ -279,24 +279,43 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
               <Text style={styles.label}>Status:</Text>
               <Text style={styles.value}>{getStatusLabel(process.status)}</Text>
             </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Wood Type:</Text>
-              <Text style={styles.value}>{process.woodType.name}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Grade:</Text>
-              <Text style={styles.value}>{process.woodType.grade}</Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Thickness:</Text>
-              <Text style={styles.value}>
-                {(process.thickness / 10).toFixed(1)}cm ({(process.thickness / 25.4).toFixed(2)}in)
-              </Text>
-            </View>
-            <View style={styles.row}>
-              <Text style={styles.label}>Piece Count:</Text>
-              <Text style={styles.value}>{process.pieceCount}</Text>
-            </View>
+            {process.items && process.items.length > 0 ? (
+              // Multi-wood process
+              <>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Wood Types:</Text>
+                  <Text style={styles.value}>Mixed ({process.items.length} types)</Text>
+                </View>
+                {process.items.map((item: any, idx: number) => (
+                  <View key={item.id} style={[styles.row, { marginLeft: 10 }]}>
+                    <Text style={styles.label}>• {item.woodType.name}:</Text>
+                    <Text style={styles.value}>{item.thickness} - {item.pieceCount} pcs</Text>
+                  </View>
+                ))}
+              </>
+            ) : process.woodType ? (
+              // Single-wood process (legacy)
+              <>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Wood Type:</Text>
+                  <Text style={styles.value}>{process.woodType.name}</Text>
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Grade:</Text>
+                  <Text style={styles.value}>{process.woodType.grade}</Text>
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Thickness:</Text>
+                  <Text style={styles.value}>
+                    {(process.thickness / 10).toFixed(1)}cm ({(process.thickness / 25.4).toFixed(2)}in)
+                  </Text>
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Piece Count:</Text>
+                  <Text style={styles.value}>{process.pieceCount}</Text>
+                </View>
+              </>
+            ) : null}
           </View>
 
           <View style={styles.infoColumn}>

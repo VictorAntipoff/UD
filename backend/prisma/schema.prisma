@@ -138,21 +138,22 @@ model ElectricityRecharge {
 }
 
 model WoodType {
-  id              String            @id @default(uuid())
-  name            String
-  description     String?
-  density         Float?
-  grade           String
-  origin          String?
-  calculations    WoodCalculation[]
-  receipts        WoodReceipt[]
-  operations      Operation[]
-  dryingProcesses DryingProcess[]
-  stock           Stock[]
-  transferItems   TransferItem[]
-  stockAdjustments StockAdjustment[]
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  id                   String                @id @default(uuid())
+  name                 String
+  description          String?
+  density              Float?
+  grade                String
+  origin               String?
+  calculations         WoodCalculation[]
+  receipts             WoodReceipt[]
+  operations           Operation[]
+  dryingProcesses      DryingProcess[]
+  dryingProcessItems   DryingProcessItem[]   // NEW: For multi-wood drying
+  stock                Stock[]
+  transferItems        TransferItem[]
+  stockAdjustments     StockAdjustment[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
 }
 
@@ -238,10 +239,13 @@ model Operation {
 model DryingProcess {
   id                        String            @id @default(uuid())
   batchNumber               String            @unique
-  woodTypeId                String
-  thickness                 Float
-  thicknessUnit             String            @default("mm") // "mm" or "inch" - unit used when entering thickness
-  pieceCount                Int
+
+  // OLD FIELDS - Keep for backward compatibility, make nullable
+  woodTypeId                String?           // Nullable for multi-wood processes
+  thickness                 Float?            // Nullable for multi-wood processes
+  thicknessUnit             String?           @default("mm") // "mm" or "inch" - unit used when entering thickness
+  pieceCount                Int?              // Nullable for multi-wood processes
+
   startingHumidity          Float?            // Initial humidity percentage when starting the process
   startingElectricityUnits  Float?            // Initial electricity meter reading (kWh) when starting
   startTime                 DateTime
@@ -252,8 +256,8 @@ model DryingProcess {
 
   // Stock Integration Fields
   useStock                  Boolean           @default(false) // true if using stock, false if manual entry
-  sourceWarehouseId         String?           // Warehouse stock was taken from
-  stockThickness            String?           // Thickness format from stock (1", 2", Custom)
+  sourceWarehouseId         String?           // Warehouse stock was taken from (for old single-wood processes)
+  stockThickness            String?           // Thickness format from stock (1", 2", Custom) - for old processes
 
   // User tracking for audit trail
   createdById               String?           // User ID who created the drying process
@@ -263,9 +267,10 @@ model DryingProcess {
   updatedAt                 DateTime          @updatedAt
 
   // Relations
-  woodType          WoodType          @relation(fields: [woodTypeId], references: [id])
-  sourceWarehouse   Warehouse?        @relation(fields: [sourceWarehouseId], references: [id])
+  woodType          WoodType?                @relation(fields: [woodTypeId], references: [id])
+  sourceWarehouse   Warehouse?               @relation(fields: [sourceWarehouseId], references: [id])
   readings          DryingReading[]
+  items             DryingProcessItem[]      // NEW: Multiple wood types support
 
   @@index([status])
   @@index([woodTypeId])
@@ -273,6 +278,27 @@ model DryingProcess {
   @@index([batchNumber])
   @@index([sourceWarehouseId])
   @@index([createdById])
+}
+
+model DryingProcessItem {
+  id                String         @id @default(uuid())
+  dryingProcessId   String
+  woodTypeId        String
+  thickness         String         // Stock thickness format: "1\"", "2\"", "Custom"
+  pieceCount        Int
+  sourceWarehouseId String         // Warehouse where stock came from
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // Relations
+  dryingProcess     DryingProcess  @relation(fields: [dryingProcessId], references: [id], onDelete: Cascade)
+  woodType          WoodType       @relation(fields: [woodTypeId], references: [id])
+  sourceWarehouse   Warehouse      @relation(fields: [sourceWarehouseId], references: [id])
+
+  @@index([dryingProcessId])
+  @@index([woodTypeId])
+  @@index([sourceWarehouseId])
 }
 
 model DryingReading {
@@ -565,24 +591,25 @@ enum AdjustmentReason {
 }
 
 model Warehouse {
-  id                  String          @id @default(uuid())
-  code                String          @unique
+  id                  String                @id @default(uuid())
+  code                String                @unique
   name                String
   address             String?
   contactPerson       String?
-  stockControlEnabled Boolean         @default(false)
-  requiresApproval    Boolean         @default(false)
-  status              WarehouseStatus @default(ACTIVE)
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
+  stockControlEnabled Boolean               @default(false)
+  requiresApproval    Boolean               @default(false)
+  status              WarehouseStatus       @default(ACTIVE)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   // Relations
   assignedUsers       WarehouseUser[]
   stock               Stock[]
-  transfersFrom       Transfer[]      @relation("TransferFrom")
-  transfersTo         Transfer[]      @relation("TransferTo")
+  transfersFrom       Transfer[]            @relation("TransferFrom")
+  transfersTo         Transfer[]            @relation("TransferTo")
   stockAdjustments    StockAdjustment[]
   dryingProcesses     DryingProcess[]
+  dryingProcessItems  DryingProcessItem[]   // NEW: For multi-wood drying
   woodReceipts        WoodReceipt[]
 
   @@index([code])

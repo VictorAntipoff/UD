@@ -159,14 +159,24 @@ interface DryingReading {
   updatedAt: string;
 }
 
+interface DryingProcessItem {
+  id: string;
+  woodTypeId: string;
+  woodType: WoodType;
+  thickness: string;
+  pieceCount: number;
+  sourceWarehouseId: string;
+  sourceWarehouse: Warehouse;
+}
+
 interface DryingProcess {
   id: string;
   batchNumber: string;
-  woodTypeId: string;
-  woodType: WoodType;
-  thickness: number;
+  woodTypeId?: string | null;
+  woodType?: WoodType | null;
+  thickness?: number | null;
   thicknessUnit?: string;
-  pieceCount: number;
+  pieceCount?: number | null;
   startingHumidity?: number;
   startingElectricityUnits?: number;
   startTime: string;
@@ -177,6 +187,7 @@ interface DryingProcess {
   createdById?: string;
   createdByName?: string;
   readings: DryingReading[];
+  items?: DryingProcessItem[]; // Multi-wood support
   createdAt: string;
   updatedAt: string;
 }
@@ -190,6 +201,8 @@ export default function DryingProcess() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [availableStock, setAvailableStock] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [addingReading, setAddingReading] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [readingDialogOpen, setReadingDialogOpen] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState<DryingProcess | null>(null);
@@ -199,14 +212,24 @@ export default function DryingProcess() {
 
   const [newProcess, setNewProcess] = useState({
     warehouseId: '',
-    woodTypeId: '',
-    thickness: '',
-    pieceCount: '',
     startingHumidity: '',
     startingElectricityUnits: '',
     startTime: new Date().toISOString().slice(0, 16),
     notes: ''
   });
+
+  // Multi-wood support: array of wood items
+  const [woodItems, setWoodItems] = useState<Array<{
+    id: string;
+    woodTypeId: string;
+    thickness: string;
+    pieceCount: string;
+  }>>([{
+    id: Math.random().toString(),
+    woodTypeId: '',
+    thickness: '',
+    pieceCount: ''
+  }]);
 
   const [thicknessUnit, setThicknessUnit] = useState<'mm' | 'inch'>('mm');
   const [editThicknessUnit, setEditThicknessUnit] = useState<'mm' | 'inch'>('mm');
@@ -225,6 +248,14 @@ export default function DryingProcess() {
     startTime: '',
     notes: ''
   });
+
+  // Edit wood items for multi-wood processes
+  const [editWoodItems, setEditWoodItems] = useState<Array<{
+    id: string;
+    woodTypeId: string;
+    thickness: string;
+    pieceCount: string;
+  }>>([]);
 
   const [newReading, setNewReading] = useState({
     electricityMeter: '',
@@ -342,66 +373,86 @@ export default function DryingProcess() {
 
   const handleCreateProcess = async () => {
     try {
-      // Find the selected stock to get thickness in mm
-      const selectedStock = availableStock.find(
-        s => s.woodTypeId === newProcess.woodTypeId && s.thickness === newProcess.thickness
-      );
-
-      if (!selectedStock) {
-        alert('Selected stock not found');
+      // Validate warehouse selected
+      if (!newProcess.warehouseId) {
+        alert('Please select a warehouse');
         return;
       }
 
-      // Validate quantity doesn't exceed available not dried stock
-      const requestedQuantity = parseInt(newProcess.pieceCount);
-      if (requestedQuantity > selectedStock.statusNotDried) {
-        alert(`Cannot dry ${requestedQuantity} pieces. Only ${selectedStock.statusNotDried} not dried pieces available.`);
+      // Validate at least one wood item
+      if (woodItems.length === 0 || !woodItems[0].woodTypeId) {
+        alert('Please add at least one wood type');
         return;
       }
 
-      if (requestedQuantity <= 0) {
-        alert('Please enter a valid number of pieces (minimum 1)');
-        return;
+      // Validate all wood items
+      const items = [];
+      for (const item of woodItems) {
+        if (!item.woodTypeId || !item.thickness || !item.pieceCount) {
+          alert('Please fill in all fields for each wood type');
+          return;
+        }
+
+        // Find the stock for validation
+        const stock = availableStock.find(
+          s => s.woodTypeId === item.woodTypeId && s.thickness === item.thickness
+        );
+
+        if (!stock) {
+          alert('Selected stock not found for one of the wood types');
+          return;
+        }
+
+        const requestedQuantity = parseInt(item.pieceCount);
+        if (requestedQuantity > stock.statusNotDried) {
+          const woodType = woodTypes.find(w => w.id === item.woodTypeId);
+          alert(`Cannot dry ${requestedQuantity} pieces of ${woodType?.name} ${item.thickness}. Only ${stock.statusNotDried} not dried pieces available.`);
+          return;
+        }
+
+        if (requestedQuantity <= 0) {
+          alert('Please enter a valid number of pieces (minimum 1) for all wood types');
+          return;
+        }
+
+        items.push({
+          woodTypeId: item.woodTypeId,
+          thickness: item.thickness,
+          pieceCount: requestedQuantity,
+          warehouseId: newProcess.warehouseId
+        });
       }
 
-      // Convert thickness string (e.g., "2\"") to mm
-      let thicknessInMm: number;
-      if (selectedStock.thickness.includes('"')) {
-        const inches = parseFloat(selectedStock.thickness.replace('"', ''));
-        thicknessInMm = inches * 25.4;
-      } else {
-        thicknessInMm = parseFloat(selectedStock.thickness);
-      }
-
+      // Create process with multiple items
       const response = await api.post('/factory/drying-processes', {
-        warehouseId: newProcess.warehouseId,
-        woodTypeId: newProcess.woodTypeId,
-        thickness: thicknessInMm,
-        thicknessUnit: 'mm',
-        stockThickness: selectedStock.thickness,
-        pieceCount: parseInt(newProcess.pieceCount),
+        items: items,
         startingHumidity: newProcess.startingHumidity ? parseFloat(newProcess.startingHumidity) : undefined,
         startingElectricityUnits: newProcess.startingElectricityUnits ? parseFloat(newProcess.startingElectricityUnits) : undefined,
         startTime: newProcess.startTime,
-        notes: newProcess.notes,
-        useStock: true
+        notes: newProcess.notes
       });
 
       setProcesses([response.data, ...processes]);
       setCreateDialogOpen(false);
+
+      // Reset form
       setNewProcess({
         warehouseId: '',
-        woodTypeId: '',
-        thickness: '',
-        pieceCount: '',
         startingHumidity: '',
         startingElectricityUnits: '',
         startTime: new Date().toISOString().slice(0, 16),
         notes: ''
       });
+      setWoodItems([{
+        id: Math.random().toString(),
+        woodTypeId: '',
+        thickness: '',
+        pieceCount: ''
+      }]);
       setAvailableStock([]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating process:', error);
+      alert(error.response?.data?.error || 'Failed to create drying process');
     }
   };
 
@@ -421,9 +472,11 @@ export default function DryingProcess() {
   };
 
   const handleAddReading = async () => {
-    if (!selectedProcess) return;
+    if (!selectedProcess || addingReading) return;
 
     try {
+      setAddingReading(true);
+
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
@@ -444,8 +497,11 @@ export default function DryingProcess() {
       setLukuSms('');
       setLukuError(null);
       setLukuSuccess(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding reading:', error);
+      alert(error.response?.data?.error || 'Failed to add reading. Please try again.');
+    } finally {
+      setAddingReading(false);
     }
   };
 
@@ -595,7 +651,7 @@ export default function DryingProcess() {
       const searchLower = completedSearchTerm.toLowerCase();
       filtered = filtered.filter(p =>
         p.batchNumber.toLowerCase().includes(searchLower) ||
-        p.woodType.name.toLowerCase().includes(searchLower)
+        (p.woodType && p.woodType.name.toLowerCase().includes(searchLower))
       );
     }
 
@@ -608,7 +664,9 @@ export default function DryingProcess() {
           compareValue = a.batchNumber.localeCompare(b.batchNumber);
           break;
         case 'woodType':
-          compareValue = a.woodType.name.localeCompare(b.woodType.name);
+          const nameA = a.woodType?.name || '';
+          const nameB = b.woodType?.name || '';
+          compareValue = nameA.localeCompare(nameB);
           break;
         case 'completedDate':
           const dateA = a.endTime ? new Date(a.endTime).getTime() : 0;
@@ -776,41 +834,81 @@ export default function DryingProcess() {
 
   const openEditDialog = (process: DryingProcess) => {
     setSelectedProcess(process);
-    setEditData({
-      woodTypeId: process.woodTypeId,
-      thickness: process.thickness.toString(),
-      pieceCount: process.pieceCount.toString(),
-      startingHumidity: process.startingHumidity?.toString() || '',
-      startingElectricityUnits: process.startingElectricityUnits?.toString() || '',
-      startTime: new Date(process.startTime).toISOString().slice(0, 16),
-      notes: process.notes || ''
-    });
+
+    // Check if multi-wood or single-wood process
+    if (process.items && process.items.length > 0) {
+      // Multi-wood process
+      setEditWoodItems(process.items.map(item => ({
+        id: item.id,
+        woodTypeId: item.woodTypeId,
+        thickness: item.thickness,
+        pieceCount: item.pieceCount.toString()
+      })));
+
+      // Set common fields
+      setEditData({
+        woodTypeId: '', // Not used for multi-wood
+        thickness: '', // Not used for multi-wood
+        pieceCount: '', // Not used for multi-wood
+        startingHumidity: process.startingHumidity?.toString() || '',
+        startingElectricityUnits: process.startingElectricityUnits?.toString() || '',
+        startTime: new Date(process.startTime).toISOString().slice(0, 16),
+        notes: process.notes || ''
+      });
+    } else if (process.woodTypeId && process.thickness !== null && process.pieceCount !== null) {
+      // Legacy single-wood process
+      setEditWoodItems([]); // Clear multi-wood items
+      setEditData({
+        woodTypeId: process.woodTypeId,
+        thickness: process.thickness.toString(),
+        pieceCount: process.pieceCount.toString(),
+        startingHumidity: process.startingHumidity?.toString() || '',
+        startingElectricityUnits: process.startingElectricityUnits?.toString() || '',
+        startTime: new Date(process.startTime).toISOString().slice(0, 16),
+        notes: process.notes || ''
+      });
+    } else {
+      alert('Cannot edit this process. Missing required fields.');
+      return;
+    }
+
     setEditThicknessUnit('mm'); // Always show stored value in mm
     setEditDialogOpen(true);
   };
 
 
   const handleUpdateProcess = async () => {
-    if (!selectedProcess) return;
+    if (!selectedProcess || updating) return;
 
     try {
-      const thicknessInMm = convertToMm(parseFloat(editData.thickness), editThicknessUnit);
+      setUpdating(true);
 
-      await api.put(`/factory/drying-processes/${selectedProcess.id}`, {
-        woodTypeId: editData.woodTypeId,
-        thickness: thicknessInMm,
-        thicknessUnit: editThicknessUnit,
-        pieceCount: parseInt(editData.pieceCount),
+      // For single-wood processes, include wood-specific fields
+      const updateData: any = {
         startingHumidity: editData.startingHumidity ? parseFloat(editData.startingHumidity) : undefined,
         startingElectricityUnits: editData.startingElectricityUnits ? parseFloat(editData.startingElectricityUnits) : undefined,
         startTime: editData.startTime,
         notes: editData.notes
-      });
+      };
+
+      // Only include wood-specific fields for single-wood processes
+      if (editWoodItems.length === 0) {
+        const thicknessInMm = convertToMm(parseFloat(editData.thickness), editThicknessUnit);
+        updateData.woodTypeId = editData.woodTypeId;
+        updateData.thickness = thicknessInMm;
+        updateData.thicknessUnit = editThicknessUnit;
+        updateData.pieceCount = parseInt(editData.pieceCount);
+      }
+
+      await api.put(`/factory/drying-processes/${selectedProcess.id}`, updateData);
 
       await fetchData();
       setEditDialogOpen(false);
     } catch (error) {
       console.error('Error updating process:', error);
+      alert('Failed to update process. Please try again.');
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -997,8 +1095,26 @@ export default function DryingProcess() {
                           />
                         </Box>
                         <Typography variant="body2" sx={{ color: '#64748b', fontSize: { xs: '0.813rem', sm: '0.875rem' } }}>
-                          {process.woodType.name} • {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
-                          {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
+                          {process.items && process.items.length > 0 ? (
+                            // Multi-wood process
+                            <>
+                              {process.items.map((item: any, idx: number) => (
+                                <span key={item.id}>
+                                  {item.woodType.name} {item.thickness} ({item.pieceCount} pcs)
+                                  {idx < process.items.length - 1 && ' + '}
+                                </span>
+                              ))}
+                              {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
+                            </>
+                          ) : process.woodType ? (
+                            // Single-wood process (legacy)
+                            <>
+                              {process.woodType.name} • {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
+                              {process.startingHumidity && ` • Initial humidity: ${process.startingHumidity}%`}
+                            </>
+                          ) : (
+                            'Loading...'
+                          )}
                         </Typography>
                       </Box>
                       <Stack
@@ -1899,12 +2015,34 @@ export default function DryingProcess() {
                               </Box>
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                                {process.woodType.name}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
-                                {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pcs
-                              </Typography>
+                              {process.items && process.items.length > 0 ? (
+                                // Multi-wood process
+                                <>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                                    Mixed Wood ({process.items.length} types)
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                    {process.items.map((item: any, idx: number) => (
+                                      <span key={item.id}>
+                                        {item.woodType.name} {item.thickness} ({item.pieceCount} pcs)
+                                        {idx < process.items.length - 1 && ', '}
+                                      </span>
+                                    ))}
+                                  </Typography>
+                                </>
+                              ) : process.woodType ? (
+                                // Single-wood process (legacy)
+                                <>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                                    {process.woodType.name}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                    {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pcs
+                                  </Typography>
+                                </>
+                              ) : (
+                                <Typography variant="body2" sx={{ color: '#94a3b8' }}>Loading...</Typography>
+                              )}
                             </TableCell>
                             <TableCell>
                               {process.endTime ? (
@@ -2227,7 +2365,13 @@ export default function DryingProcess() {
               value={newProcess.warehouseId}
               onChange={(e) => {
                 const warehouseId = e.target.value;
-                setNewProcess({ ...newProcess, warehouseId, woodTypeId: '', thickness: '' });
+                setNewProcess({ ...newProcess, warehouseId });
+                setWoodItems([{
+                  id: Math.random().toString(),
+                  woodTypeId: '',
+                  thickness: '',
+                  pieceCount: ''
+                }]);
                 fetchWarehouseStock(warehouseId);
               }}
               size="small"
@@ -2240,68 +2384,143 @@ export default function DryingProcess() {
               ))}
             </TextField>
 
-            <TextField
-              select
-              fullWidth
-              label="Wood Type"
-              value={newProcess.woodTypeId}
-              onChange={(e) => setNewProcess({ ...newProcess, woodTypeId: e.target.value, thickness: '' })}
-              size="small"
-              sx={textFieldSx}
-              disabled={!newProcess.warehouseId}
-              helperText={!newProcess.warehouseId ? 'Select a warehouse first' : ''}
-            >
-              {Array.from(new Set(availableStock.map(s => s.woodTypeId))).map(woodTypeId => {
-                const stock = availableStock.find(s => s.woodTypeId === woodTypeId);
-                return stock ? (
-                  <MenuItem key={stock.woodType.id} value={stock.woodType.id}>
-                    {stock.woodType.name}
-                  </MenuItem>
-                ) : null;
-              })}
-            </TextField>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#1e293b', mt: 1 }}>
+              Wood Types in This Batch
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#64748b', mt: -1 }}>
+              Only not dried pieces can be used for drying
+            </Typography>
 
-            <TextField
-              select
-              fullWidth
-              label="Thickness & Available Stock (Not Dried)"
-              value={newProcess.thickness}
-              onChange={(e) => setNewProcess({ ...newProcess, thickness: e.target.value })}
-              size="small"
-              sx={textFieldSx}
-              disabled={!newProcess.woodTypeId}
-              helperText={!newProcess.woodTypeId ? 'Select wood type first' : 'Only not dried pieces can be used for drying'}
-            >
-              {availableStock
-                .filter(s => s.woodTypeId === newProcess.woodTypeId && s.statusNotDried > 0)
-                .map((stock) => {
-                  return (
-                    <MenuItem key={stock.id} value={stock.thickness}>
-                      {stock.thickness} - Available: {stock.statusNotDried} pcs (Not Dried)
-                    </MenuItem>
-                  );
-                })}
-            </TextField>
+            {woodItems.map((item, index) => (
+              <Paper
+                key={item.id}
+                elevation={0}
+                sx={{
+                  p: 2,
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 1,
+                  position: 'relative'
+                }}
+              >
+                <Stack spacing={2}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#475569' }}>
+                      Wood Type {index + 1}
+                    </Typography>
+                    {woodItems.length > 1 && (
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setWoodItems(woodItems.filter(w => w.id !== item.id));
+                        }}
+                        sx={{ color: '#dc2626' }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </Box>
 
-            <TextField
-              fullWidth
-              label="Number of Pieces"
-              type="number"
-              value={newProcess.pieceCount}
-              onChange={(e) => setNewProcess({ ...newProcess, pieceCount: e.target.value })}
-              size="small"
-              sx={textFieldSx}
-              disabled={!newProcess.thickness}
-              helperText={
-                newProcess.thickness
-                  ? `Max available: ${availableStock.find(s => s.woodTypeId === newProcess.woodTypeId && s.thickness === newProcess.thickness)?.statusNotDried || 0} pcs`
-                  : 'Select thickness first'
-              }
-              inputProps={{
-                max: availableStock.find(s => s.woodTypeId === newProcess.woodTypeId && s.thickness === newProcess.thickness)?.statusNotDried || 0,
-                min: 1
+                  <TextField
+                    select
+                    fullWidth
+                    label="Wood Type"
+                    value={item.woodTypeId}
+                    onChange={(e) => {
+                      const updated = [...woodItems];
+                      updated[index] = { ...item, woodTypeId: e.target.value, thickness: '', pieceCount: '' };
+                      setWoodItems(updated);
+                    }}
+                    size="small"
+                    sx={textFieldSx}
+                    disabled={!newProcess.warehouseId}
+                  >
+                    {Array.from(new Set(availableStock.map(s => s.woodTypeId))).map(woodTypeId => {
+                      const stock = availableStock.find(s => s.woodTypeId === woodTypeId);
+                      return stock ? (
+                        <MenuItem key={stock.woodType.id} value={stock.woodType.id}>
+                          {stock.woodType.name}
+                        </MenuItem>
+                      ) : null;
+                    })}
+                  </TextField>
+
+                  <TextField
+                    select
+                    fullWidth
+                    label="Thickness & Available Stock (Not Dried)"
+                    value={item.thickness}
+                    onChange={(e) => {
+                      const updated = [...woodItems];
+                      updated[index] = { ...item, thickness: e.target.value, pieceCount: '' };
+                      setWoodItems(updated);
+                    }}
+                    size="small"
+                    sx={textFieldSx}
+                    disabled={!item.woodTypeId}
+                  >
+                    {availableStock
+                      .filter(s => s.woodTypeId === item.woodTypeId && s.statusNotDried > 0)
+                      .map((stock) => (
+                        <MenuItem key={stock.id} value={stock.thickness}>
+                          {stock.thickness} - Available: {stock.statusNotDried} pcs (Not Dried)
+                        </MenuItem>
+                      ))}
+                  </TextField>
+
+                  <TextField
+                    fullWidth
+                    label="Number of Pieces"
+                    type="number"
+                    value={item.pieceCount}
+                    onChange={(e) => {
+                      const updated = [...woodItems];
+                      updated[index] = { ...item, pieceCount: e.target.value };
+                      setWoodItems(updated);
+                    }}
+                    size="small"
+                    sx={textFieldSx}
+                    disabled={!item.thickness}
+                    helperText={
+                      item.thickness
+                        ? `Max available: ${availableStock.find(s => s.woodTypeId === item.woodTypeId && s.thickness === item.thickness)?.statusNotDried || 0} pcs`
+                        : 'Select thickness first'
+                    }
+                    inputProps={{
+                      max: availableStock.find(s => s.woodTypeId === item.woodTypeId && s.thickness === item.thickness)?.statusNotDried || 0,
+                      min: 1
+                    }}
+                  />
+                </Stack>
+              </Paper>
+            ))}
+
+            <Button
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setWoodItems([
+                  ...woodItems,
+                  {
+                    id: Math.random().toString(),
+                    woodTypeId: '',
+                    thickness: '',
+                    pieceCount: ''
+                  }
+                ]);
               }}
-            />
+              disabled={!newProcess.warehouseId}
+              sx={{
+                textTransform: 'none',
+                color: '#dc2626',
+                borderColor: '#dc2626',
+                '&:hover': {
+                  borderColor: '#b91c1c',
+                  backgroundColor: '#fef2f2'
+                }
+              }}
+              variant="outlined"
+            >
+              Add Another Wood Type
+            </Button>
 
             <TextField
               fullWidth
@@ -2388,7 +2607,13 @@ export default function DryingProcess() {
           <Button
             onClick={handleCreateProcess}
             variant="contained"
-            disabled={!newProcess.woodTypeId || !newProcess.thickness || !newProcess.pieceCount}
+            disabled={
+              !newProcess.warehouseId ||
+              woodItems.length === 0 ||
+              !woodItems[0].woodTypeId ||
+              !woodItems[0].thickness ||
+              !woodItems[0].pieceCount
+            }
             sx={{
               backgroundColor: '#dc2626',
               textTransform: 'none',
@@ -2559,7 +2784,8 @@ export default function DryingProcess() {
           <Button
             onClick={handleAddReading}
             variant="contained"
-            disabled={!newReading.electricityMeter || !newReading.humidity}
+            disabled={addingReading || !newReading.electricityMeter || !newReading.humidity}
+            startIcon={addingReading ? <CircularProgress size={20} sx={{ color: 'white' }} /> : null}
             sx={{
               backgroundColor: '#dc2626',
               textTransform: 'none',
@@ -2567,10 +2793,15 @@ export default function DryingProcess() {
               px: 3,
               '&:hover': {
                 backgroundColor: '#b91c1c',
+              },
+              '&:disabled': {
+                backgroundColor: '#f87171',
+                color: 'white',
+                opacity: 0.7
               }
             }}
           >
-            Add Reading
+            {addingReading ? 'Adding...' : 'Add Reading'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2771,32 +3002,51 @@ export default function DryingProcess() {
                   Process Information
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                      Wood Type:
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {selectedProcess.woodType.name}
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" sx={{ color: '#e2e8f0' }}>•</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                      Thickness:
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {(selectedProcess.thickness / 10).toFixed(1)}cm ({(selectedProcess.thickness / 25.4).toFixed(2)}in)
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" sx={{ color: '#e2e8f0' }}>•</Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                      Pieces:
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                      {selectedProcess.pieceCount}
-                    </Typography>
-                  </Box>
+                  {selectedProcess.items && selectedProcess.items.length > 0 ? (
+                    // Multi-wood process
+                    <Box sx={{ width: '100%' }}>
+                      <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 1 }}>
+                        Wood Types ({selectedProcess.items.length}):
+                      </Typography>
+                      {selectedProcess.items.map((item: any) => (
+                        <Box key={item.id} sx={{ mb: 0.5, pl: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            • {item.woodType.name} {item.thickness} - {item.pieceCount} pieces
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : selectedProcess.woodType ? (
+                    // Single-wood process (legacy)
+                    <>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                          Wood Type:
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {selectedProcess.woodType.name}
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" sx={{ color: '#e2e8f0' }}>•</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                          Thickness:
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {(selectedProcess.thickness / 10).toFixed(1)}cm ({(selectedProcess.thickness / 25.4).toFixed(2)}in)
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" sx={{ color: '#e2e8f0' }}>•</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                          Pieces:
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {selectedProcess.pieceCount}
+                        </Typography>
+                      </Box>
+                    </>
+                  ) : null}
                   <Typography variant="body2" sx={{ color: '#e2e8f0' }}>•</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
@@ -3011,7 +3261,7 @@ export default function DryingProcess() {
                           <TableCell sx={{ fontSize: '0.75rem' }}>
                             <Box>
                               <Typography variant="body2" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1e293b' }}>
-                                {reading.createdByName || 'Unknown'}
+                                {reading.createdByName || 'System'}
                               </Typography>
                               {reading.createdAt && (
                                 <Typography variant="caption" sx={{ fontSize: '0.65rem', color: '#94a3b8' }}>
@@ -3144,98 +3394,111 @@ export default function DryingProcess() {
         <Divider />
         <DialogContent sx={{ pt: 3 }}>
           <Stack spacing={2.5}>
-            <TextField
-              select
-              fullWidth
-              label="Wood Type"
-              value={editData.woodTypeId}
-              onChange={(e) => setEditData({ ...editData, woodTypeId: e.target.value })}
-              size="small"
-              sx={textFieldSx}
-            >
-              {woodTypes.map((type) => (
-                <MenuItem key={type.id} value={type.id}>
-                  {type.name} ({type.grade})
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 500 }}>
-                  Thickness
-                </Typography>
-                <ToggleButtonGroup
-                  value={editThicknessUnit}
-                  exclusive
-                  onChange={(e, newUnit) => {
-                    if (newUnit !== null) {
-                      // Convert the current value when switching units
-                      const currentValue = parseFloat(editData.thickness);
-                      if (!isNaN(currentValue)) {
-                        if (editThicknessUnit === 'mm' && newUnit === 'inch') {
-                          // Convert mm to inch
-                          setEditData({ ...editData, thickness: (currentValue / 25.4).toFixed(3) });
-                        } else if (editThicknessUnit === 'inch' && newUnit === 'mm') {
-                          // Convert inch to mm
-                          setEditData({ ...editData, thickness: (currentValue * 25.4).toFixed(1) });
-                        }
-                      }
-                      setEditThicknessUnit(newUnit);
-                    }
-                  }}
-                  size="small"
-                  sx={{
-                    '& .MuiToggleButton-root': {
-                      px: 2,
-                      py: 0.5,
-                      fontSize: '0.75rem',
-                      textTransform: 'none',
-                      border: '1px solid #e2e8f0',
-                      '&.Mui-selected': {
-                        backgroundColor: '#f59e0b',
-                        color: 'white',
-                        '&:hover': {
-                          backgroundColor: '#d97706',
-                        }
-                      }
-                    }
-                  }}
-                >
-                  <ToggleButton value="mm">mm</ToggleButton>
-                  <ToggleButton value="inch">inch</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
+            {editWoodItems.length > 0 ? (
+              // Multi-wood process - show items
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Multi-wood process: Wood items cannot be modified after creation. You can only edit process settings below.
+              </Alert>
+            ) : (
+              // Single-wood process - show wood type selector
               <TextField
+                select
                 fullWidth
-                type="number"
-                value={editData.thickness}
-                onChange={(e) => setEditData({ ...editData, thickness: e.target.value })}
+                label="Wood Type"
+                value={editData.woodTypeId}
+                onChange={(e) => setEditData({ ...editData, woodTypeId: e.target.value })}
                 size="small"
-                placeholder={editThicknessUnit === 'mm' ? 'Enter thickness in mm' : 'Enter thickness in inches'}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                        {editThicknessUnit}
-                      </Typography>
-                    </InputAdornment>
-                  )
-                }}
                 sx={textFieldSx}
-                inputProps={{ step: editThicknessUnit === 'inch' ? 0.125 : 1 }}
-              />
-            </Box>
+              >
+                {woodTypes.map((type) => (
+                  <MenuItem key={type.id} value={type.id}>
+                    {type.name} ({type.grade})
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
 
-            <TextField
-              fullWidth
-              label="Number of Pieces"
-              type="number"
-              value={editData.pieceCount}
-              onChange={(e) => setEditData({ ...editData, pieceCount: e.target.value })}
-              size="small"
-              sx={textFieldSx}
-            />
+            {editWoodItems.length === 0 && (
+              // Only show thickness and piece count for single-wood processes
+              <>
+                <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.875rem', fontWeight: 500 }}>
+                      Thickness
+                    </Typography>
+                    <ToggleButtonGroup
+                      value={editThicknessUnit}
+                      exclusive
+                      onChange={(e, newUnit) => {
+                        if (newUnit !== null) {
+                          // Convert the current value when switching units
+                          const currentValue = parseFloat(editData.thickness);
+                          if (!isNaN(currentValue)) {
+                            if (editThicknessUnit === 'mm' && newUnit === 'inch') {
+                              // Convert mm to inch
+                              setEditData({ ...editData, thickness: (currentValue / 25.4).toFixed(3) });
+                            } else if (editThicknessUnit === 'inch' && newUnit === 'mm') {
+                              // Convert inch to mm
+                              setEditData({ ...editData, thickness: (currentValue * 25.4).toFixed(1) });
+                            }
+                          }
+                          setEditThicknessUnit(newUnit);
+                        }
+                      }}
+                      size="small"
+                      sx={{
+                        '& .MuiToggleButton-root': {
+                          px: 2,
+                          py: 0.5,
+                          fontSize: '0.75rem',
+                          textTransform: 'none',
+                          border: '1px solid #e2e8f0',
+                          '&.Mui-selected': {
+                            backgroundColor: '#f59e0b',
+                            color: 'white',
+                            '&:hover': {
+                              backgroundColor: '#d97706',
+                            }
+                          }
+                        }
+                      }}
+                    >
+                      <ToggleButton value="mm">mm</ToggleButton>
+                      <ToggleButton value="inch">inch</ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    value={editData.thickness}
+                    onChange={(e) => setEditData({ ...editData, thickness: e.target.value })}
+                    size="small"
+                    placeholder={editThicknessUnit === 'mm' ? 'Enter thickness in mm' : 'Enter thickness in inches'}
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                            {editThicknessUnit}
+                          </Typography>
+                        </InputAdornment>
+                      )
+                    }}
+                    sx={textFieldSx}
+                    inputProps={{ step: editThicknessUnit === 'inch' ? 0.125 : 1 }}
+                  />
+                </Box>
+
+                <TextField
+                  fullWidth
+                  label="Number of Pieces"
+                  type="number"
+                  value={editData.pieceCount}
+                  onChange={(e) => setEditData({ ...editData, pieceCount: e.target.value })}
+                  size="small"
+                  sx={textFieldSx}
+                />
+              </>
+            )}
 
             <TextField
               fullWidth
@@ -3324,7 +3587,8 @@ export default function DryingProcess() {
           <Button
             onClick={handleUpdateProcess}
             variant="contained"
-            disabled={!editData.woodTypeId || !editData.thickness || !editData.pieceCount}
+            disabled={updating || (editWoodItems.length === 0 && (!editData.woodTypeId || !editData.thickness || !editData.pieceCount))}
+            startIcon={updating ? <CircularProgress size={20} sx={{ color: 'white' }} /> : null}
             sx={{
               backgroundColor: '#f59e0b',
               textTransform: 'none',
@@ -3332,10 +3596,15 @@ export default function DryingProcess() {
               px: 3,
               '&:hover': {
                 backgroundColor: '#d97706',
+              },
+              '&:disabled': {
+                backgroundColor: '#fbbf24',
+                color: 'white',
+                opacity: 0.7
               }
             }}
           >
-            Update Process
+            {updating ? 'Updating...' : 'Update Process'}
           </Button>
         </DialogActions>
       </Dialog>
