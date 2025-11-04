@@ -2243,12 +2243,34 @@ export default function DryingProcess() {
                             </Box>
 
                             {/* Wood Type */}
-                            <Typography variant="body1" sx={{ fontWeight: 600, color: '#1e293b', mb: 0.5 }}>
-                              {process.woodType.name}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 2 }}>
-                              {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
-                            </Typography>
+                            {process.items && process.items.length > 0 ? (
+                              // Multi-wood process
+                              <>
+                                <Typography variant="body1" sx={{ fontWeight: 600, color: '#1e293b', mb: 0.5 }}>
+                                  Mixed Wood ({process.items.length} types)
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 2 }}>
+                                  {process.items.map((item, idx) => (
+                                    <span key={item.id}>
+                                      {item.woodType.name} {item.thickness} ({item.pieceCount} pcs)
+                                      {idx < process.items.length - 1 && ', '}
+                                    </span>
+                                  ))}
+                                </Typography>
+                              </>
+                            ) : process.woodType ? (
+                              // Single-wood process
+                              <>
+                                <Typography variant="body1" sx={{ fontWeight: 600, color: '#1e293b', mb: 0.5 }}>
+                                  {process.woodType.name}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 2 }}>
+                                  {(process.thickness / 25.4).toFixed(1)}" ({process.thickness}mm) • {process.pieceCount} pieces
+                                </Typography>
+                              </>
+                            ) : (
+                              <Typography variant="body2" sx={{ color: '#94a3b8', mb: 2 }}>Loading...</Typography>
+                            )}
 
                             {/* Stats Cards */}
                             <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
