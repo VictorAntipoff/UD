@@ -590,21 +590,23 @@ const Dashboard = () => {
                       {process.batchNumber || 'N/A'}
                     </Box>
                   </Grid>
-                  <Grid item xs={12} sm={2}>
+                  <Grid item xs={12} sm={4}>
                     <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
-                      Wood Type
+                      Wood Type & Pieces
                     </Typography>
-                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                      {process.woodType?.name || 'N/A'}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={2}>
-                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
-                      Pieces
-                    </Typography>
-                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                      {process.pieceCount || 0} pcs
-                    </Typography>
+                    {process.items && process.items.length > 0 ? (
+                      <Box>
+                        {process.items.map((item: any, idx: number) => (
+                          <Typography key={item.id} sx={{ fontWeight: 600, fontSize: '0.875rem', lineHeight: 1.4 }}>
+                            {item.woodType?.name || 'Unknown'} {item.thickness} - {item.pieceCount} pcs
+                          </Typography>
+                        ))}
+                      </Box>
+                    ) : (
+                      <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                        {process.woodType?.name || 'N/A'} - {process.pieceCount || 0} pcs
+                      </Typography>
+                    )}
                   </Grid>
                   <Grid item xs={12} sm={2}>
                     <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>

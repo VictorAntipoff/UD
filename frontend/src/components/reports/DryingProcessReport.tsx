@@ -288,8 +288,8 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
                 </View>
                 {process.items.map((item: any, idx: number) => (
                   <View key={item.id} style={[styles.row, { marginLeft: 10 }]}>
-                    <Text style={styles.label}>• {item.woodType.name}:</Text>
-                    <Text style={styles.value}>{item.thickness} - {item.pieceCount} pcs</Text>
+                    <Text style={styles.label}>• {item.woodType?.name || 'Unknown'}:</Text>
+                    <Text style={styles.value}>{item.thickness || 'N/A'} - {item.pieceCount || 0} pcs</Text>
                   </View>
                 ))}
               </>
@@ -298,11 +298,11 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
               <>
                 <View style={styles.row}>
                   <Text style={styles.label}>Wood Type:</Text>
-                  <Text style={styles.value}>{process.woodType.name}</Text>
+                  <Text style={styles.value}>{process.woodType.name || 'N/A'}</Text>
                 </View>
                 <View style={styles.row}>
                   <Text style={styles.label}>Grade:</Text>
-                  <Text style={styles.value}>{process.woodType.grade}</Text>
+                  <Text style={styles.value}>{process.woodType.grade || 'N/A'}</Text>
                 </View>
                 <View style={styles.row}>
                   <Text style={styles.label}>Thickness:</Text>

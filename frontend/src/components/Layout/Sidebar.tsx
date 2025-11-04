@@ -30,6 +30,7 @@ import LocalFireDepartmentIcon from '@mui/icons-material/LocalFireDepartment';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import TuneIcon from '@mui/icons-material/Tune';
 import LanguageIcon from '@mui/icons-material/Language';
 import ArticleIcon from '@mui/icons-material/Article';
 import FolderIcon from '@mui/icons-material/Folder';
@@ -468,6 +469,20 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                     <WarehouseIcon />
                   </ListItemIcon>
                   <ListItemText primary="Warehouses" />
+                </ListItem>
+              )}
+
+              {hasPermission('admin-settings') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/stock-adjustment')}
+                  selected={location.pathname === '/dashboard/management/stock-adjustment'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/stock-adjustment' ? colors.primary : colors.grey.main }}>
+                    <TuneIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Stock Adjustment" />
                 </ListItem>
               )}
 

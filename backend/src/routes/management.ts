@@ -1056,7 +1056,19 @@ async function managementRoutes(fastify: FastifyInstance) {
       }
 
       // Get current quantity for the specified status
-      const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}` as keyof typeof stock;
+      // Map WoodStatus enum to stock field names
+      const statusFieldMap: Record<string, keyof typeof stock> = {
+        'NOT_DRIED': 'statusNotDried',
+        'UNDER_DRYING': 'statusUnderDrying',
+        'DRIED': 'statusDried',
+        'DAMAGED': 'statusDamaged'
+      };
+
+      const statusField = statusFieldMap[data.woodStatus];
+      if (!statusField) {
+        return reply.status(400).send({ error: `Invalid wood status: ${data.woodStatus}` });
+      }
+
       const quantityBefore = stock[statusField] as number;
       const quantityChange = data.quantityAfter - quantityBefore;
 

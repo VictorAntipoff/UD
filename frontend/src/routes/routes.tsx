@@ -11,6 +11,7 @@ import InventoryReports from '../pages/factory/InventoryReports';
 import { UserSettings, AdminSettings, NotificationSettings } from '../pages/settings';
 import WoodTypeManagement from '../pages/management/WoodTypeManagement';
 import WarehouseManagement from '../pages/management/WarehouseManagement';
+import StockAdjustment from '../pages/management/StockAdjustment';
 import LoginPage from '../pages/auth/LoginPage';
 import UnauthorizedPage from '../pages/auth/UnauthorizedPage';
 import { ProtectedRoute } from '../components/ProtectedRoute';
@@ -85,6 +86,10 @@ export const routes: RouteObject[] = [
           {
             path: 'warehouses',
             element: <WarehouseManagement />
+          },
+          {
+            path: 'stock-adjustment',
+            element: <StockAdjustment />
           },
           {
             path: 'approvals',
