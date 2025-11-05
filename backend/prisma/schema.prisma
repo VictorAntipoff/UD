@@ -394,6 +394,20 @@ model Approval {
   @@index([approverRole])
 }
 
+model ApprovalRule {
+  id              String    @id @default(uuid())
+  module          String    // WOOD_RECEIPT, WOOD_SLICER, WOOD_CALCULATOR
+  conditionField  String    // variance_percentage, volume_m3, amount, pieces, etc.
+  operator        String    // above, below, equals
+  threshold       Float     // The threshold value
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([module])
+  @@index([isActive])
+}
+
 // ===== ASSET MANAGEMENT MODELS =====
 
 model AssetCategory {

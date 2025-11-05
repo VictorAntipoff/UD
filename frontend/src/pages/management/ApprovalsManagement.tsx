@@ -86,12 +86,18 @@ interface ApprovalRuleForm {
 }
 
 const MODULE_CONDITIONS: Record<string, Array<{ value: string, label: string, unit: string }>> = {
-  WoodSlicer: [
+  WOOD_RECEIPT: [
+    { value: 'variance_percentage_above', label: 'Variance % Above (Estimated vs Actual)', unit: '%' },
+    { value: 'volume_m3_above', label: 'Volume Above', unit: 'm³' },
+    { value: 'amount_above', label: 'Amount Above', unit: 'TZS' },
+    { value: 'pieces_above', label: 'Pieces Above', unit: 'pcs' }
+  ],
+  WOOD_SLICER: [
     { value: 'waste_percentage_above', label: 'Waste Percentage Above', unit: '%' },
     { value: 'volume_above', label: 'Volume Above', unit: 'm³' }
   ],
-  WoodCalculator: [
-    { value: 'cost_above', label: 'Cost Above', unit: '$' },
+  WOOD_CALCULATOR: [
+    { value: 'cost_above', label: 'Cost Above', unit: 'TZS' },
     { value: 'quantity_above', label: 'Quantity Above', unit: 'pcs' }
   ]
 };
@@ -134,7 +140,7 @@ export default function ApprovalsManagement() {
   const [rules, setRules] = useState<ApprovalRule[]>([]);
   const [isRuleDialogOpen, setIsRuleDialogOpen] = useState(false);
   const [ruleForm, setRuleForm] = useState<ApprovalRuleForm>({
-    module: 'WoodSlicer',
+    module: 'WOOD_SLICER',
     condition_type: 'waste_percentage_above',
     condition_value: 10,
     approver_id: ''
@@ -163,8 +169,12 @@ export default function ApprovalsManagement() {
       const response = await api.get('/management/approvals');
       const data = response.data;
 
-      const safeData = (data || []).map(approval => ({
+      // Use the combined 'all' array that includes both LOT and operation approvals
+      const allApprovals = data.all || [];
+
+      const safeData = allApprovals.map((approval: any) => ({
         ...approval,
+        // For operation approvals
         operation: approval.operation || {
           serial_number: 'N/A',
           waste_percentage: 0,
@@ -172,7 +182,10 @@ export default function ApprovalsManagement() {
         },
         requestor: approval.requestor || {
           email: 'unknown@example.com'
-        }
+        },
+        // For LOT approvals, ensure proper format
+        created_at: approval.createdAt,
+        updated_at: approval.updatedAt
       }));
 
       setApprovals(safeData);
@@ -218,15 +231,30 @@ export default function ApprovalsManagement() {
     }
 
     try {
-      await api.patch(`/management/approvals/${requestId}`, {
-        status,
-        notes: skipDialog ? '' : approvalNote
-      });
+      // Determine if this is a LOT approval or operation approval
+      const approval = approvals.find(a => a.id === requestId);
 
-      if (status === 'approved' && selectedRequest?.operation_id) {
-        await api.patch(`/factory/operations/${selectedRequest.operation_id}`, {
-          status: 'approved'
+      if (approval?.type === 'LOT_APPROVAL') {
+        // Handle LOT approval
+        const endpoint = status === 'approved'
+          ? `/management/wood-receipts/${requestId}/approve`
+          : `/management/wood-receipts/${requestId}/reject`;
+
+        await api.post(endpoint, {
+          notes: skipDialog ? '' : approvalNote
         });
+      } else {
+        // Handle operation approval (existing logic)
+        await api.patch(`/management/approvals/${requestId}`, {
+          status,
+          notes: skipDialog ? '' : approvalNote
+        });
+
+        if (status === 'approved' && selectedRequest?.operation_id) {
+          await api.patch(`/factory/operations/${selectedRequest.operation_id}`, {
+            status: 'approved'
+          });
+        }
       }
 
       toast.success(`Request ${status === 'approved' ? 'approved' : 'rejected'} successfully`);
@@ -254,7 +282,7 @@ export default function ApprovalsManagement() {
       toast.success('Approval rule created successfully');
       setIsRuleDialogOpen(false);
       setRuleForm({
-        module: 'WoodSlicer',
+        module: 'WOOD_SLICER',
         condition_type: 'waste_percentage_above',
         condition_value: 10,
         approver_id: ''
@@ -426,16 +454,32 @@ export default function ApprovalsManagement() {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
-                            {approval.operation?.serial_number}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                            Waste: {approval.operation?.waste_percentage.toFixed(2)}%
-                          </Typography>
+                          {approval.type === 'LOT_APPROVAL' ? (
+                            <>
+                              <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                                {approval.lotNumber}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                                {approval.woodType?.name} - {approval.woodFormat}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem', display: 'block' }}>
+                                {approval.actualPieces || 0} pcs ({(approval.actualVolumeM3 || 0).toFixed(2)} m³)
+                              </Typography>
+                            </>
+                          ) : (
+                            <>
+                              <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                                {approval.operation?.serial_number}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                                Waste: {approval.operation?.waste_percentage.toFixed(2)}%
+                              </Typography>
+                            </>
+                          )}
                         </TableCell>
                         <TableCell>
                           <Typography sx={{ fontSize: '0.875rem', color: '#64748b' }}>
-                            {approval.requestor?.email}
+                            {approval.type === 'LOT_APPROVAL' ? approval.supplier : approval.requestor?.email}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -804,33 +848,88 @@ export default function ApprovalsManagement() {
               }}
             >
               <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#334155', mb: 2 }}>
-                Operation Details
+                {selectedRequest?.type === 'LOT_APPROVAL' ? 'LOT Details' : 'Operation Details'}
               </Typography>
               <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                    Serial Number
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
-                    {selectedRequest?.operation?.serial_number}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                    Wood Type
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
-                    {selectedRequest?.operation?.wood_type?.name}
-                  </Typography>
-                </Grid>
-                <Grid item xs={6}>
-                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
-                    Waste Percentage
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 600 }}>
-                    {selectedRequest?.operation?.waste_percentage.toFixed(2)}%
-                  </Typography>
-                </Grid>
+                {selectedRequest?.type === 'LOT_APPROVAL' ? (
+                  <>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        LOT Number
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {selectedRequest?.lotNumber}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Supplier
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {selectedRequest?.supplier}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Wood Type
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {selectedRequest?.woodType?.name} - {selectedRequest?.woodFormat}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Warehouse
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {selectedRequest?.warehouse?.name || 'Not assigned'}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Estimated
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 500 }}>
+                        {selectedRequest?.estimatedPieces || 0} pcs ({(selectedRequest?.estimatedVolumeM3 || 0).toFixed(2)} m³)
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Actual
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#16a34a', fontWeight: 600 }}>
+                        {selectedRequest?.actualPieces || 0} pcs ({(selectedRequest?.actualVolumeM3 || 0).toFixed(2)} m³)
+                      </Typography>
+                    </Grid>
+                  </>
+                ) : (
+                  <>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Serial Number
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {selectedRequest?.operation?.serial_number}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Wood Type
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#1e293b', fontWeight: 500 }}>
+                        {selectedRequest?.operation?.wood_type?.name}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.75rem' }}>
+                        Waste Percentage
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 600 }}>
+                        {selectedRequest?.operation?.waste_percentage.toFixed(2)}%
+                      </Typography>
+                    </Grid>
+                  </>
+                )}
               </Grid>
             </Paper>
 
@@ -942,7 +1041,9 @@ export default function ApprovalsManagement() {
               sx={textFieldSx}
             >
               {Object.keys(MODULE_CONDITIONS).map(module => (
-                <MenuItem key={module} value={module}>{module}</MenuItem>
+                <MenuItem key={module} value={module}>
+                  {module.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                </MenuItem>
               ))}
             </TextField>
 
@@ -955,11 +1056,11 @@ export default function ApprovalsManagement() {
               size="small"
               sx={textFieldSx}
             >
-              {MODULE_CONDITIONS[ruleForm.module].map(condition => (
+              {MODULE_CONDITIONS[ruleForm.module]?.map(condition => (
                 <MenuItem key={condition.value} value={condition.value}>
                   {condition.label}
                 </MenuItem>
-              ))}
+              )) || []}
             </TextField>
 
             <TextField

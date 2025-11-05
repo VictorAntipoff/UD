@@ -518,17 +518,100 @@ async function managementRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Get all approvals (LOT and factory operations)
+  fastify.get('/approvals', async (request, reply) => {
+    try {
+      // Get wood receipts pending approval (LOT approvals)
+      const lotApprovals = await prisma.woodReceipt.findMany({
+        where: {
+          status: 'PENDING_APPROVAL'
+        },
+        include: {
+          woodType: true,
+          warehouse: true
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      // Get factory operation approvals
+      const operationApprovals = await prisma.approval.findMany({
+        where: {
+          status: 'pending'
+        },
+        include: {
+          operation: {
+            include: {
+              woodType: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      // Transform LOT approvals to match the approval structure
+      const transformedLotApprovals = lotApprovals.map(receipt => ({
+        id: receipt.id,
+        type: 'LOT_APPROVAL',
+        module: 'WOOD_RECEIPT',
+        referenceId: receipt.id,
+        lotNumber: receipt.lotNumber,
+        woodType: receipt.woodType,
+        supplier: receipt.supplier,
+        receiptDate: receipt.receiptDate,
+        estimatedAmount: receipt.estimatedAmount,
+        estimatedVolumeM3: receipt.estimatedVolumeM3,
+        estimatedPieces: receipt.estimatedPieces,
+        actualVolumeM3: receipt.actualVolumeM3,
+        actualPieces: receipt.actualPieces,
+        woodFormat: receipt.woodFormat,
+        warehouse: receipt.warehouse,
+        status: 'pending',
+        createdAt: receipt.createdAt,
+        updatedAt: receipt.updatedAt
+      }));
+
+      // Transform operation approvals
+      const transformedOperationApprovals = operationApprovals.map(approval => ({
+        id: approval.id,
+        type: 'OPERATION_APPROVAL',
+        module: approval.operation.serialNumber.startsWith('WS-') ? 'WOOD_SLICER' : 'WOOD_CALCULATOR',
+        referenceId: approval.operationId,
+        operation: approval.operation,
+        approverRole: approval.approverRole,
+        status: approval.status,
+        createdAt: approval.createdAt,
+        updatedAt: approval.updatedAt
+      }));
+
+      return {
+        lotApprovals: transformedLotApprovals,
+        operationApprovals: transformedOperationApprovals,
+        all: [...transformedLotApprovals, ...transformedOperationApprovals]
+      };
+    } catch (error) {
+      console.error('Error fetching approvals:', error);
+      return reply.status(500).send({ error: 'Failed to fetch approvals' });
+    }
+  });
+
   // Get pending approvals count
   fastify.get('/approvals/pending-count', async (request, reply) => {
     try {
       // Count wood receipts with status PENDING_APPROVAL (waiting for admin approval)
-      const count = await prisma.woodReceipt.count({
+      const lotCount = await prisma.woodReceipt.count({
         where: {
           status: 'PENDING_APPROVAL'
         }
       });
 
-      return { count };
+      // Count factory operation approvals
+      const operationCount = await prisma.approval.count({
+        where: {
+          status: 'pending'
+        }
+      });
+
+      return { count: lotCount + operationCount, lotCount, operationCount };
     } catch (error) {
       console.error('Error fetching pending count:', error);
       return reply.status(500).send({ error: 'Failed to fetch pending count' });
@@ -586,6 +669,101 @@ async function managementRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error rejecting wood receipt:', error);
       return reply.status(500).send({ error: 'Failed to reject wood receipt' });
+    }
+  });
+
+  // ==================== APPROVAL RULES ====================
+
+  // Get all approval rules
+  fastify.get('/approval-rules', async (request, reply) => {
+    try {
+      const { module } = request.query as { module?: string };
+
+      const whereClause: any = {};
+      if (module) {
+        whereClause.module = module;
+      }
+
+      const rules = await prisma.approvalRule.findMany({
+        where: whereClause,
+        orderBy: [
+          { module: 'asc' },
+          { conditionField: 'asc' }
+        ]
+      });
+
+      return rules;
+    } catch (error) {
+      console.error('Error fetching approval rules:', error);
+      return reply.status(500).send({ error: 'Failed to fetch approval rules' });
+    }
+  });
+
+  // Create a new approval rule
+  fastify.post('/approval-rules', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+    try {
+      const data = request.body as any;
+
+      if (!data.module || !data.conditionField || !data.operator || data.threshold === undefined) {
+        return reply.status(400).send({
+          error: 'Missing required fields: module, conditionField, operator, and threshold are required'
+        });
+      }
+
+      const rule = await prisma.approvalRule.create({
+        data: {
+          module: data.module,
+          conditionField: data.conditionField,
+          operator: data.operator,
+          threshold: parseFloat(data.threshold),
+          isActive: data.isActive ?? true
+        }
+      });
+
+      return rule;
+    } catch (error) {
+      console.error('Error creating approval rule:', error);
+      return reply.status(500).send({ error: 'Failed to create approval rule' });
+    }
+  });
+
+  // Update an approval rule
+  fastify.put('/approval-rules/:id', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = request.body as any;
+
+      const rule = await prisma.approvalRule.update({
+        where: { id },
+        data: {
+          module: data.module,
+          conditionField: data.conditionField,
+          operator: data.operator,
+          threshold: data.threshold !== undefined ? parseFloat(data.threshold) : undefined,
+          isActive: data.isActive
+        }
+      });
+
+      return rule;
+    } catch (error) {
+      console.error('Error updating approval rule:', error);
+      return reply.status(500).send({ error: 'Failed to update approval rule' });
+    }
+  });
+
+  // Delete an approval rule
+  fastify.delete('/approval-rules/:id', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      await prisma.approvalRule.delete({
+        where: { id }
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting approval rule:', error);
+      return reply.status(500).send({ error: 'Failed to delete approval rule' });
     }
   });
 
