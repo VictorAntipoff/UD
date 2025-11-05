@@ -28,6 +28,9 @@ import {
   Chip,
   Stack,
   CircularProgress,
+  Select,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import EditIcon from '@mui/icons-material/Edit';
@@ -129,7 +132,8 @@ export default function AdminSettings() {
     twoFactorAuth: false,
     passwordExpiry: 90,
     maxLoginAttempts: 5,
-    electricityPricePerKWh: '0.15'
+    electricityPricePerKWh: '0.15',
+    timezone: 'Africa/Dar_es_Salaam'
   });
 
   const [users, setUsers] = useState<User[]>([]);
@@ -298,6 +302,16 @@ export default function AdminSettings() {
     } catch (error) {
       console.error('Error saving electricity price:', error);
     }
+
+    // Save timezone to backend
+    try {
+      await api.put('/settings/timezone', {
+        value: settings.timezone
+      });
+      console.log('Timezone saved:', settings.timezone);
+    } catch (error) {
+      console.error('Error saving timezone:', error);
+    }
   };
 
   // Load saved settings on component mount
@@ -324,6 +338,17 @@ export default function AdminSettings() {
         }
       } catch (error) {
         console.error('Error fetching electricity price:', error);
+        // If setting doesn't exist, it will be created on first save
+      }
+
+      // Fetch timezone setting
+      try {
+        const response = await api.get('/settings/timezone');
+        if (response.data && response.data.value) {
+          setSettings(prev => ({ ...prev, timezone: response.data.value }));
+        }
+      } catch (error) {
+        console.error('Error fetching timezone:', error);
         // If setting doesn't exist, it will be created on first save
       }
 
@@ -1451,6 +1476,77 @@ export default function AdminSettings() {
                     </Card>
                   </Grid>
                 ))}
+
+                {/* Timezone Configuration */}
+                <Grid item xs={12}>
+                  <Card
+                    elevation={0}
+                    sx={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 2,
+                      mt: 2,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        p: 2,
+                        backgroundColor: '#f8fafc',
+                        borderBottom: '1px solid #e2e8f0',
+                      }}
+                    >
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontSize: '0.9375rem',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                        }}
+                      >
+                        Application Timezone
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          color: '#64748b',
+                          fontSize: '0.8125rem',
+                          mt: 0.5,
+                        }}
+                      >
+                        Set the timezone for all date and time displays across the application
+                      </Typography>
+                    </Box>
+                    <CardContent sx={{ p: 3 }}>
+                      <FormControl fullWidth>
+                        <InputLabel>Timezone</InputLabel>
+                        <Select
+                          value={settings.timezone}
+                          label="Timezone"
+                          onChange={(e) => setSettings(prev => ({ ...prev, timezone: e.target.value }))}
+                          sx={{
+                            '& .MuiOutlinedInput-notchedOutline': {
+                              borderColor: 'rgba(220, 38, 38, 0.3)',
+                            },
+                            '&:hover .MuiOutlinedInput-notchedOutline': {
+                              borderColor: '#dc2626',
+                            },
+                            '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                              borderColor: '#dc2626',
+                            }
+                          }}
+                        >
+                          <MenuItem value="Africa/Dar_es_Salaam">East Africa Time (Tanzania)</MenuItem>
+                          <MenuItem value="Africa/Nairobi">East Africa Time (Kenya)</MenuItem>
+                          <MenuItem value="Africa/Kampala">East Africa Time (Uganda)</MenuItem>
+                          <MenuItem value="Africa/Kigali">Central Africa Time (Rwanda)</MenuItem>
+                          <MenuItem value="Africa/Lagos">West Africa Time (Nigeria)</MenuItem>
+                          <MenuItem value="Africa/Cairo">Egypt Time (Egypt)</MenuItem>
+                          <MenuItem value="Africa/Johannesburg">South Africa Time (South Africa)</MenuItem>
+                          <MenuItem value="UTC">UTC (Coordinated Universal Time)</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </CardContent>
+                  </Card>
+                </Grid>
 
                 {/* Electricity Price Configuration */}
                 <Grid item xs={12}>

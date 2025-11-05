@@ -191,6 +191,48 @@ async function managementRoutes(fastify: FastifyInstance) {
         }
       });
 
+      // If status changed to PENDING_APPROVAL, create notifications for admins
+      if (data.status === 'PENDING_APPROVAL') {
+        // Check for subscriptions to LOT_PENDING_APPROVAL event
+        const subscriptions = await prisma.notificationSubscription.findMany({
+          where: {
+            eventType: 'LOT_PENDING_APPROVAL',
+            inApp: true
+          }
+        });
+
+        // If no subscriptions exist, fallback to all admin users
+        let userIds: string[];
+        if (subscriptions.length === 0) {
+          const adminUsers = await prisma.user.findMany({
+            where: {
+              role: { in: ['ADMIN', 'SUPERVISOR'] },
+              isActive: true
+            },
+            select: { id: true }
+          });
+          userIds = adminUsers.map(u => u.id);
+        } else {
+          userIds = subscriptions.map(s => s.userId);
+        }
+
+        const notifications = userIds.map(userId => ({
+          userId,
+          type: 'LOT_PENDING_APPROVAL',
+          title: 'LOT Pending Approval',
+          message: `LOT ${receipt.lotNumber} (${receipt.woodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
+          linkUrl: `/dashboard/management/lot-management`,
+          isRead: false
+        }));
+
+        if (notifications.length > 0) {
+          await prisma.notification.createMany({
+            data: notifications
+          });
+          console.log(`Created ${notifications.length} notification(s) for LOT ${receipt.lotNumber} pending approval`);
+        }
+      }
+
       return receipt;
     } catch (error) {
       console.error('Error updating wood receipt:', error);
@@ -479,16 +521,21 @@ async function managementRoutes(fastify: FastifyInstance) {
   // Get pending approvals count
   fastify.get('/approvals/pending-count', async (request, reply) => {
     try {
-      // For now, return 0 since approval workflow is not fully implemented
-      // TODO: Implement proper approval workflow with approval_request table
-      return { count: 0 };
+      // Count wood receipts with status PENDING_APPROVAL (waiting for admin approval)
+      const count = await prisma.woodReceipt.count({
+        where: {
+          status: 'PENDING_APPROVAL'
+        }
+      });
+
+      return { count };
     } catch (error) {
       console.error('Error fetching pending count:', error);
       return reply.status(500).send({ error: 'Failed to fetch pending count' });
     }
   });
 
-  // Approve a wood receipt (change status to CONFIRMED)
+  // Approve a wood receipt (change status to COMPLETED)
   fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
@@ -496,7 +543,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       const receipt = await prisma.woodReceipt.update({
         where: { id },
         data: {
-          status: 'CONFIRMED',
+          status: 'COMPLETED',
           receiptConfirmedAt: new Date()
         },
         include: {
@@ -504,7 +551,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         }
       });
 
-      console.log(`Wood Receipt ${receipt.lotNumber} approved and status set to CONFIRMED`);
+      console.log(`Wood Receipt ${receipt.lotNumber} approved by admin and status set to COMPLETED`);
       return receipt;
     } catch (error) {
       console.error('Error approving wood receipt:', error);

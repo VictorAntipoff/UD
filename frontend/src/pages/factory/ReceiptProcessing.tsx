@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Container,
   Typography,
@@ -806,6 +807,7 @@ const ReceiptProcessing = () => {
   const { enqueueSnackbar } = useSnackbar();
   const [formData, setFormData] = useState<ReceiptForm>(initialFormState);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [searchParams] = useSearchParams();
   const [receipts, setReceipts] = useState<WoodReceipt[]>([]);
   const [measurements, setMeasurements] = useState<SleeperMeasurement[]>([]);
   const [totalM3, setTotalM3] = useState<number>(0);
@@ -831,6 +833,26 @@ const ReceiptProcessing = () => {
     };
     init();
   }, []);
+
+  // Handle URL parameter for opening specific LOT from notification
+  useEffect(() => {
+    const lotParam = searchParams.get('lot');
+    if (lotParam && receipts.length > 0) {
+      const receipt = receipts.find(r => r.lotNumber === lotParam);
+      if (receipt) {
+        console.log('Opening LOT from notification:', lotParam);
+        // Set the receipt number
+        setFormData(prev => ({
+          ...prev,
+          receiptNumber: receipt.lotNumber || '',
+          woodTypeName: receipt.woodType?.name || '',
+          supplier: receipt.supplier || ''
+        }));
+        // Open the history dialog
+        setHistoryDialogOpen(true);
+      }
+    }
+  }, [searchParams, receipts]);
 
   const checkAuth = async () => {
     try {
@@ -1635,6 +1657,28 @@ const ReceiptProcessing = () => {
                                     >
                                       {receipt.woodType?.name || 'N/A'}
                                     </Typography>
+                                    <Box
+                                      sx={{
+                                        display: { xs: 'none', md: 'block' },
+                                        width: '1px',
+                                        height: '20px',
+                                        backgroundColor: '#e2e8f0',
+                                        flexShrink: 0
+                                      }}
+                                    />
+                                    <Chip
+                                      label={receipt.woodFormat === 'PLANKS' ? 'Planks' : 'Sleepers'}
+                                      size="small"
+                                      sx={{
+                                        height: '20px',
+                                        fontSize: '0.6875rem',
+                                        fontWeight: 600,
+                                        backgroundColor: receipt.woodFormat === 'PLANKS' ? '#dbeafe' : '#fef3c7',
+                                        color: receipt.woodFormat === 'PLANKS' ? '#1e40af' : '#92400e',
+                                        display: { xs: 'none', md: 'inline-flex' },
+                                        '& .MuiChip-label': { px: 1 }
+                                      }}
+                                    />
                                     <Box
                                       sx={{
                                         display: { xs: 'none', md: 'block' },

@@ -460,6 +460,7 @@ const startServer = async () => {
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 10000; // 10 seconds
 
+  // Try to connect to database with retries
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       console.log(`🔄 Connecting to database (attempt ${attempt}/${MAX_RETRIES})...`);
@@ -469,12 +470,7 @@ const startServer = async () => {
 
       await prismaClient.$connect();
       console.log('✅ Database connected');
-
-      await setupServer();
-      await app.listen({ port: PORT, host: '0.0.0.0' });
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-      return; // Success, exit function
+      break; // Success, exit retry loop
     } catch (error: any) {
       console.error(`❌ Connection attempt ${attempt} failed:`, error.message);
 
@@ -482,7 +478,7 @@ const startServer = async () => {
         console.log(`⏳ Waiting ${RETRY_DELAY/1000}s before retry...`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       } else {
-        console.error('❌ Failed to start server after all retries');
+        console.error('❌ Failed to connect to database after all retries');
         console.error('💡 Troubleshooting:');
         console.error('   1. Check if your Neon database is active at https://console.neon.tech');
         console.error('   2. Verify DATABASE_URL in .env file');
@@ -491,6 +487,27 @@ const startServer = async () => {
         process.exit(1);
       }
     }
+  }
+
+  // Setup server (register plugins) - only once
+  try {
+    await setupServer();
+    console.log('✅ Server plugins registered');
+  } catch (error: any) {
+    console.error('❌ Failed to setup server:', error.message);
+    await prismaClient.$disconnect();
+    process.exit(1);
+  }
+
+  // Start listening
+  try {
+    await app.listen({ port: PORT, host: '0.0.0.0' });
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+  } catch (error: any) {
+    console.error('❌ Failed to start server:', error.message);
+    await prismaClient.$disconnect();
+    process.exit(1);
   }
 };
 

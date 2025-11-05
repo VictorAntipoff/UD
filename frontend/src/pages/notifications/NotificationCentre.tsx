@@ -190,6 +190,9 @@ const NotificationCentre: FC = () => {
   };
 
   const handleNotificationClick = (notification: Notification) => {
+    console.log('Notification clicked:', notification);
+    console.log('LinkUrl:', notification.linkUrl);
+
     // Mark as read
     if (!notification.isRead) {
       api.patch(`/notifications/${notification.id}/read`).then(() => {
@@ -199,7 +202,10 @@ const NotificationCentre: FC = () => {
 
     // Navigate if there's a link
     if (notification.linkUrl) {
+      console.log('Navigating to:', notification.linkUrl);
       navigate(notification.linkUrl);
+    } else {
+      console.warn('No linkUrl found for this notification');
     }
   };
 

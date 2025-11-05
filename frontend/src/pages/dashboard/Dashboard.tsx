@@ -86,8 +86,9 @@ const Dashboard = () => {
         sum + (r.estimatedVolumeM3 || r.actualVolumeM3 || 0), 0
       );
 
-      // Get recent 5 lots
+      // Get recent 5 active lots (exclude COMPLETED and CANCELLED)
       const recentLots = receipts
+        .filter((r: any) => r.status !== 'COMPLETED' && r.status !== 'CANCELLED')
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 5);
 

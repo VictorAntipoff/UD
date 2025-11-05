@@ -43,6 +43,7 @@ import HistoryIcon from '@mui/icons-material/History';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import SendIcon from '@mui/icons-material/Send';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
@@ -371,6 +372,28 @@ const WoodReceipt = () => {
     } catch (error: any) {
       console.error('Error locking LOT:', error);
       enqueueSnackbar(error?.response?.data?.error || 'Failed to lock LOT', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApproveLot = async (receipt: WoodReceiptType) => {
+    if (!isAdmin) {
+      enqueueSnackbar('Only admins can approve LOTs', { variant: 'error' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Call the approve endpoint
+      await api.post(`/management/wood-receipts/${receipt.id}/approve`);
+
+      enqueueSnackbar(`LOT ${receipt.lot_number} has been approved successfully`, { variant: 'success' });
+      await fetchReceipts();
+    } catch (error: any) {
+      console.error('Error approving LOT:', error);
+      enqueueSnackbar(error?.response?.data?.error || 'Failed to approve LOT', { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -1411,7 +1434,7 @@ const WoodReceipt = () => {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={receipt.status}
+                      label={receipt.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                       size="small"
                       sx={{
                         fontSize: '0.6875rem',
@@ -1420,6 +1443,8 @@ const WoodReceipt = () => {
                         px: 1.25,
                         borderRadius: 1,
                         backgroundColor: receipt.status === 'CREATED' ? '#64748b' :
+                          receipt.status === 'CONFIRMED' ? '#f59e0b' :
+                          receipt.status === 'APPROVED' ? '#10b981' :
                           receipt.status === 'PENDING' ? '#fbbf24' :
                           receipt.status === 'RECEIVED' ? '#3b82f6' :
                           receipt.status === 'PROCESSING' ? '#8b5cf6' :
@@ -1447,6 +1472,25 @@ const WoodReceipt = () => {
                     >
                       <EditIcon fontSize="small" />
                     </IconButton>
+                    {isAdmin && receipt.status === 'PENDING_APPROVAL' && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleApproveLot(receipt)}
+                        sx={{
+                          backgroundColor: '#10b981',
+                          color: '#fff',
+                          ml: 1,
+                          width: 32,
+                          height: 32,
+                          '&:hover': {
+                            backgroundColor: '#059669',
+                          },
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <CheckCircleIcon fontSize="small" />
+                      </IconButton>
+                    )}
                     {isAdmin && receipt.status === 'COMPLETED' && (
                       <IconButton
                         size="small"

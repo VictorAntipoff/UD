@@ -53,6 +53,8 @@ import { PDFDownloadLink } from '@react-pdf/renderer';
 import { DryingProcessReport } from '../../components/reports/DryingProcessReport';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTimezone } from '../../contexts/TimezoneContext';
+import { formatDateInTimezone, parseLocalToUTC, formatForDateTimeInput, formatAsLocalTime } from '../../utils/timezone';
 import {
   LineChart,
   Line,
@@ -194,6 +196,7 @@ interface DryingProcess {
 
 export default function DryingProcess() {
   const { user } = useAuth();
+  const { timezone } = useTimezone();
   const isAdmin = user?.role === 'ADMIN';
 
   const [processes, setProcesses] = useState<DryingProcess[]>([]);
@@ -477,10 +480,13 @@ export default function DryingProcess() {
     try {
       setAddingReading(true);
 
+      // Convert the manually entered time (in local timezone) to UTC for storage
+      const readingTimeUTC = parseLocalToUTC(newReading.readingTime, timezone);
+
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
-        readingTime: newReading.readingTime, // Send as-is, backend will handle
+        readingTime: readingTimeUTC, // Send UTC time to backend
         notes: newReading.notes,
         lukuSms: lukuSms.trim() || null // Include Luku SMS if provided
       });
@@ -509,10 +515,13 @@ export default function DryingProcess() {
     if (!editingReading) return;
 
     try {
+      // Convert the manually entered time (in local timezone) to UTC for storage
+      const readingTimeUTC = parseLocalToUTC(editReadingData.readingTime, timezone);
+
       await api.put(`/factory/drying-readings/${editingReading.id}`, {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
-        readingTime: editReadingData.readingTime, // Send as-is, backend will handle
+        readingTime: readingTimeUTC, // Send UTC time to backend
         notes: editReadingData.notes,
         lukuSms: editReadingData.lukuSms.trim() || null
       });
@@ -535,8 +544,8 @@ export default function DryingProcess() {
 
   const openEditReadingDialog = (reading: any) => {
     setEditingReading(reading);
-    // Extract datetime without timezone conversion - just take first 16 chars of ISO string
-    const readingTimeValue = reading.readingTime.slice(0, 16);
+    // Convert UTC time from database to local timezone for the input field
+    const readingTimeValue = formatForDateTimeInput(reading.readingTime, timezone);
     setEditReadingData({
       electricityMeter: reading.electricityMeter.toString(),
       humidity: reading.humidity.toString(),
@@ -1385,22 +1394,10 @@ export default function DryingProcess() {
                                   >
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
                                       <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
-                                        {(() => {
-                                          const localDate = new Date(reading.readingTime);
-                                          const month = String(localDate.getMonth() + 1).padStart(2, '0');
-                                          const day = String(localDate.getDate()).padStart(2, '0');
-                                          const year = localDate.getFullYear();
-                                          return `${month}/${day}/${year}`;
-                                        })()}
+                                        {formatAsLocalTime(reading.readingTime, 'MM/dd/yyyy')}
                                       </Typography>
                                       <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.25 }}>
-                                        {(() => {
-                                          const localDate = new Date(reading.readingTime);
-                                          const hours = String(localDate.getHours()).padStart(2, '0');
-                                          const minutes = String(localDate.getMinutes()).padStart(2, '0');
-                                          const seconds = String(localDate.getSeconds()).padStart(2, '0');
-                                          return `${hours}:${minutes}:${seconds}`;
-                                        })()}
+                                        {formatAsLocalTime(reading.readingTime, 'hh:mm a')}
                                       </Typography>
                                     </TableCell>
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
@@ -1532,19 +1529,10 @@ export default function DryingProcess() {
                               >
                                 <TableCell sx={{ fontSize: '0.813rem' }}>
                                   <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
-                                    {new Date(process.startTime).toLocaleDateString('en-US', {
-                                      year: 'numeric',
-                                      month: '2-digit',
-                                      day: '2-digit'
-                                    })}
+                                    {formatDateInTimezone(process.startTime, 'yyyy-MM-dd', timezone)}
                                   </Typography>
                                   <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.25 }}>
-                                    {new Date(process.startTime).toLocaleTimeString('en-US', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      second: '2-digit',
-                                      hour12: false
-                                    })}
+                                    {formatDateInTimezone(process.startTime, 'hh:mm a', timezone)}
                                   </Typography>
                                 </TableCell>
                                 <TableCell sx={{ fontSize: '0.813rem' }}>
@@ -1621,15 +1609,7 @@ export default function DryingProcess() {
                                   </Typography>
                                   {estimation.estimatedDate && (
                                     <Typography variant="caption" sx={{ color: '#3b82f6', fontWeight: 600 }}>
-                                      Expected: {estimation.estimatedDate.toLocaleDateString('en-US', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        year: 'numeric'
-                                      })} at {estimation.estimatedDate.toLocaleTimeString('en-US', {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        hour12: true
-                                      })}
+                                      Expected: {formatDateInTimezone(estimation.estimatedDate, 'MMM d, yyyy \'at\' hh:mm a', timezone)}
                                     </Typography>
                                   )}
                                 </Box>
@@ -1650,18 +1630,10 @@ export default function DryingProcess() {
                                             Estimated Completion
                                           </Typography>
                                           <Typography variant="h6" sx={{ fontWeight: 700, color: '#3b82f6', fontSize: '1rem' }}>
-                                            {estimation.estimatedDate?.toLocaleDateString('en-US', {
-                                              month: 'short',
-                                              day: 'numeric',
-                                              year: 'numeric'
-                                            })}
+                                            {estimation.estimatedDate && formatDateInTimezone(estimation.estimatedDate, 'MMM d, yyyy', timezone)}
                                           </Typography>
                                           <Typography variant="caption" sx={{ color: '#3b82f6', fontWeight: 600, display: 'block' }}>
-                                            {estimation.estimatedDate?.toLocaleTimeString('en-US', {
-                                              hour: '2-digit',
-                                              minute: '2-digit',
-                                              hour12: true
-                                            })}
+                                            {estimation.estimatedDate && formatDateInTimezone(estimation.estimatedDate, 'hh:mm a', timezone)}
                                           </Typography>
                                           <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.5 }}>
                                             {estimation.estimatedDays !== null && estimation.estimatedDays > 0
@@ -2048,18 +2020,10 @@ export default function DryingProcess() {
                               {process.endTime ? (
                                 <>
                                   <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
-                                    {new Date(process.endTime).toLocaleDateString('en-US', {
-                                      month: 'short',
-                                      day: 'numeric',
-                                      year: 'numeric'
-                                    })}
+                                    {formatDateInTimezone(process.endTime, 'MMM d, yyyy', timezone)}
                                   </Typography>
                                   <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
-                                    {new Date(process.endTime).toLocaleTimeString('en-US', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                      hour12: true
-                                    })}
+                                    {formatDateInTimezone(process.endTime, 'hh:mm a', timezone)}
                                   </Typography>
                                 </>
                               ) : (
@@ -2320,15 +2284,7 @@ export default function DryingProcess() {
                                   Completed
                                 </Typography>
                                 <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b', fontSize: '0.875rem' }}>
-                                  {new Date(process.endTime).toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    year: 'numeric'
-                                  })} • {new Date(process.endTime).toLocaleTimeString('en-US', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    hour12: true
-                                  })}
+                                  {formatDateInTimezone(process.endTime, 'MMM d, yyyy • hh:mm a', timezone)}
                                 </Typography>
                               </Box>
                             )}
@@ -3142,7 +3098,7 @@ export default function DryingProcess() {
                               Created on:
                             </Typography>
                             <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                              {new Date(selectedProcess.createdAt).toLocaleString()}
+                              {formatDateInTimezone(selectedProcess.createdAt, 'yyyy-MM-dd hh:mm a', timezone)}
                             </Typography>
                           </Box>
                         </>
@@ -3272,7 +3228,7 @@ export default function DryingProcess() {
                       {selectedProcess.readings.map((reading) => (
                         <TableRow key={reading.id} sx={{ '&:hover': { backgroundColor: '#fef2f2' } }}>
                           <TableCell sx={{ fontSize: '0.75rem' }}>
-                            {formatLocalDatetime(reading.readingTime)}
+                            {formatAsLocalTime(reading.readingTime, 'yyyy-MM-dd hh:mm a')}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
                             {reading.electricityMeter.toFixed(2)}
@@ -3287,7 +3243,7 @@ export default function DryingProcess() {
                               </Typography>
                               {reading.createdAt && (
                                 <Typography variant="caption" sx={{ fontSize: '0.65rem', color: '#94a3b8' }}>
-                                  {new Date(reading.createdAt).toLocaleString()}
+                                  {formatDateInTimezone(reading.createdAt, 'yyyy-MM-dd hh:mm a', timezone)}
                                 </Typography>
                               )}
                             </Box>
