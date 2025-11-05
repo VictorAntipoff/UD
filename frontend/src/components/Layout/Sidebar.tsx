@@ -422,7 +422,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
           )}
 
           {/* Management Section */}
-          {(hasPermission('wood-types') || hasPermission('warehouses') || hasPermission('lot-creation') || hasPermission('approvals') || hasPermission('drying-settings')) && (
+          {(hasPermission('wood-types') || hasPermission('warehouses') || hasPermission('stock-adjustment') || hasPermission('lot-creation') || hasPermission('approvals') || hasPermission('drying-settings')) && (
             <>
               <ListItem button onClick={handleMenuClick(setManagementOpen, managementOpen)} sx={sectionHeaderStyles}>
                 <ListItemIcon sx={{
@@ -472,7 +472,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                 </ListItem>
               )}
 
-              {hasPermission('admin-settings') && (
+              {hasPermission('stock-adjustment') && (
                 <ListItem
                   button
                   sx={submenuStyles}
@@ -634,7 +634,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
           )}
 
           {/* Settings Section */}
-          {(hasPermission('user-settings') || hasPermission('admin-settings')) && (
+          {(hasPermission('user-settings') || hasPermission('admin-settings') || hasPermission('notification-settings')) && (
             <>
               <ListItem button onClick={handleMenuClick(setSettingsOpen, settingsOpen)} sx={sectionHeaderStyles}>
                 <ListItemIcon sx={{
@@ -684,7 +684,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                 </ListItem>
               )}
 
-              {hasPermission('admin-settings') && (
+              {hasPermission('notification-settings') && (
                 <ListItem
                   button
                   sx={submenuStyles}

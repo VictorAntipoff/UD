@@ -641,13 +641,44 @@ const InventoryReports: FC = () => {
                         <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
                           {stock.statusDamaged}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.875rem', color: '#64748b' }}>
-                          {stock.statusInTransitOut + stock.statusInTransitIn}
-                          {(stock.statusInTransitOut > 0 || stock.statusInTransitIn > 0) && (
-                            <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                              Out: {stock.statusInTransitOut} | In: {stock.statusInTransitIn}
+                        <TableCell align="right">
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
+                            <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>
+                              {stock.statusInTransitOut + stock.statusInTransitIn}
                             </Typography>
-                          )}
+                            {(stock.statusInTransitOut > 0 || stock.statusInTransitIn > 0) && (
+                              <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                {stock.statusInTransitOut > 0 && (
+                                  <Chip
+                                    label={`Out: ${stock.statusInTransitOut}`}
+                                    size="small"
+                                    sx={{
+                                      height: '18px',
+                                      fontSize: '0.65rem',
+                                      backgroundColor: '#fef3c7',
+                                      color: '#92400e',
+                                      fontWeight: 600,
+                                      '& .MuiChip-label': { px: 1 }
+                                    }}
+                                  />
+                                )}
+                                {stock.statusInTransitIn > 0 && (
+                                  <Chip
+                                    label={`In: ${stock.statusInTransitIn}`}
+                                    size="small"
+                                    sx={{
+                                      height: '18px',
+                                      fontSize: '0.65rem',
+                                      backgroundColor: '#dbeafe',
+                                      color: '#1e40af',
+                                      fontWeight: 600,
+                                      '& .MuiChip-label': { px: 1 }
+                                    }}
+                                  />
+                                )}
+                              </Box>
+                            )}
+                          </Box>
                         </TableCell>
                         <TableCell align="right">
                           <Typography sx={{ fontWeight: 700, color: '#1e293b', fontSize: '0.875rem' }}>

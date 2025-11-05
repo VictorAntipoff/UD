@@ -214,6 +214,7 @@ export default function AdminSettings() {
       items: [
         { key: 'wood-types', label: 'Wood Types', hasActions: true },
         { key: 'warehouses', label: 'Warehouses', hasActions: true },
+        { key: 'stock-adjustment', label: 'Stock Adjustment', hasActions: true },
         { key: 'lot-creation', label: 'LOT Creation', hasActions: true },
         { key: 'approvals', label: 'Approvals', hasActions: true },
         { key: 'drying-settings', label: 'Drying Settings', hasActions: true },
@@ -243,6 +244,7 @@ export default function AdminSettings() {
       items: [
         { key: 'user-settings', label: 'User Settings', hasActions: true },
         { key: 'admin-settings', label: 'Admin Settings', hasActions: true },
+        { key: 'notification-settings', label: 'Notification Settings', hasActions: true },
       ]
     }
   ];
