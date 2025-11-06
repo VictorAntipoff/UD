@@ -47,6 +47,8 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SearchIcon from '@mui/icons-material/Search';
+import InfoIcon from '@mui/icons-material/Info';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import api from '../../lib/api';
 import { format } from 'date-fns';
 import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
@@ -123,6 +125,8 @@ const WoodTransfer: FC = () => {
   const [tabValue, setTabValue] = useState(0);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
+  const [warehouseStock, setWarehouseStock] = useState<any[]>([]);
+  const [loadingStock, setLoadingStock] = useState(false);
 
   // Dialog states
   const [openDialog, setOpenDialog] = useState(false);
@@ -215,6 +219,19 @@ const WoodTransfer: FC = () => {
     }
   };
 
+  const fetchWarehouseStock = async (warehouseId: string) => {
+    try {
+      setLoadingStock(true);
+      const response = await api.get(`/management/warehouses/${warehouseId}/stock`);
+      setWarehouseStock(response.data);
+    } catch (err) {
+      console.error('Failed to fetch warehouse stock:', err);
+      setWarehouseStock([]);
+    } finally {
+      setLoadingStock(false);
+    }
+  };
+
   const handleOpenDialog = () => {
     // Only reset form fields, but keep transferDate from the current state
     // This preserves the user-selected date
@@ -234,7 +251,20 @@ const WoodTransfer: FC = () => {
         remarks: ''
       }
     ]);
+    setWarehouseStock([]);
     setOpenDialog(true);
+  };
+
+  const handleFromWarehouseChange = async (warehouseId: string) => {
+    setFormData({ ...formData, fromWarehouseId: warehouseId });
+
+    // Find the selected warehouse to check if it has stock control
+    const selectedWarehouse = warehouses.find(w => w.id === warehouseId);
+    if (selectedWarehouse?.stockControlEnabled) {
+      await fetchWarehouseStock(warehouseId);
+    } else {
+      setWarehouseStock([]);
+    }
   };
 
   const handleCloseDialog = () => {
@@ -431,6 +461,32 @@ const WoodTransfer: FC = () => {
     if (!user) return '-';
     const name = [user.firstName, user.lastName].filter(Boolean).join(' ');
     return name || user.email;
+  };
+
+  const getAvailableStock = (woodTypeId: string, thickness: string, woodStatus: string) => {
+    const stockItem = warehouseStock.find(
+      s => s.woodTypeId === woodTypeId && s.thickness === thickness
+    );
+    if (!stockItem) return 0;
+
+    switch (woodStatus) {
+      case 'NOT_DRIED':
+        return stockItem.statusNotDried || 0;
+      case 'UNDER_DRYING':
+        return stockItem.statusUnderDrying || 0;
+      case 'DRIED':
+        return stockItem.statusDried || 0;
+      case 'DAMAGED':
+        return stockItem.statusDamaged || 0;
+      default:
+        return 0;
+    }
+  };
+
+  const getStockItem = (woodTypeId: string, thickness: string) => {
+    return warehouseStock.find(
+      s => s.woodTypeId === woodTypeId && s.thickness === thickness
+    );
   };
 
   // Calculate counts for each tab
@@ -889,7 +945,7 @@ const WoodTransfer: FC = () => {
                     select
                     label="From Warehouse"
                     value={formData.fromWarehouseId}
-                    onChange={(e) => setFormData({ ...formData, fromWarehouseId: e.target.value })}
+                    onChange={(e) => handleFromWarehouseChange(e.target.value)}
                     required
                     fullWidth
                     InputProps={{
@@ -902,7 +958,7 @@ const WoodTransfer: FC = () => {
                   >
                     {warehouses.map((w) => (
                       <MenuItem key={w.id} value={w.id}>
-                        {w.name} ({w.code})
+                        {w.name} ({w.code}) {w.stockControlEnabled && '📦'}
                       </MenuItem>
                     ))}
                   </TextField>
@@ -1068,6 +1124,24 @@ const WoodTransfer: FC = () => {
                             fullWidth
                             size="small"
                             inputProps={{ min: 1 }}
+                            helperText={
+                              formData.fromWarehouseId &&
+                              warehouses.find(w => w.id === formData.fromWarehouseId)?.stockControlEnabled &&
+                              item.woodTypeId &&
+                              item.thickness &&
+                              item.woodStatus
+                                ? `Available: ${getAvailableStock(item.woodTypeId, item.thickness, item.woodStatus)} pcs`
+                                : ''
+                            }
+                            error={Boolean(
+                              formData.fromWarehouseId &&
+                              warehouses.find(w => w.id === formData.fromWarehouseId)?.stockControlEnabled &&
+                              item.woodTypeId &&
+                              item.thickness &&
+                              item.woodStatus &&
+                              item.quantity &&
+                              parseInt(item.quantity) > getAvailableStock(item.woodTypeId, item.thickness, item.woodStatus)
+                            )}
                           />
                         </Box>
 
@@ -1097,6 +1171,121 @@ const WoodTransfer: FC = () => {
                           rows={2}
                           placeholder="Add remarks for this item..."
                         />
+
+                        {/* Stock Availability Display */}
+                        {formData.fromWarehouseId &&
+                         warehouses.find(w => w.id === formData.fromWarehouseId)?.stockControlEnabled &&
+                         item.woodTypeId &&
+                         item.thickness && (
+                          <Box sx={{ mt: 1 }}>
+                            {loadingStock ? (
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <CircularProgress size={16} />
+                                <Typography variant="caption" color="text.secondary">
+                                  Loading inventory...
+                                </Typography>
+                              </Box>
+                            ) : (() => {
+                              const stockItem = getStockItem(item.woodTypeId, item.thickness);
+                              if (!stockItem) {
+                                return (
+                                  <Alert severity="warning" icon={<InfoIcon fontSize="small" />} sx={{ py: 0.5 }}>
+                                    <Typography variant="caption">
+                                      No stock available for {woodTypes.find(w => w.id === item.woodTypeId)?.name} - {item.thickness}
+                                    </Typography>
+                                  </Alert>
+                                );
+                              }
+                              // Calculate total stock
+                              const totalStock = (stockItem.statusNotDried || 0) +
+                                                 (stockItem.statusUnderDrying || 0) +
+                                                 (stockItem.statusDried || 0) +
+                                                 (stockItem.statusDamaged || 0);
+
+                              return (
+                                <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f0fdf4', border: '1px solid #86efac' }}>
+                                  <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                                    <Box display="flex" alignItems="center" gap={0.5}>
+                                      <InventoryIcon sx={{ fontSize: 14, color: '#16a34a' }} />
+                                      <Typography variant="caption" fontWeight="bold" color="#16a34a">
+                                        Available Stock
+                                      </Typography>
+                                    </Box>
+                                    <Typography variant="caption" fontWeight="bold" color="#16a34a">
+                                      Total: {totalStock} pcs
+                                    </Typography>
+                                  </Box>
+                                  <Grid container spacing={1}>
+                                    <Grid item xs={6}>
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{
+                                          fontWeight: item.woodStatus === 'NOT_DRIED' ? 'bold' : 'normal',
+                                          bgcolor: item.woodStatus === 'NOT_DRIED' ? '#dcfce7' : 'transparent',
+                                          px: 0.5,
+                                          py: 0.25,
+                                          borderRadius: 0.5,
+                                          display: 'inline-block'
+                                        }}
+                                      >
+                                        Not Dried: <strong style={{ color: item.woodStatus === 'NOT_DRIED' ? '#16a34a' : '#059669' }}>{stockItem.statusNotDried || 0} pcs</strong>
+                                      </Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{
+                                          fontWeight: item.woodStatus === 'UNDER_DRYING' ? 'bold' : 'normal',
+                                          bgcolor: item.woodStatus === 'UNDER_DRYING' ? '#dcfce7' : 'transparent',
+                                          px: 0.5,
+                                          py: 0.25,
+                                          borderRadius: 0.5,
+                                          display: 'inline-block'
+                                        }}
+                                      >
+                                        Under Drying: <strong style={{ color: item.woodStatus === 'UNDER_DRYING' ? '#16a34a' : '#059669' }}>{stockItem.statusUnderDrying || 0} pcs</strong>
+                                      </Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{
+                                          fontWeight: item.woodStatus === 'DRIED' ? 'bold' : 'normal',
+                                          bgcolor: item.woodStatus === 'DRIED' ? '#dcfce7' : 'transparent',
+                                          px: 0.5,
+                                          py: 0.25,
+                                          borderRadius: 0.5,
+                                          display: 'inline-block'
+                                        }}
+                                      >
+                                        Dried: <strong style={{ color: item.woodStatus === 'DRIED' ? '#16a34a' : '#059669' }}>{stockItem.statusDried || 0} pcs</strong>
+                                      </Typography>
+                                    </Grid>
+                                    <Grid item xs={6}>
+                                      <Typography
+                                        variant="caption"
+                                        color="text.secondary"
+                                        sx={{
+                                          fontWeight: item.woodStatus === 'DAMAGED' ? 'bold' : 'normal',
+                                          bgcolor: item.woodStatus === 'DAMAGED' ? '#fee2e2' : 'transparent',
+                                          px: 0.5,
+                                          py: 0.25,
+                                          borderRadius: 0.5,
+                                          display: 'inline-block'
+                                        }}
+                                      >
+                                        Damaged: <strong style={{ color: item.woodStatus === 'DAMAGED' ? '#dc2626' : '#dc2626' }}>{stockItem.statusDamaged || 0} pcs</strong>
+                                      </Typography>
+                                    </Grid>
+                                  </Grid>
+                                </Paper>
+                              );
+                            })()}
+                          </Box>
+                        )}
                       </Stack>
                     </Paper>
                   ))}
@@ -1129,7 +1318,16 @@ const WoodTransfer: FC = () => {
               disabled={
                 !formData.fromWarehouseId ||
                 !formData.toWarehouseId ||
-                lineItems.some(item => !item.woodTypeId || !item.quantity)
+                lineItems.some(item => !item.woodTypeId || !item.quantity) ||
+                // Prevent submitting if any item exceeds available stock
+                (warehouses.find(w => w.id === formData.fromWarehouseId)?.stockControlEnabled &&
+                  lineItems.some(item =>
+                    item.woodTypeId &&
+                    item.thickness &&
+                    item.woodStatus &&
+                    item.quantity &&
+                    parseInt(item.quantity) > getAvailableStock(item.woodTypeId, item.thickness, item.woodStatus)
+                  ))
               }
             >
               Create Transfer
