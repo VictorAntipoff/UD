@@ -1115,6 +1115,37 @@ async function factoryRoutes(fastify: FastifyInstance) {
         }
       });
 
+      // Send notifications to subscribed users (excluding the creator)
+      try {
+        const subscriptions = await prisma.notificationSubscription.findMany({
+          where: {
+            eventType: 'DRYING_READING_ADDED',
+            inApp: true,
+            userId: {
+              not: user.userId // Don't notify the user who created the reading
+            }
+          }
+        });
+
+        if (subscriptions.length > 0) {
+          const notifications = subscriptions.map(sub => ({
+            userId: sub.userId,
+            type: 'DRYING_READING_ADDED',
+            title: 'New Drying Reading Added',
+            message: `${userName} added a new reading to ${process.name} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
+            linkUrl: `/dashboard/factory/drying-process`,
+            isRead: false
+          }));
+
+          await prisma.notification.createMany({
+            data: notifications
+          });
+        }
+      } catch (notifError) {
+        console.error('Error sending drying reading notifications:', notifError);
+        // Don't fail the request if notifications fail
+      }
+
       return reading;
     } catch (error) {
       console.error('Error adding reading:', error);
