@@ -64,21 +64,21 @@ export function formatForDateTimeInput(
 }
 
 /**
- * Format a datetime string without timezone conversion
- * Used for manually entered times that should be displayed as-is
- * @param dateStr - Date string (e.g., "2025-01-05T06:31:00Z")
+ * Format a UTC datetime string in the user's timezone
+ * Used for displaying times stored in UTC
+ * @param dateStr - Date string in UTC (e.g., "2025-01-05T06:31:00Z")
  * @param formatStr - Format string (default: 'hh:mm a')
- * @returns Formatted date string without timezone conversion
+ * @param timezone - Timezone (default: 'Africa/Dar_es_Salaam')
+ * @returns Formatted date string in local timezone
  */
 export function formatAsLocalTime(
   dateStr: string,
-  formatStr: string = 'hh:mm a'
+  formatStr: string = 'hh:mm a',
+  timezone: string = 'Africa/Dar_es_Salaam'
 ): string {
   try {
-    // Parse as local time, ignoring timezone
-    const withoutZ = dateStr.replace('Z', '').replace(/\.\d{3}/, '');
-    const date = new Date(withoutZ);
-    return format(date, formatStr);
+    const dateObj = new Date(dateStr);
+    return formatInTimeZone(dateObj, timezone, formatStr);
   } catch (error) {
     console.error('Error formatting as local time:', error);
     return dateStr;

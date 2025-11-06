@@ -480,16 +480,13 @@ export default function DryingProcess() {
     try {
       setAddingReading(true);
 
-      // Send the exact time entered by the user - no conversion!
-      // Format: "2025-11-05T09:07" -> "2025-11-05T09:07:00.000Z"
-      const readingTimeISO = newReading.readingTime.includes(':')
-        ? newReading.readingTime + ':00.000Z'
-        : new Date(newReading.readingTime).toISOString();
+      // Convert local time to UTC properly using parseLocalToUTC
+      const readingTimeISO = parseLocalToUTC(newReading.readingTime, timezone);
 
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
-        readingTime: readingTimeISO, // Send exact time as entered
+        readingTime: readingTimeISO,
         notes: newReading.notes,
         lukuSms: lukuSms.trim() || null // Include Luku SMS if provided
       });
@@ -518,15 +515,13 @@ export default function DryingProcess() {
     if (!editingReading) return;
 
     try {
-      // Send the exact time entered by the user - no conversion!
-      const readingTimeISO = editReadingData.readingTime.includes(':')
-        ? editReadingData.readingTime + ':00.000Z'
-        : new Date(editReadingData.readingTime).toISOString();
+      // Convert local time to UTC properly using parseLocalToUTC
+      const readingTimeISO = parseLocalToUTC(editReadingData.readingTime, timezone);
 
       await api.put(`/factory/drying-readings/${editingReading.id}`, {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
-        readingTime: readingTimeISO, // Send exact time as entered
+        readingTime: readingTimeISO,
         notes: editReadingData.notes,
         lukuSms: editReadingData.lukuSms.trim() || null
       });
@@ -1399,10 +1394,10 @@ export default function DryingProcess() {
                                   >
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
                                       <Typography variant="body2" sx={{ fontWeight: 500, color: '#1e293b' }}>
-                                        {formatAsLocalTime(reading.readingTime, 'MM/dd/yyyy')}
+                                        {formatAsLocalTime(reading.readingTime, 'MM/dd/yyyy', timezone)}
                                       </Typography>
                                       <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 0.25 }}>
-                                        {formatAsLocalTime(reading.readingTime, 'hh:mm a')}
+                                        {formatAsLocalTime(reading.readingTime, 'hh:mm a', timezone)}
                                       </Typography>
                                     </TableCell>
                                     <TableCell sx={{ fontSize: '0.813rem' }}>
@@ -2924,33 +2919,61 @@ export default function DryingProcess() {
           </Stack>
         </DialogContent>
         <Divider />
-        <DialogActions sx={{ p: 2.5 }}>
+        <DialogActions sx={{ p: 2.5, justifyContent: 'space-between' }}>
           <Button
-            onClick={() => setEditReadingDialogOpen(false)}
-            sx={{
-              color: '#64748b',
-              textTransform: 'none',
-              fontWeight: 600,
+            onClick={async () => {
+              if (!editingReading || !window.confirm('Are you sure you want to delete this reading? This action cannot be undone.')) return;
+
+              try {
+                await api.delete(`/factory/drying-readings/${editingReading.id}`);
+                await fetchData();
+                setEditReadingDialogOpen(false);
+                setEditingReading(null);
+              } catch (error: any) {
+                console.error('Error deleting reading:', error);
+                alert(error.response?.data?.error || 'Failed to delete reading');
+              }
             }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleEditReading}
-            variant="contained"
-            disabled={!editReadingData.electricityMeter || !editReadingData.humidity}
+            startIcon={<DeleteIcon />}
             sx={{
-              backgroundColor: '#dc2626',
+              color: '#dc2626',
               textTransform: 'none',
               fontWeight: 600,
-              px: 3,
               '&:hover': {
-                backgroundColor: '#b91c1c',
+                backgroundColor: alpha('#dc2626', 0.1)
               }
             }}
           >
-            Save Changes
+            Delete
           </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              onClick={() => setEditReadingDialogOpen(false)}
+              sx={{
+                color: '#64748b',
+                textTransform: 'none',
+                fontWeight: 600,
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleEditReading}
+              variant="contained"
+              disabled={!editReadingData.electricityMeter || !editReadingData.humidity}
+              sx={{
+                backgroundColor: '#dc2626',
+                textTransform: 'none',
+                fontWeight: 600,
+                px: 3,
+                '&:hover': {
+                  backgroundColor: '#b91c1c',
+                }
+              }}
+            >
+              Save Changes
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
@@ -3233,7 +3256,7 @@ export default function DryingProcess() {
                       {selectedProcess.readings.map((reading) => (
                         <TableRow key={reading.id} sx={{ '&:hover': { backgroundColor: '#fef2f2' } }}>
                           <TableCell sx={{ fontSize: '0.75rem' }}>
-                            {formatAsLocalTime(reading.readingTime, 'yyyy-MM-dd hh:mm a')}
+                            {formatAsLocalTime(reading.readingTime, 'yyyy-MM-dd hh:mm a', timezone)}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
                             {reading.electricityMeter.toFixed(2)}

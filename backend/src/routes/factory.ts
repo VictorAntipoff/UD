@@ -1095,10 +1095,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       }
 
       // Frontend sends UTC time in ISO format from parseLocalToUTC()
-      // If it already ends with Z, it's already in ISO format
-      const readingTimeISO = data.readingTime
-        ? (data.readingTime.endsWith('Z') ? data.readingTime : new Date(data.readingTime).toISOString())
-        : new Date().toISOString();
+      const readingTimeISO = data.readingTime || new Date().toISOString();
 
       const reading = await prisma.dryingReading.create({
         data: {
@@ -1547,18 +1544,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
         ? `${userDetails.firstName} ${userDetails.lastName}`
         : (userDetails?.email || 'System');
 
-      // Frontend sends UTC time in ISO format from parseLocalToUTC()
-      // If it already ends with Z, it's already in ISO format
-      const readingTimeISO = data.readingTime !== undefined
-        ? (data.readingTime.endsWith('Z') ? data.readingTime : new Date(data.readingTime).toISOString())
-        : undefined;
-
       const reading = await prisma.dryingReading.update({
         where: { id },
         data: {
           ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
           ...(data.humidity !== undefined && { humidity: data.humidity }),
-          ...(readingTimeISO !== undefined && { readingTime: readingTimeISO }),
+          ...(data.readingTime !== undefined && { readingTime: data.readingTime }),
           ...(data.notes !== undefined && { notes: data.notes }),
           ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms }),
           updatedById: user.userId,
