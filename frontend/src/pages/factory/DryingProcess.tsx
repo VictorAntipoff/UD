@@ -480,13 +480,16 @@ export default function DryingProcess() {
     try {
       setAddingReading(true);
 
-      // Convert the manually entered time (in local timezone) to UTC for storage
-      const readingTimeUTC = parseLocalToUTC(newReading.readingTime, timezone);
+      // Send the exact time entered by the user - no conversion!
+      // Format: "2025-11-05T09:07" -> "2025-11-05T09:07:00.000Z"
+      const readingTimeISO = newReading.readingTime.includes(':')
+        ? newReading.readingTime + ':00.000Z'
+        : new Date(newReading.readingTime).toISOString();
 
       await api.post(`/factory/drying-processes/${selectedProcess.id}/readings`, {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
-        readingTime: readingTimeUTC, // Send UTC time to backend
+        readingTime: readingTimeISO, // Send exact time as entered
         notes: newReading.notes,
         lukuSms: lukuSms.trim() || null // Include Luku SMS if provided
       });
@@ -515,13 +518,15 @@ export default function DryingProcess() {
     if (!editingReading) return;
 
     try {
-      // Convert the manually entered time (in local timezone) to UTC for storage
-      const readingTimeUTC = parseLocalToUTC(editReadingData.readingTime, timezone);
+      // Send the exact time entered by the user - no conversion!
+      const readingTimeISO = editReadingData.readingTime.includes(':')
+        ? editReadingData.readingTime + ':00.000Z'
+        : new Date(editReadingData.readingTime).toISOString();
 
       await api.put(`/factory/drying-readings/${editingReading.id}`, {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
-        readingTime: readingTimeUTC, // Send UTC time to backend
+        readingTime: readingTimeISO, // Send exact time as entered
         notes: editReadingData.notes,
         lukuSms: editReadingData.lukuSms.trim() || null
       });

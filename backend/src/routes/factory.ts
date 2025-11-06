@@ -752,9 +752,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       // Get authenticated user info
       const user = (request as any).user;
-      const userName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email;
+
+      // Fetch full user details from database to get name
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true }
+      });
+
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
 
       // Determine if using old or new format
       const isMultiWood = data.items && data.items.length > 0;
@@ -1062,9 +1069,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       // Get authenticated user info
       const user = (request as any).user;
-      const userName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email;
+
+      // Fetch full user details from database to get name
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true }
+      });
+
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
 
       // Validate required fields
       if (data.electricityMeter === undefined || data.humidity === undefined) {
@@ -1080,9 +1094,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Drying process not found' });
       }
 
-      // Convert datetime-local format to ISO while preserving exact time
+      // Frontend sends UTC time in ISO format from parseLocalToUTC()
+      // If it already ends with Z, it's already in ISO format
       const readingTimeISO = data.readingTime
-        ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
+        ? (data.readingTime.endsWith('Z') ? data.readingTime : new Date(data.readingTime).toISOString())
         : new Date().toISOString();
 
       const reading = await prisma.dryingReading.create({
@@ -1490,13 +1505,21 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       // Get authenticated user info
       const user = (request as any).user;
-      const userName = user.firstName && user.lastName
-        ? `${user.firstName} ${user.lastName}`
-        : user.email;
 
-      // Convert datetime-local format to ISO while preserving exact time
+      // Fetch full user details from database to get name
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true }
+      });
+
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
+
+      // Frontend sends UTC time in ISO format from parseLocalToUTC()
+      // If it already ends with Z, it's already in ISO format
       const readingTimeISO = data.readingTime !== undefined
-        ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
+        ? (data.readingTime.endsWith('Z') ? data.readingTime : new Date(data.readingTime).toISOString())
         : undefined;
 
       const reading = await prisma.dryingReading.update({
