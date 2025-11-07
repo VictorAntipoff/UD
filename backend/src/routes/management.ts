@@ -221,7 +221,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           type: 'LOT_PENDING_APPROVAL',
           title: 'LOT Pending Approval',
           message: `LOT ${receipt.lotNumber} (${receipt.woodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
-          linkUrl: `/dashboard/management/lot-management`,
+          linkUrl: `/dashboard/management/wood-receipt`,
           isRead: false
         }));
 
@@ -392,7 +392,9 @@ async function managementRoutes(fastify: FastifyInstance) {
             updatedAt: receipt.updatedAt,
             // Last user who worked on this receipt
             lastWorkedBy: lastWorkedBy,
-            lastWorkedAt: lastWorkedAt
+            lastWorkedAt: lastWorkedAt,
+            // Include the measurements for PDF generation
+            measurements: draft?.measurements || null
           };
         })
       );

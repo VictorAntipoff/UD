@@ -787,6 +787,84 @@ const WoodReceipt = () => {
       startY += 3;
     }
 
+    // Plank/Sleeper Measurements Section
+    const measurements = woodReceipt.measurements;
+    if (measurements && Array.isArray(measurements) && measurements.length > 0) {
+      addSectionHeader(`${woodReceipt.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'} Measurements`);
+
+      const measurementRows: any[] = [];
+      measurements.forEach((m: any, index: number) => {
+        const thickness = parseFloat(m.thickness) || 0;
+        const width = parseFloat(m.width) || 0;
+        const length = parseFloat(m.length) || 0;
+        const qty = parseInt(m.qty) || 1;
+
+        // Detect unit system for display
+        let thicknessDisplay, widthDisplay, lengthDisplay, volumeDisplay;
+        if (thickness < 50 && width < 50) {
+          // Imperial
+          thicknessDisplay = `${thickness}"`;
+          widthDisplay = `${width}"`;
+          lengthDisplay = `${length}'`;
+          const thicknessM = thickness * 0.0254;
+          const widthM = width * 0.0254;
+          const lengthM = length * 0.3048;
+          const volumeM3 = thicknessM * widthM * lengthM * qty;
+          volumeDisplay = volumeM3.toFixed(3);
+        } else {
+          // Metric
+          thicknessDisplay = `${thickness}cm`;
+          widthDisplay = `${width}cm`;
+          lengthDisplay = `${length}cm`;
+          const volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+          volumeDisplay = volumeM3.toFixed(3);
+        }
+
+        measurementRows.push([
+          (index + 1).toString(),
+          thicknessDisplay,
+          widthDisplay,
+          lengthDisplay,
+          qty.toString(),
+          `${volumeDisplay} m³`
+        ]);
+      });
+
+      autoTable(doc, {
+        startY,
+        head: [['#', 'Thickness', 'Width', 'Length', 'Qty', 'Volume']],
+        body: measurementRows,
+        theme: 'grid',
+        headStyles: {
+          fillColor: [248, 250, 252],
+          textColor: [30, 41, 59],
+          fontStyle: 'bold',
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        bodyStyles: {
+          textColor: [71, 85, 105],
+          fontSize: 7.5,
+          cellPadding: 2.5,
+          lineColor: [226, 232, 240],
+          lineWidth: 0.1
+        },
+        margin: { left: 14, right: 14 },
+        columnStyles: {
+          0: { cellWidth: 12, halign: 'center' },
+          1: { cellWidth: 25 },
+          2: { cellWidth: 25 },
+          3: { cellWidth: 25 },
+          4: { cellWidth: 20, halign: 'center' },
+          5: { cellWidth: 'auto', halign: 'right' }
+        }
+      });
+
+      startY = (doc as any).lastAutoTable.finalY + 6;
+    }
+
     // Slicing Operations Section
     const slicingOps = traceabilityData.stages?.slicing || [];
     if (slicingOps.length > 0) {
