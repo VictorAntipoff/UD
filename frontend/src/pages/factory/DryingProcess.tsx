@@ -206,6 +206,7 @@ export default function DryingProcess() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [addingReading, setAddingReading] = useState(false);
+  const [creatingProcess, setCreatingProcess] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [readingDialogOpen, setReadingDialogOpen] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState<DryingProcess | null>(null);
@@ -375,16 +376,22 @@ export default function DryingProcess() {
   };
 
   const handleCreateProcess = async () => {
+    if (creatingProcess) return; // Prevent double-click
+
     try {
+      setCreatingProcess(true);
+
       // Validate warehouse selected
       if (!newProcess.warehouseId) {
         alert('Please select a warehouse');
+        setCreatingProcess(false);
         return;
       }
 
       // Validate at least one wood item
       if (woodItems.length === 0 || !woodItems[0].woodTypeId) {
         alert('Please add at least one wood type');
+        setCreatingProcess(false);
         return;
       }
 
@@ -393,6 +400,7 @@ export default function DryingProcess() {
       for (const item of woodItems) {
         if (!item.woodTypeId || !item.thickness || !item.pieceCount) {
           alert('Please fill in all fields for each wood type');
+          setCreatingProcess(false);
           return;
         }
 
@@ -456,6 +464,8 @@ export default function DryingProcess() {
     } catch (error: any) {
       console.error('Error creating process:', error);
       alert(error.response?.data?.error || 'Failed to create drying process');
+    } finally {
+      setCreatingProcess(false);
     }
   };
 
@@ -861,7 +871,7 @@ export default function DryingProcess() {
         pieceCount: '', // Not used for multi-wood
         startingHumidity: process.startingHumidity?.toString() || '',
         startingElectricityUnits: process.startingElectricityUnits?.toString() || '',
-        startTime: new Date(process.startTime).toISOString().slice(0, 16),
+        startTime: formatForDateTimeInput(process.startTime, timezone),
         notes: process.notes || ''
       });
     } else if (process.woodTypeId && process.thickness !== null && process.pieceCount !== null) {
@@ -873,7 +883,7 @@ export default function DryingProcess() {
         pieceCount: process.pieceCount.toString(),
         startingHumidity: process.startingHumidity?.toString() || '',
         startingElectricityUnits: process.startingElectricityUnits?.toString() || '',
-        startTime: new Date(process.startTime).toISOString().slice(0, 16),
+        startTime: formatForDateTimeInput(process.startTime, timezone),
         notes: process.notes || ''
       });
     } else {
@@ -896,7 +906,7 @@ export default function DryingProcess() {
       const updateData: any = {
         startingHumidity: editData.startingHumidity ? parseFloat(editData.startingHumidity) : undefined,
         startingElectricityUnits: editData.startingElectricityUnits ? parseFloat(editData.startingElectricityUnits) : undefined,
-        startTime: editData.startTime,
+        startTime: parseLocalToUTC(editData.startTime, timezone),
         notes: editData.notes
       };
 
@@ -2586,12 +2596,14 @@ export default function DryingProcess() {
             onClick={handleCreateProcess}
             variant="contained"
             disabled={
+              creatingProcess ||
               !newProcess.warehouseId ||
               woodItems.length === 0 ||
               !woodItems[0].woodTypeId ||
               !woodItems[0].thickness ||
               !woodItems[0].pieceCount
             }
+            startIcon={creatingProcess ? <CircularProgress size={20} sx={{ color: 'white' }} /> : null}
             sx={{
               backgroundColor: '#dc2626',
               textTransform: 'none',
@@ -2599,10 +2611,15 @@ export default function DryingProcess() {
               px: 3,
               '&:hover': {
                 backgroundColor: '#b91c1c',
+              },
+              '&:disabled': {
+                backgroundColor: '#f87171',
+                color: 'white',
+                opacity: 0.7
               }
             }}
           >
-            Create Process
+            {creatingProcess ? 'Creating...' : 'Create Process'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -3281,6 +3298,38 @@ export default function DryingProcess() {
                           </TableCell>
                         </TableRow>
                       ))}
+
+                      {/* Initial Reading Row */}
+                      <TableRow sx={{ backgroundColor: '#fef3c7', '&:hover': { backgroundColor: '#fde68a !important' } }}>
+                        <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                          {formatAsLocalTime(selectedProcess.startTime, 'yyyy-MM-dd hh:mm a', timezone)}
+                          <Typography variant="caption" sx={{ display: 'block', color: '#92400e', fontSize: '0.65rem', mt: 0.25 }}>
+                            Initial Reading
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                          {selectedProcess.startingElectricityUnits?.toFixed(2) || '-'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
+                          {selectedProcess.startingHumidity?.toFixed(1) || '-'}
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem' }}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#1e293b' }}>
+                              {selectedProcess.createdByName || 'System'}
+                            </Typography>
+                            {selectedProcess.createdAt && (
+                              <Typography variant="caption" sx={{ fontSize: '0.65rem', color: '#94a3b8' }}>
+                                {formatDateInTimezone(selectedProcess.createdAt, 'yyyy-MM-dd hh:mm a', timezone)}
+                              </Typography>
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', fontStyle: 'italic', color: '#78716c' }}>
+                          Process started
+                        </TableCell>
+                      </TableRow>
+
                       {selectedProcess.readings.length === 0 && (
                         <TableRow>
                           <TableCell colSpan={5} align="center" sx={{ py: 3 }}>
