@@ -504,16 +504,16 @@ const WoodReceipt = () => {
       // Update cost data state with the saved values
       if (response.data.cost) {
         setCostData({
-          purchasePrice: response.data.cost.purchasePrice || '',
+          purchasePrice: response.data.cost.purchasePrice ? String(response.data.cost.purchasePrice) : '',
           purchasePriceType: response.data.cost.purchasePriceType || 'LUMPSUM',
           purchasePriceIncVat: response.data.cost.purchasePriceIncVat || false,
-          transportPrice: response.data.cost.transportPrice || '',
+          transportPrice: response.data.cost.transportPrice ? String(response.data.cost.transportPrice) : '',
           transportPriceType: response.data.cost.transportPriceType || 'LUMPSUM',
           transportPriceIncVat: response.data.cost.transportPriceIncVat || false,
-          slicingExpenses: response.data.cost.slicingExpenses || '',
+          slicingExpenses: response.data.cost.slicingExpenses ? String(response.data.cost.slicingExpenses) : '',
           slicingExpensesType: response.data.cost.slicingExpensesType || 'LUMPSUM',
           slicingExpensesIncVat: response.data.cost.slicingExpensesIncVat || false,
-          otherExpenses: response.data.cost.otherExpenses || '',
+          otherExpenses: response.data.cost.otherExpenses ? String(response.data.cost.otherExpenses) : '',
           otherExpensesType: response.data.cost.otherExpensesType || 'LUMPSUM',
           otherExpensesIncVat: response.data.cost.otherExpensesIncVat || false,
           notes: response.data.cost.notes || ''
@@ -1198,16 +1198,16 @@ const WoodReceipt = () => {
       // Initialize cost data
       if (response.data.cost) {
         setCostData({
-          purchasePrice: response.data.cost.purchasePrice || '',
+          purchasePrice: response.data.cost.purchasePrice ? String(response.data.cost.purchasePrice) : '',
           purchasePriceType: response.data.cost.purchasePriceType || 'LUMPSUM',
           purchasePriceIncVat: response.data.cost.purchasePriceIncVat || false,
-          transportPrice: response.data.cost.transportPrice || '',
+          transportPrice: response.data.cost.transportPrice ? String(response.data.cost.transportPrice) : '',
           transportPriceType: response.data.cost.transportPriceType || 'LUMPSUM',
           transportPriceIncVat: response.data.cost.transportPriceIncVat || false,
-          slicingExpenses: response.data.cost.slicingExpenses || '',
+          slicingExpenses: response.data.cost.slicingExpenses ? String(response.data.cost.slicingExpenses) : '',
           slicingExpensesType: response.data.cost.slicingExpensesType || 'LUMPSUM',
           slicingExpensesIncVat: response.data.cost.slicingExpensesIncVat || false,
-          otherExpenses: response.data.cost.otherExpenses || '',
+          otherExpenses: response.data.cost.otherExpenses ? String(response.data.cost.otherExpenses) : '',
           otherExpensesType: response.data.cost.otherExpensesType || 'LUMPSUM',
           otherExpensesIncVat: response.data.cost.otherExpensesIncVat || false,
           notes: response.data.cost.notes || ''
@@ -2593,11 +2593,18 @@ const WoodReceipt = () => {
                             setEditingCost(false);
                             if (traceabilityData.cost) {
                               setCostData({
-                                purchasePrice: traceabilityData.cost.purchasePrice || '',
-                                transportPrice: traceabilityData.cost.transportPrice || '',
-                                slicingExpenses: traceabilityData.cost.slicingExpenses || '',
-                                otherExpenses: traceabilityData.cost.otherExpenses || '',
-                                costType: traceabilityData.cost.costType || 'PER_LOT',
+                                purchasePrice: traceabilityData.cost.purchasePrice ? String(traceabilityData.cost.purchasePrice) : '',
+                                purchasePriceType: traceabilityData.cost.purchasePriceType || 'LUMPSUM',
+                                purchasePriceIncVat: traceabilityData.cost.purchasePriceIncVat || false,
+                                transportPrice: traceabilityData.cost.transportPrice ? String(traceabilityData.cost.transportPrice) : '',
+                                transportPriceType: traceabilityData.cost.transportPriceType || 'LUMPSUM',
+                                transportPriceIncVat: traceabilityData.cost.transportPriceIncVat || false,
+                                slicingExpenses: traceabilityData.cost.slicingExpenses ? String(traceabilityData.cost.slicingExpenses) : '',
+                                slicingExpensesType: traceabilityData.cost.slicingExpensesType || 'LUMPSUM',
+                                slicingExpensesIncVat: traceabilityData.cost.slicingExpensesIncVat || false,
+                                otherExpenses: traceabilityData.cost.otherExpenses ? String(traceabilityData.cost.otherExpenses) : '',
+                                otherExpensesType: traceabilityData.cost.otherExpensesType || 'LUMPSUM',
+                                otherExpensesIncVat: traceabilityData.cost.otherExpensesIncVat || false,
                                 notes: traceabilityData.cost.notes || ''
                               });
                             }
@@ -3035,7 +3042,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#92400e', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
@@ -3053,12 +3060,21 @@ const WoodReceipt = () => {
                                   if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
                                   if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
 
-                                  return (purchaseTotal + transportTotal + slicingTotal + otherTotal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                  const subtotal = purchaseTotal + transportTotal + slicingTotal + otherTotal;
+
+                                  return subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                                 })()}
                               </Typography>
                               <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
-                                Total for LOT ({(traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0).toFixed(2)} m³)
+                                Total for LOT ({(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(2)} m³)
                               </Typography>
+                              {(costData.purchasePriceType === 'PER_M3' || costData.transportPriceType === 'PER_M3' ||
+                                costData.slicingExpensesType === 'PER_M3' || costData.otherExpensesType === 'PER_M3') &&
+                                (!traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 === 0) && (
+                                <Typography variant="caption" sx={{ color: '#dc2626', fontSize: '0.7rem', fontWeight: 600, mt: 0.5, display: 'block' }}>
+                                  ⚠️ Warning: LOT has no volume (m³) recorded. Per m³ costs will be 0.
+                                </Typography>
+                              )}
                             </Paper>
                           </Grid>
                           <Grid item xs={12} md={4}>
@@ -3068,7 +3084,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e40af', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
@@ -3102,7 +3118,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#15803d', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipt?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
