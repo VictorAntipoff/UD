@@ -142,6 +142,7 @@ const InventoryReports: FC = () => {
   // Data states
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
+  const [selectedWoodType, setSelectedWoodType] = useState<string>('all');
   const [warehouseStock, setWarehouseStock] = useState<Stock[]>([]);
   const [consolidatedStock, setConsolidatedStock] = useState<ConsolidatedStock | null>(null);
   const [lowStockAlerts, setLowStockAlerts] = useState<LowStockAlert[]>([]);
@@ -298,6 +299,19 @@ const InventoryReports: FC = () => {
     return stock.statusNotDried + stock.statusDried;
   };
 
+  // Get unique wood types from warehouse stock
+  const uniqueWoodTypes = Array.from(
+    new Set(warehouseStock.map(stock => stock.woodType.id))
+  ).map(id => {
+    const stock = warehouseStock.find(s => s.woodType.id === id);
+    return stock!.woodType;
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  // Filter warehouse stock by selected wood type
+  const filteredWarehouseStock = selectedWoodType === 'all'
+    ? warehouseStock
+    : warehouseStock.filter(stock => stock.woodType.id === selectedWoodType);
+
   const getUserDisplay = (user: any) => {
     const name = [user.firstName, user.lastName].filter(Boolean).join(' ');
     return name || user.email;
@@ -321,51 +335,95 @@ const InventoryReports: FC = () => {
     // Add logo - proper aspect ratio (logo is roughly 3.5:1)
     const logo = new Image();
     logo.src = '/src/assets/images/logo.png';
-    doc.addImage(logo, 'PNG', 14, 8, 30, 8.5);
+    doc.addImage(logo, 'PNG', 14, 10, 35, 10);
 
-    // Centered title "Inventory Report"
-    doc.setFontSize(14);
+    // Title "Inventory Report"
+    doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(220, 38, 38); // Red
-    doc.text('Inventory Report', pageWidth / 2, 14, { align: 'center' });
+    doc.text('Inventory Report', pageWidth / 2, 16, { align: 'center' });
 
-    // Timestamp and version in top right
+    // Subtitle "Professional Wood Solutions"
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text('Professional Wood Solutions', pageWidth / 2, 21, { align: 'center' });
+
+    // Timestamp on top right
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139); // Gray
-    doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth - 14, 11, { align: 'right' });
-    doc.text('v3.9', pageWidth - 14, 15, { align: 'right' });
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${format(new Date(), 'dd/MM/yyyy, HH:mm:ss')}`, pageWidth - 14, 16, { align: 'right' });
 
     // Gray line under header
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(14, 22, pageWidth - 14, 22);
+    doc.line(14, 26, pageWidth - 14, 26);
 
-    let startY = 30;
+    let startY = 34;
 
     if (tabValue === 0) {
       // By Warehouse Report - Info box
       const warehouse = warehouses.find(w => w.id === selectedWarehouse);
+      const selectedWoodTypeName = selectedWoodType === 'all'
+        ? 'All Wood Types'
+        : uniqueWoodTypes.find(w => w.id === selectedWoodType)?.name || 'All Wood Types';
+
       if (warehouse) {
+        // Receipt Information section header
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('Report Information', 14, startY);
+
+        startY += 6;
+
         // Info box background
         doc.setFillColor(248, 250, 252);
         doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(14, startY, pageWidth - 28, 15, 2, 2, 'FD');
+        doc.setLineWidth(0.5);
+        doc.roundedRect(14, startY, pageWidth - 28, 18, 2, 2, 'FD');
 
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139);
-        doc.text('Warehouse:', 18, startY + 6);
+        // Two columns layout
+        const col1X = 18;
+        const col2X = pageWidth / 2 + 10;
+        const valueOffset = 38;
 
+        doc.setFontSize(8);
         doc.setFont('helvetica', 'bold');
-        doc.setTextColor(44, 62, 80);
-        doc.text(`${warehouse.name} (${warehouse.code})`, 18, startY + 11);
+        doc.setTextColor(100, 116, 139);
 
-        startY += 20;
+        // Column 1
+        doc.text('Warehouse:', col1X, startY + 6);
+        doc.text('Wood Type Filter:', col1X, startY + 12);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(44, 62, 80);
+        doc.text(`${warehouse.name} (${warehouse.code})`, col1X + valueOffset, startY + 6);
+        doc.text(selectedWoodTypeName, col1X + valueOffset, startY + 12);
+
+        // Column 2
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(100, 116, 139);
+        doc.text('Date:', col2X, startY + 6);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(44, 62, 80);
+        doc.text(format(new Date(), 'dd/MM/yyyy'), col2X + 20, startY + 6);
+
+        startY += 24;
       }
 
-      if (warehouseStock.length > 0) {
-        const tableData = warehouseStock.map(stock => [
+      if (filteredWarehouseStock.length > 0) {
+        // Stock Details section header
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('Stock Details', 14, startY);
+
+        startY += 6;
+
+        const tableData = filteredWarehouseStock.map(stock => [
           stock.woodType.name,
           stock.thickness,
           stock.statusNotDried.toString(),
@@ -382,80 +440,65 @@ const InventoryReports: FC = () => {
           head: [['Wood Type', 'Thickness', 'Not Dried', 'Under Drying', 'Dried', 'Damaged', 'In Transit', 'Total', 'Available']],
           body: tableData,
           theme: 'plain',
+          tableWidth: 'auto',
           headStyles: {
             fillColor: [248, 250, 252],
             textColor: [30, 41, 59],
             fontStyle: 'bold',
-            fontSize: 9,
+            fontSize: 10,
             halign: 'left',
-            cellPadding: { top: 3, right: 4, bottom: 3, left: 4 },
+            cellPadding: { top: 4, right: 5, bottom: 4, left: 5 },
             lineWidth: 0.1,
             lineColor: [226, 232, 240]
           },
           bodyStyles: {
-            fontSize: 8,
-            cellPadding: { top: 3, right: 4, bottom: 3, left: 4 },
+            fontSize: 9,
+            cellPadding: { top: 4, right: 5, bottom: 4, left: 5 },
             textColor: [44, 62, 80]
           },
           alternateRowStyles: {
             fillColor: [250, 250, 250]
           },
           columnStyles: {
-            0: { cellWidth: 30, fontStyle: 'bold', textColor: [30, 41, 59] },
-            1: { cellWidth: 22, halign: 'center' },
-            2: { cellWidth: 22, halign: 'right' },
-            3: { cellWidth: 25, halign: 'right' },
-            4: { cellWidth: 22, halign: 'right', fontStyle: 'bold', textColor: [220, 38, 38] },
-            5: { cellWidth: 22, halign: 'right' },
-            6: { cellWidth: 22, halign: 'right' },
-            7: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
-            8: { cellWidth: 22, halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
+            0: { fontStyle: 'bold', textColor: [30, 41, 59], halign: 'left' },
+            1: { halign: 'center' },
+            2: { halign: 'right' },
+            3: { halign: 'right' },
+            4: { halign: 'right', fontStyle: 'bold', textColor: [220, 38, 38] },
+            5: { halign: 'right' },
+            6: { halign: 'right' },
+            7: { halign: 'right', fontStyle: 'bold' },
+            8: { halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
           },
           margin: { left: 14, right: 14, bottom: 20 },
           tableLineColor: [226, 232, 240],
           tableLineWidth: 0.1,
           didDrawPage: (data: any) => {
             // Footer on each page
-            const footerY = pageHeight - 15;
+            const footerY = pageHeight - 10;
 
-            // Footer line
-            doc.setDrawColor(226, 232, 240);
-            doc.setLineWidth(0.5);
-            doc.line(14, footerY, pageWidth - 14, footerY);
-
-            // Footer text
-            doc.setFontSize(7);
-            doc.setTextColor(100, 116, 139);
+            // Footer text - centered
+            doc.setFontSize(8);
+            doc.setTextColor(148, 163, 184); // Gray color
             doc.setFont('helvetica', 'normal');
 
-            // Left: Company name
-            doc.text('U Design - Wood Management System', 14, footerY + 5);
-
-            // Center: Page number
-            const pageNum = (doc as any).internal.getCurrentPageInfo().pageNumber;
-            const totalPages = (doc as any).internal.getNumberOfPages();
             doc.text(
-              `Page ${pageNum} of ${totalPages}`,
+              'U Design v1.0.0 • Generated by Wood Processing System',
               pageWidth / 2,
-              footerY + 5,
+              footerY,
               { align: 'center' }
-            );
-
-            // Right: Timestamp
-            doc.text(
-              format(new Date(), 'dd/MM/yyyy HH:mm'),
-              pageWidth - 14,
-              footerY + 5,
-              { align: 'right' }
             );
           }
         });
       }
     }
 
-    const fileName = tabValue === 0
-      ? `UD - Inventory Report (${warehouses.find(w => w.id === selectedWarehouse)?.code || 'Warehouse'}).pdf`
-      : 'UD - Inventory Report.pdf';
+    const warehouse = warehouses.find(w => w.id === selectedWarehouse);
+    const woodTypeFilter = selectedWoodType === 'all'
+      ? ''
+      : ` - ${uniqueWoodTypes.find(w => w.id === selectedWoodType)?.name || ''}`;
+
+    const fileName = `Inventory Report (${warehouse?.code || 'Warehouse'}${woodTypeFilter}) - ${format(new Date(), 'yyyy-MM-dd')}.pdf`;
 
     doc.save(fileName);
   };
@@ -537,33 +580,64 @@ const InventoryReports: FC = () => {
                 border: '1px solid #e2e8f0'
               }}
             >
-              <TextField
-                select
-                label="Select Warehouse"
-                value={selectedWarehouse}
-                onChange={(e) => setSelectedWarehouse(e.target.value)}
-                sx={{
-                  minWidth: 300,
-                  '& .MuiOutlinedInput-root': {
-                    backgroundColor: '#fff',
-                    '&:hover fieldset': {
-                      borderColor: '#dc2626',
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <TextField
+                  select
+                  label="Select Warehouse"
+                  value={selectedWarehouse}
+                  onChange={(e) => setSelectedWarehouse(e.target.value)}
+                  sx={{
+                    minWidth: 300,
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#fff',
+                      '&:hover fieldset': {
+                        borderColor: '#dc2626',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#dc2626',
+                      }
                     },
-                    '&.Mui-focused fieldset': {
-                      borderColor: '#dc2626',
+                    '& .MuiInputLabel-root.Mui-focused': {
+                      color: '#dc2626'
                     }
-                  },
-                  '& .MuiInputLabel-root.Mui-focused': {
-                    color: '#dc2626'
-                  }
-                }}
-              >
-                {warehouses.map((w) => (
-                  <MenuItem key={w.id} value={w.id}>
-                    {w.name} ({w.code})
-                  </MenuItem>
-                ))}
-              </TextField>
+                  }}
+                >
+                  {warehouses.map((w) => (
+                    <MenuItem key={w.id} value={w.id}>
+                      {w.name} ({w.code})
+                    </MenuItem>
+                  ))}
+                </TextField>
+
+                <TextField
+                  select
+                  label="Filter by Wood Type"
+                  value={selectedWoodType}
+                  onChange={(e) => setSelectedWoodType(e.target.value)}
+                  sx={{
+                    minWidth: 250,
+                    '& .MuiOutlinedInput-root': {
+                      backgroundColor: '#fff',
+                      '&:hover fieldset': {
+                        borderColor: '#dc2626',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#dc2626',
+                      }
+                    },
+                    '& .MuiInputLabel-root.Mui-focused': {
+                      color: '#dc2626'
+                    }
+                  }}
+                >
+                  <MenuItem value="all">All Wood Types</MenuItem>
+                  {uniqueWoodTypes.map((woodType) => (
+                    <MenuItem key={woodType.id} value={woodType.id}>
+                      {woodType.name}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Box>
             </Paper>
 
             <TableContainer
@@ -589,16 +663,18 @@ const InventoryReports: FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {warehouseStock.length === 0 ? (
+                  {filteredWarehouseStock.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
-                          No stock items in this warehouse
+                          {warehouseStock.length === 0
+                            ? 'No stock items in this warehouse'
+                            : 'No stock items match the selected wood type'}
                         </Typography>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    warehouseStock.map((stock) => (
+                    filteredWarehouseStock.map((stock) => (
                       <TableRow
                         key={stock.id}
                         sx={{

@@ -375,57 +375,46 @@ const Dashboard = () => {
       </Grid>
 
       {/* Recent LOTs */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2,
-          background: '#fff',
-          border: '1px solid #fee2e2',
-          borderRadius: 1.5
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <ReceiptLongIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+      {!loading && stats.recentLots.length > 0 && (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            background: '#fff',
+            border: '1px solid #fee2e2',
+            borderRadius: 1.5
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <ReceiptLongIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+              <Typography
+                variant="h6"
+                sx={{
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: '#1e293b'
+                }}
+              >
+                Recent LOTs
+              </Typography>
+            </Box>
             <Typography
-              variant="h6"
+              onClick={() => navigate('/dashboard/management/wood-receipt')}
               sx={{
-                fontSize: '1rem',
-                fontWeight: 700,
-                color: '#1e293b'
+                color: '#dc2626',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                '&:hover': {
+                  textDecoration: 'underline'
+                }
               }}
             >
-              Recent LOTs
+              View All →
             </Typography>
           </Box>
-          <Typography
-            onClick={() => navigate('/dashboard/management/wood-receipt')}
-            sx={{
-              color: '#dc2626',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              '&:hover': {
-                textDecoration: 'underline'
-              }
-            }}
-          >
-            View All →
-          </Typography>
-        </Box>
 
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-            <CircularProgress sx={{ color: '#dc2626' }} size={24} />
-          </Box>
-        ) : stats.recentLots.length === 0 ? (
-          <Box sx={{ py: 3, textAlign: 'center' }}>
-            <WarningAmberIcon sx={{ fontSize: 40, color: '#cbd5e1', mb: 1.5 }} />
-            <Typography sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.875rem' }}>
-              No LOTs found. Create your first LOT to get started!
-            </Typography>
-          </Box>
-        ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {stats.recentLots.map((lot: any) => (
               <Paper
@@ -501,62 +490,51 @@ const Dashboard = () => {
               </Paper>
             ))}
           </Box>
-        )}
-      </Paper>
+        </Paper>
+      )}
 
       {/* Ongoing Drying Processes */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2,
-          mt: 2,
-          background: '#fff',
-          border: '1px solid #fee2e2',
-          borderRadius: 1.5
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <LocalFireDepartmentIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+      {!loading && stats.ongoingDrying.length > 0 && (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mt: 2,
+            background: '#fff',
+            border: '1px solid #fee2e2',
+            borderRadius: 1.5
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <LocalFireDepartmentIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+              <Typography
+                variant="h6"
+                sx={{
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: '#1e293b'
+                }}
+              >
+                Ongoing Drying Processes
+              </Typography>
+            </Box>
             <Typography
-              variant="h6"
+              onClick={() => navigate('/dashboard/factory/drying-process')}
               sx={{
-                fontSize: '1rem',
-                fontWeight: 700,
-                color: '#1e293b'
+                color: '#dc2626',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                '&:hover': {
+                  textDecoration: 'underline'
+                }
               }}
             >
-              Ongoing Drying Processes
+              View All →
             </Typography>
           </Box>
-          <Typography
-            onClick={() => navigate('/dashboard/factory/drying-process')}
-            sx={{
-              color: '#dc2626',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              '&:hover': {
-                textDecoration: 'underline'
-              }
-            }}
-          >
-            View All →
-          </Typography>
-        </Box>
 
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-            <CircularProgress sx={{ color: '#dc2626' }} size={24} />
-          </Box>
-        ) : stats.ongoingDrying.length === 0 ? (
-          <Box sx={{ py: 3, textAlign: 'center' }}>
-            <LocalFireDepartmentIcon sx={{ fontSize: 40, color: '#cbd5e1', mb: 1.5 }} />
-            <Typography sx={{ color: '#64748b', fontWeight: 500, fontSize: '0.875rem' }}>
-              No ongoing drying processes. Start a new drying process!
-            </Typography>
-          </Box>
-        ) : (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {stats.ongoingDrying.map((process: any) => (
               <Paper
@@ -645,8 +623,8 @@ const Dashboard = () => {
               </Paper>
             ))}
           </Box>
-        )}
-      </Paper>
+        </Paper>
+      )}
     </Box>
   );
 };
