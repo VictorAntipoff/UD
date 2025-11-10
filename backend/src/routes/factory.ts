@@ -1582,6 +1582,27 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
   // ===== RECEIPT DRAFT ROUTES =====
 
+  // Get sleeper measurements for a receipt
+  fastify.get('/measurements', async (request, reply) => {
+    try {
+      const { receipt_id } = request.query as { receipt_id?: string };
+
+      if (!receipt_id) {
+        return reply.status(400).send({ error: 'receipt_id is required' });
+      }
+
+      const measurements = await prisma.sleeperMeasurement.findMany({
+        where: { receiptId: receipt_id },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      return measurements;
+    } catch (error) {
+      console.error('Error fetching measurements:', error);
+      return reply.status(500).send({ error: 'Failed to fetch measurements' });
+    }
+  });
+
   // Get drafts (optionally filtered by receipt_id)
   fastify.get('/drafts', async (request, reply) => {
     try {
@@ -1605,6 +1626,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const data = request.body as {
         receipt_id: string;
         measurements: any[];
+        measurement_unit?: string;
         updated_by: string;
       };
 
@@ -1623,6 +1645,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         data: {
           receiptId: data.receipt_id,
           measurements: data.measurements,
+          measurementUnit: data.measurement_unit || 'imperial',
           updatedBy: data.updated_by
         }
       });
@@ -1653,6 +1676,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const data = request.body as {
         measurements?: any[];
+        measurement_unit?: string;
         updated_at?: string;
         updated_by?: string;
       };
@@ -1661,6 +1685,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         where: { id },
         data: {
           ...(data.measurements && { measurements: data.measurements }),
+          ...(data.measurement_unit && { measurementUnit: data.measurement_unit }),
           ...(data.updated_by && { updatedBy: data.updated_by })
         }
       });
@@ -1904,9 +1929,42 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const totalPieces = measurements.reduce((sum, m) => sum + (parseInt(m.qty) || 1), 0);
       const totalVolumeM3 = measurements.reduce((sum, m) => sum + (parseFloat(m.m3) || 0), 0);
 
-      // Group measurements by thickness (for stock and notifications)
+      console.log('📊 Receipt Completion Calculation:', {
+        lotNumber,
+        totalPieces,
+        totalVolumeM3,
+        measurementCount: measurements.length,
+        measurements: measurements.map(m => ({ qty: m.qty, m3: m.m3 }))
+      });
+
+      // Get measurement unit from draft (for fallback)
+      const measurementUnit = (draft.measurementUnit as string) || 'imperial';
+
+      // Group measurements by thickness, respecting isCustom flag
       const stockByThickness = measurements.reduce((acc, m) => {
-        const thickness = `${m.thickness}"`;
+        let thickness: string;
+
+        // Check if measurement has isCustom flag
+        if (m.isCustom === true) {
+          // User marked as custom → Always "Custom"
+          thickness = 'Custom';
+        } else if (m.isCustom === false) {
+          // User marked as standard → Use thickness value
+          const thicknessValue = parseFloat(m.thickness);
+          thickness = `${thicknessValue}"`;
+        } else {
+          // Legacy/fallback: No isCustom field, use auto-detection
+          if (measurementUnit === 'metric') {
+            thickness = 'Custom';
+          } else {
+            const thicknessValue = parseFloat(m.thickness);
+            const STANDARD_SIZES = [1, 2, 3];
+            thickness = STANDARD_SIZES.includes(thicknessValue)
+              ? `${thicknessValue}"`
+              : 'Custom';
+          }
+        }
+
         if (!acc[thickness]) {
           acc[thickness] = 0;
         }
@@ -1944,18 +2002,44 @@ async function factoryRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // 5. Update receipt status to COMPLETED
+      // 5. Save measurements to SleeperMeasurement table
+      const receiptRecord = await prisma.woodReceipt.findUnique({
+        where: { lotNumber }
+      });
+
+      if (receiptRecord) {
+        // Delete existing measurements for this receipt (if any)
+        await prisma.sleeperMeasurement.deleteMany({
+          where: { receiptId: receiptRecord.id }
+        });
+
+        // Create new measurements
+        await prisma.sleeperMeasurement.createMany({
+          data: measurements.map(m => ({
+            receiptId: receiptRecord.id,
+            thickness: parseFloat(m.thickness) || 0,
+            width: parseFloat(m.width) || 0,
+            length: parseFloat(m.length) || 0,
+            qty: parseInt(m.qty) || 1,
+            volumeM3: parseFloat(m.m3) || 0,
+            isCustom: m.isCustom === true
+          }))
+        });
+      }
+
+      // 6. Update receipt status to COMPLETED
       const updatedReceipt = await prisma.woodReceipt.update({
         where: { lotNumber },
         data: {
           status: 'COMPLETED',
           actualPieces: totalPieces,
           actualVolumeM3: totalVolumeM3,
+          measurementUnit: measurementUnit,
           receiptConfirmedAt: new Date()
         }
       });
 
-      // 6. Create notifications for subscribed users
+      // 7. Create notifications for subscribed users
       const subscriptions = await prisma.notificationSubscription.findMany({
         where: {
           eventType: 'RECEIPT_COMPLETED',

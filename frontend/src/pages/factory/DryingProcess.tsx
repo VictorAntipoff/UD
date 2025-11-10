@@ -3270,7 +3270,7 @@ export default function DryingProcess() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {selectedProcess.readings.map((reading) => (
+                      {[...selectedProcess.readings].reverse().map((reading) => (
                         <TableRow key={reading.id} sx={{ '&:hover': { backgroundColor: '#fef2f2' } }}>
                           <TableCell sx={{ fontSize: '0.75rem' }}>
                             {formatAsLocalTime(reading.readingTime, 'yyyy-MM-dd hh:mm a', timezone)}

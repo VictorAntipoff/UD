@@ -188,6 +188,7 @@ model WoodReceipt {
   purchaseOrder       String?
   status              String   @default("CREATED")
   woodFormat          String   @default("SLEEPERS") // SLEEPERS or PLANKS
+  measurementUnit     String   @default("imperial") // imperial = in/ft, metric = cm
   notes               String?
   estimatedAmount     Float    @default(0)
   estimatedVolumeM3   Float?
@@ -201,12 +202,31 @@ model WoodReceipt {
   // Relations
   woodType            WoodType   @relation(fields: [woodTypeId], references: [id])
   warehouse           Warehouse? @relation(fields: [warehouseId], references: [id])
+  measurements        SleeperMeasurement[]
 
   @@index([status])
   @@index([woodTypeId])
   @@index([warehouseId])
   @@index([createdAt])
   @@index([lotNumber])
+}
+
+model SleeperMeasurement {
+  id                  String   @id @default(uuid())
+  receiptId           String
+  thickness           Float
+  width               Float
+  length              Float
+  qty                 Int
+  volumeM3            Float
+  isCustom            Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  receipt             WoodReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
 }
 
 model Operation {
@@ -328,12 +348,13 @@ model DryingReading {
 }
 
 model ReceiptDraft {
-  id           String   @id @default(uuid())
-  receiptId    String   // LOT number
-  measurements Json     // Array of sleeper measurements with lastModifiedBy/At
-  updatedAt    DateTime @updatedAt
-  updatedBy    String   // User ID who last updated
-  createdAt    DateTime @default(now())
+  id              String   @id @default(uuid())
+  receiptId       String   // LOT number
+  measurements    Json     // Array of sleeper measurements with lastModifiedBy/At
+  measurementUnit String?  @default("imperial") // "imperial" (in/ft) or "metric" (cm)
+  updatedAt       DateTime @updatedAt
+  updatedBy       String   // User ID who last updated
+  createdAt       DateTime @default(now())
 
   @@index([receiptId])
 }

@@ -234,6 +234,10 @@ const WoodReceipt = () => {
         notes: receipt.notes || '',
         total_volume_m3: receipt.estimatedVolumeM3,
         total_pieces: receipt.estimatedPieces,
+        estimatedVolumeM3: receipt.estimatedVolumeM3,
+        estimatedPieces: receipt.estimatedPieces,
+        actualVolumeM3: receipt.actualVolumeM3,
+        actualPieces: receipt.actualPieces,
         total_amount: receipt.estimatedAmount,
         created_at: receipt.createdAt,
         updated_at: receipt.updatedAt,
@@ -1153,6 +1157,45 @@ const WoodReceipt = () => {
       doc.text(`TZS ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 139, startY + 12);
 
       startY += 20;
+
+      // Price per m³ box - centered design
+      if (totalM3 > 0) {
+        const pricePerM3 = total / totalM3;
+
+        // Light blue background box
+        doc.setFillColor(240, 249, 255); // Very light blue
+        doc.setDrawColor(14, 165, 233); // Blue border
+        doc.setLineWidth(1.5);
+        doc.roundedRect(14, startY, 180, 20, 2, 2, 'FD');
+
+        const boxCenterX = 14 + 90; // Center of the box (14 + 180/2)
+
+        // Label - centered
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(12, 74, 110); // Dark blue
+        const labelText = 'PRICE PER M³';
+        const labelWidth = doc.getTextWidth(labelText);
+        doc.text(labelText, boxCenterX - (labelWidth / 2), startY + 7);
+
+        // Price value - centered
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(14, 165, 233); // Bright blue
+        const priceText = `TZS ${pricePerM3.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const priceWidth = doc.getTextWidth(priceText);
+        doc.text(priceText, boxCenterX - (priceWidth / 2), startY + 13);
+
+        // Calculation note - centered
+        doc.setFontSize(6.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139); // Gray
+        const calcText = `Total cost ÷ ${totalM3.toFixed(2)} m³`;
+        const calcWidth = doc.getTextWidth(calcText);
+        doc.text(calcText, boxCenterX - (calcWidth / 2), startY + 17.5);
+
+        startY += 24;
+      }
 
       // Notes section
       if (costData.notes) {
@@ -3224,6 +3267,63 @@ const WoodReceipt = () => {
                             </Paper>
                           </Grid>
                         </Grid>
+                      </Grid>
+
+                      {/* Price per m³ Card */}
+                      <Grid item xs={12}>
+                        <Paper elevation={0} sx={{ p: 2.5, backgroundColor: '#f0f9ff', border: '2px solid #0ea5e9', borderRadius: 2 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Box>
+                              <Typography variant="caption" sx={{ color: '#0c4a6e', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                                Price per m³
+                              </Typography>
+                              <Typography variant="h5" sx={{ fontWeight: 700, color: '#0c4a6e', mt: 0.5 }}>
+                                TZS {(() => {
+                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
+                                  if (totalM3 === 0) return '0.00';
+
+                                  const purchasePrice = parseFloat(costData.purchasePrice || '0');
+                                  const transportPrice = parseFloat(costData.transportPrice || '0');
+                                  const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
+                                  const otherExpenses = parseFloat(costData.otherExpenses || '0');
+
+                                  // Calculate totals
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
+                                  let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
+                                  let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
+
+                                  // Extract base amount if VAT included
+                                  if (costData.purchasePriceIncVat) purchaseTotal = purchaseTotal / 1.18;
+                                  if (costData.transportPriceIncVat) transportTotal = transportTotal / 1.18;
+                                  if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
+                                  if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
+
+                                  const subtotal = purchaseTotal + transportTotal + slicingTotal + otherTotal;
+                                  const totalWithVat = subtotal * 1.18;
+                                  const pricePerM3 = totalWithVat / totalM3;
+
+                                  return pricePerM3.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                })()}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
+                                Total cost (inc. VAT) ÷ {(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(2)} m³
+                              </Typography>
+                            </Box>
+                            <Box sx={{
+                              p: 2,
+                              backgroundColor: '#0ea5e9',
+                              borderRadius: 2,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}>
+                              <Typography variant="h4" sx={{ color: '#fff', fontWeight: 700 }}>
+                                m³
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Paper>
                       </Grid>
 
                       <Grid item xs={12}>

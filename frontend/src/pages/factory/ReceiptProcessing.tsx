@@ -29,6 +29,7 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  Checkbox,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -87,6 +88,7 @@ interface SleeperMeasurement {
   length: number;
   qty: number; // Quantity of pieces with this dimension
   m3: number;
+  isCustom?: boolean; // User checkbox to mark custom sizes
   lastModifiedBy?: string;
   lastModifiedAt?: string;
 }
@@ -454,9 +456,13 @@ interface ReceiptPDFProps {
   measurements: SleeperMeasurement[];
   totalM3: number;
   changeHistory: ChangeHistory[];
+  measurementUnit: 'imperial' | 'metric';
 }
 
-const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory }: ReceiptPDFProps) => {
+const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measurementUnit }: ReceiptPDFProps) => {
+  // Dynamic summary title based on wood format
+  const summaryTitle = formData.woodFormat === 'PLANKS' ? 'Plank Summary' : 'Sleeper Size Summary';
+
   // Find the creator (first entry in history)
   const creator = changeHistory.length > 0 ? changeHistory[changeHistory.length - 1] : null;
 
@@ -522,13 +528,13 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory }: ReceiptP
               <Text>No.</Text>
             </View>
             <View style={pdfStyles.tableCell}>
-              <Text>Thickness (in)</Text>
+              <Text>{measurementUnit === 'imperial' ? 'Thickness (in)' : 'Thickness (cm)'}</Text>
             </View>
             <View style={pdfStyles.tableCell}>
-              <Text>Width (in)</Text>
+              <Text>{measurementUnit === 'imperial' ? 'Width (in)' : 'Width (cm)'}</Text>
             </View>
             <View style={pdfStyles.tableCell}>
-              <Text>Length (ft)</Text>
+              <Text>{measurementUnit === 'imperial' ? 'Length (ft)' : 'Length (cm)'}</Text>
             </View>
             <View style={[pdfStyles.tableCell, { flex: 0.6 }]}>
               <Text>Qty</Text>
@@ -563,7 +569,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory }: ReceiptP
       </View>
 
       <View style={pdfStyles.section}>
-        <Text style={pdfStyles.sectionTitle}>Sleeper Size Summary</Text>
+        <Text style={pdfStyles.sectionTitle}>{summaryTitle}</Text>
         <View style={pdfStyles.table}>
           <View style={pdfStyles.tableHeader}>
             <View style={pdfStyles.tableCell}>
@@ -576,10 +582,27 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory }: ReceiptP
               <Text>Total Volume (m³)</Text>
             </View>
           </View>
-          {getSleeperSizeSummary(measurements).map((size, index) => (
+          {getSleeperSizeSummary(measurements, measurementUnit).map((size, index) => (
             <View key={index} style={pdfStyles.tableRow}>
               <View style={pdfStyles.tableCell}>
-                <Text>{size.size}</Text>
+                {size.size === 'Custom' ? (
+                  <View style={{
+                    backgroundColor: '#fbbf24',
+                    padding: '2 8',
+                    borderRadius: 10,
+                    alignSelf: 'flex-start',
+                    marginVertical: 2
+                  }}>
+                    <Text style={{
+                      fontSize: 7,
+                      fontFamily: 'Helvetica-Bold',
+                      color: '#ffffff',
+                      letterSpacing: 0.5
+                    }}>CUSTOM</Text>
+                  </View>
+                ) : (
+                  <Text>{size.size}</Text>
+                )}
               </View>
               <View style={pdfStyles.tableCell}>
                 <Text>{size.count}</Text>
@@ -660,11 +683,34 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory }: ReceiptP
   );
 };
 
-const getSleeperSizeSummary = (measurements: SleeperMeasurement[]) => {
+// Helper function to determine if measurement should default to custom
+const shouldDefaultToCustom = (thickness: number | string, unit: 'imperial' | 'metric'): boolean => {
+  // Rule 1: All metric → suggest custom
+  if (unit === 'metric') return true;
+
+  // Rule 2: Check if standard imperial size (1, 2, or 3)
+  const standardSizes = [1, 2, 3];
+  const thicknessNum = parseFloat(thickness.toString());
+
+  if (standardSizes.includes(thicknessNum)) return false;
+
+  // Rule 3: Non-standard imperial → suggest custom
+  return true;
+};
+
+const getSleeperSizeSummary = (measurements: SleeperMeasurement[], unit: 'imperial' | 'metric' = 'imperial') => {
   const sizeMap = new Map<string, { count: number; totalVolume: number }>();
 
   measurements.forEach(m => {
-    const sizeKey = `${m.thickness}" × ${m.width}" × ${m.length}'`;
+    // Check if measurement is custom
+    let sizeKey: string;
+    if (m.isCustom) {
+      sizeKey = 'Custom';
+    } else {
+      sizeKey = unit === 'imperial'
+        ? `${m.thickness}" × ${m.width}" × ${m.length}'`
+        : `${m.thickness}cm × ${m.width}cm × ${m.length}cm`;
+    }
     const qty = m.qty || 1;
 
     if (sizeMap.has(sizeKey)) {
@@ -688,12 +734,14 @@ const getSleeperSizeSummary = (measurements: SleeperMeasurement[]) => {
   }));
 };
 
-const SleeperSizeSummary = ({ measurements }: { measurements: SleeperMeasurement[] }) => {
-  const sizeSummary = getSleeperSizeSummary(measurements);
+const SleeperSizeSummary = ({ measurements, measurementUnit, woodFormat }: { measurements: SleeperMeasurement[]; measurementUnit: 'imperial' | 'metric'; woodFormat?: string }) => {
+  const sizeSummary = getSleeperSizeSummary(measurements, measurementUnit);
 
   if (sizeSummary.length === 0) {
     return null;
   }
+
+  const summaryTitle = woodFormat === 'PLANKS' ? 'Plank Summary' : 'Sleeper Size Summary';
 
   return (
     <Box sx={{ mt: 3 }}>
@@ -706,7 +754,7 @@ const SleeperSizeSummary = ({ measurements }: { measurements: SleeperMeasurement
         }}
       >
         <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: 'rgba(0, 0, 0, 0.87)', mb: 2 }}>
-          Sleeper Size Summary
+          {summaryTitle}
         </Typography>
         <TableContainer
           component={Paper}
@@ -735,7 +783,25 @@ const SleeperSizeSummary = ({ measurements }: { measurements: SleeperMeasurement
                     }
                   }}
                 >
-                  <TableCell sx={{ fontSize: '0.875rem' }}>{size.size}</TableCell>
+                  <TableCell sx={{ fontSize: '0.875rem' }}>
+                    {size.size === 'Custom' ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip
+                          label="Custom"
+                          size="small"
+                          sx={{
+                            backgroundColor: '#fef3c7',
+                            color: '#92400e',
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                            border: '1px solid #fcd34d'
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      size.size
+                    )}
+                  </TableCell>
                   <TableCell align="center" sx={{ fontSize: '0.875rem' }}>{size.count}</TableCell>
                   <TableCell align="right" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>{size.totalVolume.toFixed(4)}</TableCell>
                 </TableRow>
@@ -865,7 +931,11 @@ const ReceiptProcessing = () => {
     if (lotParam && receipts.length > 0) {
       const receipt = receipts.find(r => r.lotNumber === lotParam);
       if (receipt) {
-        console.log('Opening LOT from notification:', lotParam);
+        // If receipt is completed, set to read-only mode
+        if (receipt.status === 'COMPLETED' || receipt.status === 'CANCELLED') {
+          setIsReadOnly(true);
+        }
+
         // Set the receipt number
         setFormData(prev => ({
           ...prev,
@@ -873,10 +943,9 @@ const ReceiptProcessing = () => {
           woodTypeName: receipt.woodType?.name || '',
           supplier: receipt.supplier || ''
         }));
-        // Load the draft and history
+        // Load the measurements
         loadDraft(lotParam);
-        // Open the history dialog
-        setHistoryDialogOpen(true);
+        // Don't open history dialog - just show the receipt in read-only mode
       }
     }
   }, [searchParams, receipts]);
@@ -1037,7 +1106,10 @@ const ReceiptProcessing = () => {
       width: 0,
       length: 0,
       qty: 1,
-      m3: 0
+      m3: 0,
+      isCustom: measurementUnit === 'metric', // Default checked for metric
+      lastModifiedBy: currentUser?.email || 'Unknown User',
+      lastModifiedAt: new Date().toISOString()
     }]);
     // Focus on the new row's thickness input after state update and scroll into view
     setTimeout(() => {
@@ -1100,6 +1172,12 @@ const ReceiptProcessing = () => {
           lastModifiedBy: currentUser?.email || 'Unknown User',
           lastModifiedAt: new Date().toISOString()
         };
+
+        // Auto-suggest custom checkbox when thickness changes
+        if (field === 'thickness' && value !== '') {
+          newMeasurement.isCustom = shouldDefaultToCustom(parseFloat(value), measurementUnit);
+        }
+
         // Recalculate m3 if any dimension or quantity changes
         if (field === 'thickness' || field === 'width' || field === 'length' || field === 'qty') {
           const singlePieceM3 = calculateM3(
@@ -1113,6 +1191,20 @@ const ReceiptProcessing = () => {
       }
       return m;
     }));
+  };
+
+  const handleCustomToggle = (id: number, isCustom: boolean) => {
+    setHasUnsavedChanges(true);
+    setMeasurements(measurements.map(m =>
+      m.id === id
+        ? {
+            ...m,
+            isCustom,
+            lastModifiedBy: currentUser?.email || 'Unknown User',
+            lastModifiedAt: new Date().toISOString()
+          }
+        : m
+    ));
   };
 
   useEffect(() => {
@@ -1161,6 +1253,7 @@ const ReceiptProcessing = () => {
           lastModifiedBy: m.lastModifiedBy || userName,
           lastModifiedAt: m.lastModifiedAt || timestamp
         })),
+        measurement_unit: measurementUnit,
         updated_at: timestamp,
         updated_by: userId
       };
@@ -1173,6 +1266,7 @@ const ReceiptProcessing = () => {
         // Update existing draft
         await api.patch(`/factory/drafts/${existingDraft.id}`, {
           measurements: draftData.measurements,
+          measurement_unit: draftData.measurement_unit,
           updated_at: draftData.updated_at,
           updated_by: draftData.updated_by
         });
@@ -1192,19 +1286,9 @@ const ReceiptProcessing = () => {
       };
 
       try {
-        await api.post('/api/factory/receipt-history', historyEntry);
-        setChangeHistory(prev => [
-          ...prev,
-          {
-            id: Date.now(),
-            receiptId: historyEntry.receipt_id,
-            userId: historyEntry.user_id,
-            userName: historyEntry.user_name,
-            action: historyEntry.action,
-            timestamp: historyEntry.timestamp,
-            details: historyEntry.details,
-          }
-        ]);
+        await api.post('/factory/receipt-history', historyEntry);
+        // Don't add to local state here - it will be loaded from DB on next load
+        // This prevents duplication when the component re-renders
       } catch (historyError) {
         console.error('Error saving history:', historyError);
       }
@@ -1241,14 +1325,10 @@ const ReceiptProcessing = () => {
 
       // Always load change history first
       try {
-        console.log('Loading history for receipt:', receiptId);
-        const historyResponse = await api.get(`/api/factory/receipt-history?receipt_id=${receiptId}`);
-        console.log('History response:', historyResponse.data);
+        const historyResponse = await api.get(`/factory/receipt-history?receipt_id=${receiptId}`);
         setChangeHistory(historyResponse.data || []);
-        console.log('History state updated with', historyResponse.data?.length || 0, 'entries');
       } catch (historyError: any) {
         // Silently handle 404 - no history exists yet
-        console.log('History error:', historyError.response?.status, historyError.message);
         if (historyError.response?.status !== 404) {
           console.error('Error loading history:', historyError);
         }
@@ -1263,43 +1343,50 @@ const ReceiptProcessing = () => {
         throw new Error('Receipt not found');
       }
 
-      // Try to load existing receipt items first
-      try {
-        const itemsResponse = await api.get(`/factory/receipt-items?receipt_id=${receipt.id}`);
-        const receiptItems = itemsResponse.data;
+      // Set the measurement unit from the receipt
+      if (receipt.measurementUnit) {
+        setMeasurementUnit(receipt.measurementUnit as 'imperial' | 'metric');
+      }
 
-        // If we have receipt items, use those
-        if (receiptItems && receiptItems.length > 0) {
-          const processedMeasurements = receiptItems.map((item: any, index: number) => ({
+      // Try to load existing measurements first (for completed receipts)
+      try {
+        const measurementsResponse = await api.get(`/factory/measurements?receipt_id=${receipt.id}`);
+        const savedMeasurements = measurementsResponse.data;
+
+        // If we have saved measurements, use those
+        if (savedMeasurements && savedMeasurements.length > 0) {
+          const processedMeasurements = savedMeasurements.map((m: any, index: number) => ({
             id: index + 1,
-            thickness: item.height || 0, // height in the DB corresponds to thickness
-            width: item.width || 0,
-            length: item.length || 0,
-            qty: item.qty || 1,
-            m3: item.volume_m3 || calculateM3(
-              item.height || 0,
-              item.width || 0,
-              item.length || 0
-            ),
-            lastModifiedBy: item.notes?.split('Last modified by ')?.[1]?.split(' at ')?.[0] || 'Unknown',
-            lastModifiedAt: item.updated_at || item.created_at || new Date().toISOString()
+            thickness: m.thickness || 0,
+            width: m.width || 0,
+            length: m.length || 0,
+            qty: m.qty || 1,
+            m3: m.volumeM3 || 0,
+            isCustom: m.isCustom !== undefined ? m.isCustom : false,
+            lastModifiedBy: 'System',
+            lastModifiedAt: m.createdAt || new Date().toISOString()
           }));
           setMeasurements(processedMeasurements);
           return;
         }
-      } catch (itemsError: any) {
-        // Silently handle 404 - no items exist yet
-        if (itemsError.response?.status !== 404) {
-          console.error('Error loading receipt items:', itemsError);
+      } catch (measurementsError: any) {
+        // Silently handle 404 - no measurements exist yet
+        if (measurementsError.response?.status !== 404) {
+          console.error('Error loading measurements:', measurementsError);
         }
       }
 
-      // If no receipt items found, try loading from draft
+      // If no measurements found, try loading from draft
       try {
         const draftResponse = await api.get(`/factory/drafts?receipt_id=${receiptId}`);
         const draftData = draftResponse.data.length > 0 ? draftResponse.data[0] : null;
 
         if (draftData && draftData.measurements) {
+          // Restore the measurement unit from the draft
+          if (draftData.measurementUnit) {
+            setMeasurementUnit(draftData.measurementUnit as 'imperial' | 'metric');
+          }
+
           const processedMeasurements = draftData.measurements.map((m: any) => ({
             id: m.id || Math.random(),
             thickness: parseFloat(m.thickness) || 0,
@@ -1311,6 +1398,7 @@ const ReceiptProcessing = () => {
               parseFloat(m.width) || 0,
               parseFloat(m.length) || 0
             ),
+            isCustom: m.isCustom !== undefined ? m.isCustom : false,
             lastModifiedBy: m.lastModifiedBy || 'Unknown',
             lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
           }));
@@ -1334,12 +1422,9 @@ const ReceiptProcessing = () => {
   const fetchCompletedReceipts = async () => {
     try {
       const response = await api.get('/management/wood-receipts');
-      console.log('All receipts:', response.data);
-      console.log('Receipt statuses:', response.data.map((r: any) => ({ lot: r.lotNumber, status: r.status })));
       const completed = response.data.filter((receipt: WoodReceipt) =>
         ['COMPLETED', 'CANCELLED'].includes(receipt.status)
       );
-      console.log('Completed receipts:', completed);
       setCompletedReceipts(completed);
     } catch (error) {
       console.error('Error fetching completed receipts:', error);
@@ -1370,24 +1455,27 @@ const ReceiptProcessing = () => {
       warehouseName: (receipt as any).warehouse?.name || 'No Warehouse',
     });
 
-    // Load measurements for this receipt using LOT number
+    // Set the measurement unit from the receipt
+    if ((receipt as any).measurementUnit) {
+      setMeasurementUnit((receipt as any).measurementUnit as 'imperial' | 'metric');
+    }
+
+    // Load measurements for this receipt using receipt ID
     try {
-      const draftResponse = await api.get(`/factory/drafts?receipt_id=${lotNumber}`);
-      if (draftResponse.data && draftResponse.data.length > 0) {
-        const draft = draftResponse.data[0];
-        if (draft.measurements) {
-          const processedMeasurements = draft.measurements.map((m: any) => ({
-            id: m.id || Math.random(),
-            thickness: parseFloat(m.thickness) || 0,
-            width: parseFloat(m.width) || 0,
-            length: parseFloat(m.length) || 0,
-            qty: parseInt(m.qty) || 1,
-            m3: parseFloat(m.m3) || 0,
-            lastModifiedBy: m.lastModifiedBy || 'Unknown',
-            lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
-          }));
-          setMeasurements(processedMeasurements);
-        }
+      const measurementsResponse = await api.get(`/factory/measurements?receipt_id=${receipt.id}`);
+      if (measurementsResponse.data && measurementsResponse.data.length > 0) {
+        const processedMeasurements = measurementsResponse.data.map((m: any, index: number) => ({
+          id: index + 1,
+          thickness: m.thickness || 0,
+          width: m.width || 0,
+          length: m.length || 0,
+          qty: m.qty || 1,
+          m3: m.volumeM3 || 0,
+          isCustom: m.isCustom !== undefined ? m.isCustom : false,
+          lastModifiedBy: 'System',
+          lastModifiedAt: m.createdAt || new Date().toISOString()
+        }));
+        setMeasurements(processedMeasurements);
       }
     } catch (error) {
       console.error('Error loading measurements:', error);
@@ -2095,6 +2183,7 @@ const ReceiptProcessing = () => {
                           <TableHead>
                             <TableRow sx={{ backgroundColor: '#f8fafc' }}>
                               <TableCell align="center" sx={{ width: { xs: 50, sm: 60 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>No</TableCell>
+                              <TableCell align="center" sx={{ width: 70, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>Custom</TableCell>
                               <TableCell align="center" sx={{ width: { xs: 90, sm: 100 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>
                                 {measurementUnit === 'imperial' ? 'Thick (in)' : 'Thick (cm)'}
                               </TableCell>
@@ -2114,13 +2203,44 @@ const ReceiptProcessing = () => {
                               <TableRow
                                 key={row.id}
                                 sx={{
+                                  backgroundColor: row.isCustom ? alpha('#f59e0b', 0.05) : 'transparent',
                                   '&:hover': {
-                                    backgroundColor: alpha('#dc2626', 0.04),
+                                    backgroundColor: row.isCustom
+                                      ? alpha('#f59e0b', 0.08)
+                                      : alpha('#dc2626', 0.04),
                                   }
                                 }}
                               >
                                 <TableCell align="center" sx={{ fontSize: '0.875rem', px: { xs: 1, sm: 2 } }}>
-                                  {String(index + 1).padStart(3, '0')}
+                                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                                    {String(index + 1).padStart(3, '0')}
+                                    <Box
+                                      component="span"
+                                      sx={{
+                                        fontSize: '0.65rem',
+                                        fontWeight: 600,
+                                        px: 0.5,
+                                        py: 0.25,
+                                        borderRadius: 0.5,
+                                        backgroundColor: measurementUnit === 'imperial' ? '#dbeafe' : '#fef3c7',
+                                        color: measurementUnit === 'imperial' ? '#1e40af' : '#92400e',
+                                        border: measurementUnit === 'imperial' ? '1px solid #93c5fd' : '1px solid #fcd34d'
+                                      }}
+                                    >
+                                      {measurementUnit === 'imperial' ? 'in/ft' : 'cm'}
+                                    </Box>
+                                  </Box>
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Checkbox
+                                    checked={row.isCustom || false}
+                                    onChange={(e) => handleCustomToggle(row.id, e.target.checked)}
+                                    size="small"
+                                    sx={{
+                                      color: row.isCustom ? '#f59e0b' : 'rgba(0, 0, 0, 0.6)',
+                                      '&.Mui-checked': { color: '#f59e0b' }
+                                    }}
+                                  />
                                 </TableCell>
                                 <TableCell>
                                   <CompactNumberTextField
@@ -2176,10 +2296,10 @@ const ReceiptProcessing = () => {
                                     inputProps={{
                                       step: 0.001,
                                       min: 0.5,
-                                      max: 99.999,
+                                      max: measurementUnit === 'imperial' ? 99.999 : 999,
                                       'data-field': `length-${row.id}`
                                     }}
-                                    error={row.length < 0.5 || row.length > 99.999}
+                                    error={row.length < 0.5 || (measurementUnit === 'imperial' ? row.length > 99.999 : row.length > 999)}
                                     disabled={isReadOnly}
                                   />
                                 </TableCell>
@@ -2275,7 +2395,7 @@ const ReceiptProcessing = () => {
                   )}
                 </Box>
 
-                <SleeperSizeSummary measurements={measurements} />
+                <SleeperSizeSummary measurements={measurements} measurementUnit={measurementUnit} woodFormat={formData.woodFormat} />
                 <ChangeHistoryDisplay changeHistory={changeHistory} />
 
                 {/* Total Volume Display */}
@@ -2339,7 +2459,7 @@ const ReceiptProcessing = () => {
                       </Button>
                     )}
                     <BlobProvider
-                      document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} changeHistory={changeHistory} />}
+                      document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} changeHistory={changeHistory} measurementUnit={measurementUnit} />}
                     >
                       {({ url, loading }) => (
                         <Button
