@@ -54,16 +54,19 @@ const Dashboard = () => {
       setLoading(true);
 
       // Fetch all necessary data
-      const [receiptsRes, woodTypesRes, approvalsRes, dryingRes] = await Promise.all([
+      const [receiptsRes, woodTypesRes, approvalsRes, dryingRes, stockRes] = await Promise.all([
         api.get('/management/wood-receipts'),
         api.get('/factory/wood-types'),
         api.get('/management/approvals/pending-count'),
-        api.get('/factory/drying-processes')
+        api.get('/factory/drying-processes'),
+        api.get('/management/stock/consolidated')
       ]);
 
       const receipts = receiptsRes.data || [];
       const woodTypes = woodTypesRes.data || [];
       const dryingProcesses = dryingRes.data || [];
+      const stockResponse = stockRes.data || { detailed: [] };
+      const stockData = stockResponse.detailed || [];
 
       // Calculate statistics
       const activeLots = receipts.filter((r: any) =>
@@ -82,9 +85,16 @@ const Dashboard = () => {
         r.status === 'COMPLETED'
       ).length;
 
-      const totalVolume = receipts.reduce((sum: number, r: any) =>
-        sum + (r.estimatedVolumeM3 || r.actualVolumeM3 || 0), 0
-      );
+      // Calculate total pieces from warehouse stock
+      const totalPieces = stockData.reduce((sum: number, item: any) => {
+        const notDried = parseInt(item.statusNotDried) || 0;
+        const underDrying = parseInt(item.statusUnderDrying) || 0;
+        const dried = parseInt(item.statusDried) || 0;
+        const damaged = parseInt(item.statusDamaged) || 0;
+        const inTransitOut = parseInt(item.statusInTransitOut) || 0;
+        const inTransitIn = parseInt(item.statusInTransitIn) || 0;
+        return sum + notDried + underDrying + dried + damaged + inTransitOut + inTransitIn;
+      }, 0);
 
       // Get recent 5 active lots (exclude COMPLETED and CANCELLED)
       const recentLots = receipts
@@ -105,7 +115,7 @@ const Dashboard = () => {
         slicingInProgress,
         completedLots,
         woodTypes: woodTypes.length,
-        totalVolume: Math.round(totalVolume * 100) / 100,
+        totalVolume: totalPieces,
         recentLots,
         ongoingDrying
       });
@@ -328,10 +338,10 @@ const Dashboard = () => {
               </Box>
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626', fontSize: '1.25rem' }}>
-                  {loading ? <CircularProgress size={16} /> : `${parseFloat(stats.totalVolume).toFixed(3)} CBM`}
+                  {loading ? <CircularProgress size={16} /> : `${stats.totalVolume.toLocaleString()} Pieces`}
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#64748b', fontWeight: 600, fontSize: '0.75rem' }}>
-                  Total Wood Volume
+                  Total Wood Pieces
                 </Typography>
               </Box>
             </Box>
