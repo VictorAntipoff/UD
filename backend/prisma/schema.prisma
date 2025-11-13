@@ -458,18 +458,21 @@ model Asset {
   description           String?
   categoryId            String
   imageUrl              String?   // Product image URL
+  productUrl            String?   // Product website/reference URL
+  technicalManualUrl    String?   // Technical manual/datasheet PDF URL
 
   // Basic Information
   brand                 String?
   modelNumber           String?
   serialNumber          String?
-  location              String?   // Physical location or department
+  locationId            String?   // Reference to AssetLocation
   status                String    @default("ACTIVE") // ACTIVE, IN_MAINTENANCE, BROKEN, DISPOSED, RETIRED
 
   // Purchase Information
   purchaseDate          DateTime
   purchasePrice         Float
-  supplier              String?
+  supplierId            String?
+  supplier              String?   // Legacy field, keeping for backward compatibility
   invoiceNumber         String?
   invoiceDocument       String?   // File path/URL
 
@@ -507,12 +510,17 @@ model Asset {
 
   // Relations
   category              AssetCategory        @relation(fields: [categoryId], references: [id])
+  location              AssetLocation?       @relation(fields: [locationId], references: [id])
+  supplierRelation      Supplier?            @relation("AssetSupplier", fields: [supplierId], references: [id])
   maintenanceRecords    AssetMaintenance[]
   documents             AssetDocument[]
   assignmentHistory     AssetAssignment[]
+  transfers             AssetTransfer[]
 
   @@index([assetTag])
   @@index([categoryId])
+  @@index([locationId])
+  @@index([supplierId])
   @@index([status])
   @@index([assignedToUserId])
   @@index([purchaseDate])
@@ -593,6 +601,115 @@ model AssetAssignment {
   @@index([assetId])
   @@index([assignedToUserId])
   @@index([assignmentDate])
+}
+
+model Supplier {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  code          String?  @unique
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  website       String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  assets        Asset[]  @relation("AssetSupplier")
+
+  @@index([name])
+  @@index([code])
+  @@index([isActive])
+}
+
+model AssetLocation {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique // Location code (e.g., WH-01, OFF-01, PROJ-001)
+  type        String   // WAREHOUSE, OFFICE, PROJECT, SITE, WORKSHOP, STORAGE, OTHER
+  address     String?
+  description String?
+  contactPerson String?
+  contactPhone  String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  assets              Asset[]
+  transfersFrom       AssetTransfer[] @relation("TransferFromLocation")
+  transfersTo         AssetTransfer[] @relation("TransferToLocation")
+
+  @@index([name])
+  @@index([code])
+  @@index([type])
+  @@index([isActive])
+}
+
+model AssetTransfer {
+  id                String   @id @default(uuid())
+  transferNumber    String   @unique
+  assetId           String
+  fromLocationId    String
+  toLocationId      String
+  status            String   @default("PENDING") // PENDING, IN_TRANSIT, COMPLETED, CANCELLED
+
+  // Transfer details
+  transferDate      DateTime @default(now())
+  expectedArrival   DateTime?
+  actualArrival     DateTime?
+  reason            String?  // Reason for transfer
+  notes             String?
+
+  // User tracking
+  requestedById     String
+  requestedByName   String
+  approvedById      String?
+  approvedByName    String?
+  approvedAt        DateTime?
+  completedById     String?
+  completedByName   String?
+  completedAt       DateTime?
+
+  // Condition tracking
+  conditionBefore   String?  // Condition before transfer (EXCELLENT, GOOD, FAIR, POOR)
+  conditionAfter    String?  // Condition after transfer
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  asset             Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromLocation      AssetLocation @relation("TransferFromLocation", fields: [fromLocationId], references: [id])
+  toLocation        AssetLocation @relation("TransferToLocation", fields: [toLocationId], references: [id])
+  history           AssetTransferHistory[]
+
+  @@index([assetId])
+  @@index([fromLocationId])
+  @@index([toLocationId])
+  @@index([status])
+  @@index([transferDate])
+  @@index([transferNumber])
+}
+
+model AssetTransferHistory {
+  id              String        @id @default(uuid())
+  transferId      String
+  action          String        // CREATED, APPROVED, IN_TRANSIT, COMPLETED, CANCELLED
+  performedById   String
+  performedByName String
+  notes           String?
+  timestamp       DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+
+  // Relations
+  transfer        AssetTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@index([transferId])
+  @@index([timestamp])
 }
 
 // ===== WAREHOUSE & INVENTORY MANAGEMENT MODELS =====

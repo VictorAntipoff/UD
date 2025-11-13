@@ -16,15 +16,16 @@ export default defineConfig(({ mode }) => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-192x192-maskable.png', 'pwa-512x512-maskable.png'],
         manifest: {
-          name: 'UDesign',
+          name: 'UDesign Asset Management',
           short_name: 'UDesign',
-          description: 'Factory management system for wood processing and drying operations',
+          description: 'Asset management system for tracking company assets, equipment, and inventory',
           theme_color: '#dc2626',
           background_color: '#ffffff',
           display: 'standalone',
-          orientation: 'any',
+          orientation: 'portrait',
           scope: '/',
-          start_url: '/dashboard',
+          start_url: '/dashboard/assets',
+          categories: ['business', 'productivity', 'utilities'],
           icons: [
             {
               src: '/pwa-192x192.png',
@@ -99,26 +100,13 @@ export default defineConfig(({ mode }) => {
                   statuses: [0, 200]
                 }
               }
-            },
-            {
-              urlPattern: /\/api\/.*/i,
-              handler: 'NetworkFirst',
-              options: {
-                cacheName: 'api-cache',
-                networkTimeoutSeconds: 10,
-                expiration: {
-                  maxEntries: 50,
-                  maxAgeSeconds: 60 * 5 // 5 minutes
-                },
-                cacheableResponse: {
-                  statuses: [0, 200]
-                }
-              }
             }
-          ]
+          ],
+          // Exclude API requests and external resources from service worker control
+          navigateFallbackDenylist: [/^\/api/, /^http:\/\/localhost:3010/]
         },
         devOptions: {
-          enabled: true,
+          enabled: true,  // Enable PWA in development for testing
           type: 'module'
         }
       })

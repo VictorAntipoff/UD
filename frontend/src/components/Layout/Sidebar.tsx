@@ -311,6 +311,17 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                   <ListItem
                     button
                     sx={submenuStyles}
+                    onClick={() => handleNavigate('/dashboard/assets/transfers')}
+                    selected={location.pathname === '/dashboard/assets/transfers'}
+                  >
+                    <ListItemIcon sx={{ color: location.pathname === '/dashboard/assets/transfers' ? colors.primary : colors.grey.main }}>
+                      <LocalShippingIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Transfers" />
+                  </ListItem>
+                  <ListItem
+                    button
+                    sx={submenuStyles}
                     onClick={() => handleNavigate('/dashboard/assets/settings')}
                     selected={location.pathname === '/dashboard/assets/settings'}
                   >

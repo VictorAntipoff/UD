@@ -31,7 +31,8 @@ import {
   Build as MaintenanceIcon,
   Warning as BrokenIcon,
   Archive as DisposedIcon,
-  QrCodeScanner as QrCodeScannerIcon
+  QrCodeScanner as QrCodeScannerIcon,
+  ContentCopy as DuplicateIcon
 } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -86,6 +87,35 @@ const AssetList = () => {
     } catch (error) {
       console.error('Error deleting asset:', error);
     }
+  };
+
+  const handleDuplicate = (asset: any) => {
+    // Store duplicate data in sessionStorage (excluding serial number and location)
+    const duplicateData = {
+      name: asset.name,
+      description: asset.description,
+      categoryId: asset.categoryId,
+      brand: asset.brand,
+      modelNumber: asset.modelNumber,
+      // Do NOT copy serial number - it should be unique
+      // Do NOT copy locationId - user should select location for new asset
+      imageUrl: asset.imageUrl,
+      productUrl: asset.productUrl,
+      technicalManualUrl: asset.technicalManualUrl,
+      status: 'ACTIVE',
+      purchasePrice: asset.purchasePrice,
+      supplierId: asset.supplierId,
+      invoiceDocument: asset.invoiceDocument,
+      warrantyDurationValue: asset.warrantyDurationValue,
+      warrantyDurationUnit: asset.warrantyDurationUnit,
+      warrantyTerms: asset.warrantyTerms,
+      warrantyProvider: asset.warrantyProvider,
+      lifespanValue: asset.lifespanValue,
+      lifespanUnit: asset.lifespanUnit
+    };
+
+    sessionStorage.setItem('duplicateAssetData', JSON.stringify(duplicateData));
+    navigate('/dashboard/assets/new');
   };
 
   const getStatusColor = (status: string) => {
@@ -350,6 +380,7 @@ const AssetList = () => {
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem', width: '60px' }}>Image</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Asset Tag</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Name</TableCell>
+                  <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Serial Number</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Category</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Brand</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Status</TableCell>
@@ -419,6 +450,7 @@ const AssetList = () => {
                         </Typography>
                       )}
                     </TableCell>
+                    <TableCell sx={{ fontSize: '0.875rem' }}>{asset.serialNumber || '-'}</TableCell>
                     <TableCell>
                       <Chip
                         icon={<CategoryIcon fontSize="small" />}
@@ -455,7 +487,7 @@ const AssetList = () => {
                       <Tooltip title="View Details">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/dashboard/assets/${asset.id}`)}
+                          onClick={() => navigate(`/dashboard/assets/${asset.assetTag}`)}
                           sx={{ color: '#3b82f6' }}
                         >
                           <ViewIcon fontSize="small" />
@@ -464,10 +496,19 @@ const AssetList = () => {
                       <Tooltip title="Edit">
                         <IconButton
                           size="small"
-                          onClick={() => navigate(`/dashboard/assets/${asset.id}/edit`)}
+                          onClick={() => navigate(`/dashboard/assets/${asset.assetTag}/edit`)}
                           sx={{ color: '#f59e0b' }}
                         >
                           <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Duplicate">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleDuplicate(asset)}
+                          sx={{ color: '#8b5cf6' }}
+                        >
+                          <DuplicateIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Delete">
@@ -493,8 +534,8 @@ const AssetList = () => {
         open={qrScannerOpen}
         onClose={() => setQrScannerOpen(false)}
         onScan={(data) => {
-          // Navigate to the scanned asset detail page
-          navigate(`/dashboard/assets/${data.id}`);
+          // Navigate to the scanned asset detail page using asset tag
+          navigate(`/dashboard/assets/${data.assetTag || data.id}`);
         }}
       />
     </Box>

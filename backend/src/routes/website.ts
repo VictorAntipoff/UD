@@ -1,7 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
-import multipart from '@fastify/multipart';
 import { pipeline } from 'stream/promises';
 import { createWriteStream } from 'fs';
 import { mkdir, stat, unlink } from 'fs/promises';
@@ -26,12 +25,7 @@ async function ensureUploadsDir() {
 }
 
 async function websiteRoutes(fastify: FastifyInstance) {
-  // Register multipart for file uploads
-  await fastify.register(multipart, {
-    limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB limit
-    },
-  });
+  // Note: multipart plugin is now registered globally in index.ts
 
   // Ensure uploads directory exists
   await ensureUploadsDir();

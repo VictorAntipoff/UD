@@ -23,6 +23,8 @@ import AssetList from '../pages/assets/AssetList';
 import AssetDetail from '../pages/assets/AssetDetail';
 import AssetForm from '../pages/assets/AssetForm';
 import AssetSettings from '../pages/assets/AssetSettings';
+import AssetLocations from '../pages/assets/AssetLocations';
+import AssetTransfers from '../pages/assets/AssetTransfers';
 import ComingSoon from '../pages/ComingSoon';
 import Pages from '../pages/website/Pages';
 import PageEditor from '../pages/website/PageEditor';
@@ -132,6 +134,14 @@ export const routes: RouteObject[] = [
           {
             path: 'settings',
             element: <AssetSettings />
+          },
+          {
+            path: 'locations',
+            element: <AssetLocations />
+          },
+          {
+            path: 'transfers',
+            element: <AssetTransfers />
           },
           {
             path: 'new',

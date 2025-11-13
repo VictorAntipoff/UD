@@ -11,12 +11,13 @@ import {
   Card,
   CardContent
 } from '@mui/material';
-import { ArrowBack as BackIcon, Save as SaveIcon, Search as SearchIcon, Upload as UploadIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, Save as SaveIcon, Search as SearchIcon, Upload as UploadIcon, Link as LinkIcon } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../lib/api';
 import ProductSearchDialog from '../../components/ProductSearchDialog';
 import AssetTagSelector from '../../components/AssetTagSelector';
+import DownloadProgress, { DownloadItem } from '../../components/DownloadProgress';
 
 const AssetForm = () => {
   const { id } = useParams<{ id: string }>();
@@ -24,25 +25,33 @@ const AssetForm = () => {
   const isEdit = id && id !== 'new';
   const [loading, setLoading] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
+  const [locations, setLocations] = useState<any[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [tagSelectorOpen, setTagSelectorOpen] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedParentCategory, setSelectedParentCategory] = useState('');
+  const [pdfDocuments, setPdfDocuments] = useState<Array<{url: string; title: string}>>([]);
+  const [existingDocuments, setExistingDocuments] = useState<any[]>([]);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadItem[]>([]);
+  const [showDownloadProgress, setShowDownloadProgress] = useState(false);
   const [formData, setFormData] = useState({
     assetTag: '',
     name: '',
     description: '',
     categoryId: '',
     imageUrl: '',
+    productUrl: '',
+    technicalManualUrl: '',
     brand: '',
     modelNumber: '',
     serialNumber: '',
-    location: '',
+    locationId: '',
     status: 'ACTIVE',
     purchaseDate: new Date().toISOString().split('T')[0],
     purchasePrice: '',
-    supplier: '',
+    supplierId: '',
     invoiceNumber: '',
     invoiceDocument: '',
     warrantyDurationValue: '',
@@ -56,21 +65,86 @@ const AssetForm = () => {
   });
 
   useEffect(() => {
-    fetchCategories();
-    if (isEdit) {
-      fetchAsset();
-    } else {
-      // Fetch next asset tag for new assets
-      fetchNextAssetTag();
-    }
+    const loadData = async () => {
+      // First load categories, locations, and suppliers
+      const [loadedCategories] = await Promise.all([
+        fetchCategories(),
+        fetchLocations(),
+        fetchSuppliers()
+      ]);
+
+      if (isEdit) {
+        // Then fetch asset and set parent category
+        const asset = await fetchAsset();
+        if (asset && asset.categoryId && loadedCategories) {
+          // Find the category in the loaded categories
+          const selectedCategory = loadedCategories.find((c: any) => c.id === asset.categoryId);
+          if (selectedCategory?.parentId) {
+            setSelectedParentCategory(selectedCategory.parentId);
+          }
+        }
+      } else {
+        // Fetch next asset tag for new assets
+        fetchNextAssetTag();
+
+        // Check if we're duplicating an asset
+        const duplicateDataStr = sessionStorage.getItem('duplicateAssetData');
+        if (duplicateDataStr) {
+          try {
+            const duplicateData = JSON.parse(duplicateDataStr);
+            setFormData(prev => ({
+              ...prev,
+              ...duplicateData,
+              purchaseDate: new Date().toISOString().split('T')[0], // Set to today
+              warrantyStartDate: '',
+              warrantyEndDate: ''
+            }));
+
+            // Set parent category if available
+            if (duplicateData.categoryId && loadedCategories) {
+              const selectedCategory = loadedCategories.find((c: any) => c.id === duplicateData.categoryId);
+              if (selectedCategory?.parentId) {
+                setSelectedParentCategory(selectedCategory.parentId);
+              }
+            }
+
+            // Clear the session storage
+            sessionStorage.removeItem('duplicateAssetData');
+          } catch (error) {
+            console.error('Error parsing duplicate data:', error);
+          }
+        }
+      }
+    };
+    loadData();
   }, [id]);
 
   const fetchCategories = async () => {
     try {
       const response = await api.get('/assets/categories');
       setCategories(response.data);
+      return response.data; // Return categories for immediate use
     } catch (error) {
       console.error('Error fetching categories:', error);
+      return [];
+    }
+  };
+
+  const fetchLocations = async () => {
+    try {
+      const response = await api.get('/assets/locations/active');
+      setLocations(response.data);
+    } catch (error) {
+      console.error('Error fetching locations:', error);
+    }
+  };
+
+  const fetchSuppliers = async () => {
+    try {
+      const response = await api.get('/assets/suppliers/active');
+      setSuppliers(response.data);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
     }
   };
 
@@ -95,14 +169,16 @@ const AssetForm = () => {
         description: asset.description || '',
         categoryId: asset.categoryId,
         imageUrl: asset.imageUrl || '',
+        productUrl: asset.productUrl || '',
+        technicalManualUrl: asset.technicalManualUrl || '',
         brand: asset.brand || '',
         modelNumber: asset.modelNumber || '',
         serialNumber: asset.serialNumber || '',
-        location: asset.location || '',
+        locationId: asset.locationId || '',
         status: asset.status,
         purchaseDate: asset.purchaseDate.split('T')[0],
         purchasePrice: asset.purchasePrice.toString(),
-        supplier: asset.supplier || '',
+        supplierId: asset.supplierId || '',
         invoiceNumber: asset.invoiceNumber || '',
         invoiceDocument: asset.invoiceDocument || '',
         warrantyDurationValue: asset.warrantyDurationValue?.toString() || '',
@@ -115,13 +191,16 @@ const AssetForm = () => {
         lifespanUnit: asset.lifespanUnit || 'YEARS'
       });
 
-      // Set parent category if the selected category is a subcategory
-      const selectedCategory = categories.find(c => c.id === asset.categoryId);
-      if (selectedCategory?.parentId) {
-        setSelectedParentCategory(selectedCategory.parentId);
+      // Store existing documents to prevent re-downloading
+      if (asset.documents && asset.documents.length > 0) {
+        setExistingDocuments(asset.documents);
+        console.log(`Asset has ${asset.documents.length} existing documents`);
       }
+
+      return asset; // Return asset so we can use it after categories are loaded
     } catch (error) {
       console.error('Error fetching asset:', error);
+      return null;
     } finally {
       setLoading(false);
     }
@@ -152,9 +231,13 @@ const AssetForm = () => {
         warrantyEndDate = endDate.toISOString().split('T')[0];
       }
 
-      // Store URLs temporarily before creating asset
+      // Store URLs temporarily before creating/updating asset
       const tempImageUrl = formData.imageUrl;
-      const tempPdfUrl = formData.invoiceDocument;
+      const tempManualUrl = formData.technicalManualUrl;
+
+      // Check if we need to download new images (external URLs)
+      const needsImageDownload = tempImageUrl && tempImageUrl.startsWith('http') && !tempImageUrl.includes('cloudinary');
+      const needsManualDownload = tempManualUrl && tempManualUrl.startsWith('http') && !tempManualUrl.includes('cloudinary');
 
       const data = {
         ...formData,
@@ -163,45 +246,118 @@ const AssetForm = () => {
         warrantyDurationValue: formData.warrantyDurationValue ? parseInt(formData.warrantyDurationValue) : null,
         warrantyStartDate: warrantyStartDate || null,
         warrantyEndDate: warrantyEndDate || null,
-        // Don't save URLs yet - they will be updated after download
-        imageUrl: null,
-        invoiceDocument: null
+        // Don't save external URLs - they will be uploaded to Cloudinary
+        imageUrl: needsImageDownload ? null : tempImageUrl,
+        technicalManualUrl: needsManualDownload ? null : tempManualUrl
       };
 
       let createdAsset;
+      let assetIdentifier; // Store the ID or tag we used for the request
+
       if (isEdit) {
-        createdAsset = await api.patch(`/assets/${id}`, data);
+        const response = await api.patch(`/assets/${id}`, data);
+        createdAsset = response.data;
+        assetIdentifier = id; // Use the same identifier (could be tag or UUID)
       } else {
         const response = await api.post('/assets', data);
         createdAsset = response.data;
+        assetIdentifier = createdAsset.assetTag; // Use asset tag for new assets
       }
 
-      // After asset is created with asset tag, download files to proper folder
-      if (createdAsset && createdAsset.assetTag && (tempImageUrl || tempPdfUrl)) {
+      // Download external files to Cloudinary if needed
+      if (createdAsset && createdAsset.assetTag && (needsImageDownload || needsManualDownload || pdfDocuments.length > 0)) {
+        // Filter out PDFs that already exist (when editing)
+        const newPdfDocuments = isEdit && existingDocuments.length > 0
+          ? pdfDocuments.filter(pdf => {
+              // Check if this PDF URL already exists in documents
+              const exists = existingDocuments.some(doc =>
+                doc.fileName && pdf.url.includes(doc.fileName)
+              );
+              if (exists) {
+                console.log(`Skipping duplicate PDF: ${pdf.title}`);
+              }
+              return !exists;
+            })
+          : pdfDocuments;
+
+        console.log(`Filtered PDFs: ${newPdfDocuments.length} new out of ${pdfDocuments.length} total`);
+
+        // Prepare download items for progress tracking
+        const items: DownloadItem[] = [];
+
+        if (needsImageDownload && tempImageUrl) {
+          items.push({
+            id: 'image',
+            name: 'Product Image',
+            type: 'image',
+            status: 'pending'
+          });
+        }
+
+        if (newPdfDocuments.length > 0) {
+          newPdfDocuments.forEach((pdf, idx) => {
+            items.push({
+              id: `pdf-${idx}`,
+              name: pdf.title,
+              type: 'pdf',
+              status: 'pending'
+            });
+          });
+        }
+
+        // Only show progress if there are items to download
+        if (items.length === 0) {
+          console.log('No new files to download');
+          return; // Skip download if no new items
+        }
+
+        // Show progress notification
+        setDownloadProgress(items);
+        setShowDownloadProgress(true);
+
         try {
-          const downloadResponse = await api.post('/assets/download-asset-files', {
+          // Start downloading - update status to downloading
+          setDownloadProgress(prev => prev.map(item => ({ ...item, status: 'downloading' })));
+
+          const downloadPayload = {
             assetTag: createdAsset.assetTag,
             imageUrl: tempImageUrl?.startsWith('http') ? tempImageUrl : null,
-            pdfUrl: tempPdfUrl?.startsWith('http') ? tempPdfUrl : null
-          });
+            pdfUrl: tempManualUrl?.startsWith('http') ? tempManualUrl : null,
+            pdfDocuments: newPdfDocuments.length > 0 ? newPdfDocuments : null
+          };
+
+          const downloadResponse = await api.post('/assets/download-asset-files', downloadPayload);
 
           if (downloadResponse.data.success) {
+            // Update progress - mark all as completed
+            setDownloadProgress(prev => prev.map(item => ({ ...item, status: 'completed' })));
+
             // Update asset with downloaded file URLs
             const updateData: any = {};
             if (downloadResponse.data.imageUrl) {
               updateData.imageUrl = downloadResponse.data.imageUrl;
             }
             if (downloadResponse.data.pdfUrl) {
-              updateData.invoiceDocument = downloadResponse.data.pdfUrl;
+              updateData.technicalManualUrl = downloadResponse.data.pdfUrl;
             }
 
             if (Object.keys(updateData).length > 0) {
-              await api.patch(`/assets/${createdAsset.id}`, updateData);
+              await api.patch(`/assets/${createdAsset.assetTag}`, updateData);
             }
+
+            // Auto-close progress after 3 seconds
+            setTimeout(() => {
+              setShowDownloadProgress(false);
+            }, 3000);
           }
         } catch (downloadError) {
           console.error('Error downloading asset files:', downloadError);
-          // Continue anyway - asset is created, just files might not be downloaded
+          // Mark all as error
+          setDownloadProgress(prev => prev.map(item => ({
+            ...item,
+            status: 'error',
+            error: 'Failed to download'
+          })));
         }
       }
 
@@ -227,20 +383,18 @@ const AssetForm = () => {
         const brand = field === 'brand' ? value : newData.brand;
         const model = field === 'modelNumber' ? value : newData.modelNumber;
 
-        // Generate name: Category - Subcategory - Brand - Model
-        // If it's a subcategory, include parent category name
+        // Generate name: Brand + Subcategory + Model Number
         const parts = [];
+
+        // Add Brand first
+        if (brand && brand.trim()) parts.push(brand);
+
+        // Add Subcategory (not parent category, only the subcategory itself)
         if (selectedCategory) {
-          if (selectedCategory.parentId) {
-            const parentCategory = categories.find(c => c.id === selectedCategory.parentId);
-            if (parentCategory) {
-              parts.push(parentCategory.name);
-            }
-          }
           parts.push(selectedCategory.name);
         }
 
-        if (brand && brand.trim()) parts.push(brand);
+        // Add Model Number
         if (model && model.trim()) parts.push(model);
 
         if (parts.length > 0) {
@@ -253,19 +407,33 @@ const AssetForm = () => {
   };
 
   const handleProductSelect = async (product: any) => {
+    console.log('=== Product Selected ===');
+    console.log('Product data:', product);
+
     const titleParts = product.title.split(' ');
     const brand = titleParts[0] || '';
+    const modelNumber = product.title.replace(brand, '').trim();
 
     setFormData(prev => ({
       ...prev,
-      name: product.title,
-      description: product.snippet || '',
-      brand: brand,
-      modelNumber: product.title.replace(brand, '').trim(),
-      // Store URLs temporarily - will download after asset is saved with asset tag
-      imageUrl: product.image || prev.imageUrl,
-      invoiceDocument: product.pdfUrl || prev.invoiceDocument
+      // Only update fields if they are currently empty
+      name: prev.name || product.title,
+      description: prev.description || product.snippet || '',
+      brand: prev.brand || brand,
+      modelNumber: prev.modelNumber || modelNumber,
+      imageUrl: prev.imageUrl || product.image || '',
+      technicalManualUrl: prev.technicalManualUrl || product.pdfUrl || '',
+      productUrl: prev.productUrl || product.link || ''
     }));
+
+    // Store all PDF documents found
+    if (product.pdfDocuments && product.pdfDocuments.length > 0) {
+      setPdfDocuments(product.pdfDocuments);
+      console.log(`✅ Found ${product.pdfDocuments.length} PDF documents:`, product.pdfDocuments);
+    } else {
+      console.log('⚠️ No pdfDocuments array in product data');
+      setPdfDocuments([]); // Clear any previous PDFs
+    }
 
     // Don't download immediately - wait until asset is saved
     // Show notification if PDF was found
@@ -375,26 +543,24 @@ const AssetForm = () => {
             </Typography>
           </Box>
         </Box>
-        {!isEdit && (
-          <Button
-            variant="outlined"
-            startIcon={<SearchIcon />}
-            onClick={() => setSearchDialogOpen(true)}
-            sx={{
-              borderColor: '#dc2626',
-              color: '#dc2626',
-              textTransform: 'none',
-              fontSize: '0.875rem',
-              display: { xs: 'none', sm: 'flex' },
-              '&:hover': {
-                borderColor: '#b91c1c',
-                bgcolor: '#fef2f2'
-              }
-            }}
-          >
-            Search Product
-          </Button>
-        )}
+        <Button
+          variant="outlined"
+          startIcon={<SearchIcon />}
+          onClick={() => setSearchDialogOpen(true)}
+          sx={{
+            borderColor: '#dc2626',
+            color: '#dc2626',
+            textTransform: 'none',
+            fontSize: '0.875rem',
+            display: { xs: 'none', sm: 'flex' },
+            '&:hover': {
+              borderColor: '#b91c1c',
+              bgcolor: '#fef2f2'
+            }
+          }}
+        >
+          {isEdit ? 'Search & Update' : 'Search Product'}
+        </Button>
       </Box>
 
       <form onSubmit={handleSubmit}>
@@ -417,6 +583,9 @@ const AssetForm = () => {
                           maxHeight: '200px',
                           objectFit: 'contain',
                           borderRadius: '8px'
+                        }}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
                         }}
                       />
                     </Box>
@@ -579,6 +748,31 @@ const AssetForm = () => {
                       sx={fieldSx}
                     />
                   </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Product Link"
+                      value={formData.productUrl}
+                      onChange={(e) => handleChange('productUrl', e.target.value)}
+                      placeholder="https://..."
+                      helperText="Link to product website or reference"
+                      sx={fieldSx}
+                      InputProps={{
+                        endAdornment: formData.productUrl && (
+                          <IconButton
+                            size="small"
+                            href={formData.productUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ color: '#dc2626' }}
+                          >
+                            <LinkIcon fontSize="small" />
+                          </IconButton>
+                        )
+                      }}
+                    />
+                  </Grid>
                   <Grid item xs={12} sm={4}>
                     <TextField
                       fullWidth
@@ -611,13 +805,24 @@ const AssetForm = () => {
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
+                      select
                       fullWidth
                       size="small"
                       label="Location"
-                      value={formData.location}
-                      onChange={(e) => handleChange('location', e.target.value)}
+                      value={formData.locationId}
+                      onChange={(e) => handleChange('locationId', e.target.value)}
                       sx={fieldSx}
-                    />
+                      helperText="Select the physical location of this asset"
+                    >
+                      <MenuItem value="">
+                        <em>None</em>
+                      </MenuItem>
+                      {locations.map((location) => (
+                        <MenuItem key={location.id} value={location.id}>
+                          {location.name} ({location.code})
+                        </MenuItem>
+                      ))}
+                    </TextField>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -677,13 +882,24 @@ const AssetForm = () => {
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
+                      select
                       fullWidth
                       size="small"
                       label="Supplier"
-                      value={formData.supplier}
-                      onChange={(e) => handleChange('supplier', e.target.value)}
+                      value={formData.supplierId}
+                      onChange={(e) => handleChange('supplierId', e.target.value)}
+                      helperText="Select the supplier or vendor"
                       sx={fieldSx}
-                    />
+                    >
+                      <MenuItem value="">
+                        <em>None</em>
+                      </MenuItem>
+                      {suppliers.map((supplier) => (
+                        <MenuItem key={supplier.id} value={supplier.id}>
+                          {supplier.name} {supplier.code && `(${supplier.code})`}
+                        </MenuItem>
+                      ))}
+                    </TextField>
                   </Grid>
                   <Grid item xs={12} sm={6}>
                     <TextField
@@ -828,6 +1044,7 @@ const AssetForm = () => {
         onClose={() => setSearchDialogOpen(false)}
         onSelect={handleProductSelect}
         brand={formData.brand}
+        modelNumber={formData.modelNumber}
       />
 
       <AssetTagSelector
@@ -835,6 +1052,12 @@ const AssetForm = () => {
         onClose={() => setTagSelectorOpen(false)}
         onSelect={(tag) => handleChange('assetTag', tag)}
         currentTag={formData.assetTag}
+      />
+
+      <DownloadProgress
+        open={showDownloadProgress}
+        items={downloadProgress}
+        onClose={() => setShowDownloadProgress(false)}
       />
     </Box>
   );

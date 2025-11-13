@@ -21,6 +21,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import SearchIcon from '@mui/icons-material/Search';
 import LinkIcon from '@mui/icons-material/Link';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import DownloadIcon from '@mui/icons-material/Download';
 import api from '../lib/api';
 
 interface ProductResult {
@@ -39,15 +40,25 @@ interface ProductSearchDialogProps {
   onClose: () => void;
   onSelect: (product: ProductResult) => void;
   brand?: string;
+  modelNumber?: string;
 }
 
-export default function ProductSearchDialog({ open, onClose, onSelect, brand }: ProductSearchDialogProps) {
+export default function ProductSearchDialog({ open, onClose, onSelect, brand, modelNumber }: ProductSearchDialogProps) {
   const [activeTab, setActiveTab] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [productUrl, setProductUrl] = useState('');
   const [searching, setSearching] = useState(false);
+  const [loadingPdfs, setLoadingPdfs] = useState(false);
   const [results, setResults] = useState<ProductResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-populate search query when dialog opens with brand and model number
+  React.useEffect(() => {
+    if (open && (brand || modelNumber)) {
+      const query = [brand, modelNumber].filter(Boolean).join(' ');
+      setSearchQuery(query);
+    }
+  }, [open, brand, modelNumber]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -99,8 +110,40 @@ export default function ProductSearchDialog({ open, onClose, onSelect, brand }: 
     }
   };
 
-  const handleSelectProduct = (product: ProductResult) => {
-    onSelect(product);
+  const handleSelectProduct = async (product: ProductResult) => {
+    // If product has a valid link, scrape it to get PDF documents
+    if (product.link && product.link !== '#' && product.link.startsWith('http')) {
+      console.log('Scraping product URL for PDFs:', product.link);
+      setLoadingPdfs(true);
+      try {
+        const response = await api.post('/assets/scrape-product-url', {
+          url: product.link
+        });
+
+        if (response.data.success && response.data.product) {
+          // Merge the scraped data (especially pdfDocuments) with the original product
+          const enhancedProduct = {
+            ...product,
+            pdfUrl: response.data.product.pdfUrl || product.pdfUrl,
+            pdfDocuments: response.data.product.pdfDocuments || []
+          };
+          console.log('Enhanced product with PDFs:', enhancedProduct);
+          onSelect(enhancedProduct);
+        } else {
+          // If scraping fails, just use the original product
+          onSelect(product);
+        }
+      } catch (err) {
+        console.error('Error scraping product URL:', err);
+        // If scraping fails, just use the original product
+        onSelect(product);
+      } finally {
+        setLoadingPdfs(false);
+      }
+    } else {
+      // No valid link to scrape
+      onSelect(product);
+    }
     onClose();
   };
 
@@ -112,6 +155,17 @@ export default function ProductSearchDialog({ open, onClose, onSelect, brand }: 
         handleScrapeUrl();
       }
     }
+  };
+
+  const handleDownloadPdf = (e: React.MouseEvent, pdfUrl: string, title: string) => {
+    e.stopPropagation(); // Prevent card selection
+    const link = document.createElement('a');
+    link.href = pdfUrl;
+    link.download = `${title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -142,7 +196,30 @@ export default function ProductSearchDialog({ open, onClose, onSelect, brand }: 
         </IconButton>
       </DialogTitle>
 
-      <DialogContent sx={{ pt: 3 }}>
+      <DialogContent sx={{ pt: 3, position: 'relative' }}>
+        {/* Loading overlay when extracting PDFs */}
+        {loadingPdfs && (
+          <Box sx={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            bgcolor: 'rgba(255, 255, 255, 0.9)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 2
+          }}>
+            <CircularProgress size={48} />
+            <Typography variant="body1" color="text.secondary">
+              Extracting PDF documents from product page...
+            </Typography>
+          </Box>
+        )}
+
         {/* Tabs */}
         <Tabs
           value={activeTab}
@@ -361,14 +438,21 @@ export default function ProductSearchDialog({ open, onClose, onSelect, brand }: 
                       )}
                       {product.pdfUrl && (
                         <Chip
-                          icon={<PictureAsPdfIcon sx={{ fontSize: '0.9rem' }} />}
-                          label="PDF Available"
+                          icon={<DownloadIcon sx={{ fontSize: '0.9rem' }} />}
+                          label="Download PDF"
                           size="small"
+                          onClick={(e) => handleDownloadPdf(e, product.pdfUrl!, product.title)}
                           sx={{
                             bgcolor: '#dbeafe',
                             color: '#1e40af',
                             fontSize: '0.7rem',
-                            fontWeight: 600
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            '&:hover': {
+                              bgcolor: '#bfdbfe',
+                              transform: 'scale(1.05)'
+                            },
+                            transition: 'all 0.2s'
                           }}
                         />
                       )}

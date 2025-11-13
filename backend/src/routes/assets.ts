@@ -234,16 +234,37 @@ export default async function assetRoutes(fastify: FastifyInstance) {
   // Download and organize asset files (image and PDFs) to AssetTag folder
   fastify.post('/download-asset-files', async (request, reply) => {
     try {
-      const { assetTag, imageUrl, pdfUrl } = request.body as { assetTag: string; imageUrl?: string; pdfUrl?: string };
+      const { assetTag, imageUrl, pdfUrl, pdfDocuments } = request.body as {
+        assetTag: string;
+        imageUrl?: string;
+        pdfUrl?: string;
+        pdfDocuments?: Array<{url: string; title: string}>;
+      };
 
       if (!assetTag) {
         return reply.status(400).send({ error: 'Asset tag is required' });
       }
 
+      // Find the asset by assetTag
+      const asset = await prisma.asset.findUnique({
+        where: { assetTag }
+      });
+
+      if (!asset) {
+        return reply.status(404).send({ error: 'Asset not found' });
+      }
+
       const results: any = {};
 
-      // Create folder structure: udesign/assets/{AssetTag}/
-      const assetFolder = `udesign/assets/${assetTag}`;
+      // Create folder structure based on product (brand + model) for shared files
+      // If multiple assets have same brand+model, they'll share the same folder
+      const productIdentifier = asset.brand && asset.modelNumber
+        ? `${asset.brand.replace(/[^a-zA-Z0-9]/g, '_')}_${asset.modelNumber.replace(/[^a-zA-Z0-9]/g, '_')}`
+        : assetTag; // Fallback to assetTag if no brand/model
+
+      const productFolder = `udesign/assets/products/${productIdentifier}`;
+
+      console.log(`Using shared product folder: ${productFolder} (Brand: ${asset.brand}, Model: ${asset.modelNumber})`);
 
       // Download and upload image if provided
       if (imageUrl) {
@@ -253,9 +274,10 @@ export default async function assetRoutes(fastify: FastifyInstance) {
             const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
             const imageResult = await uploadToCloudinary(imageBuffer, {
-              folder: assetFolder,
-              public_id: `image-${Date.now()}`,
-              resource_type: 'image'
+              folder: productFolder,
+              public_id: `image`,
+              resource_type: 'image',
+              overwrite: true // Overwrite existing image in shared folder
             });
 
             results.imageUrl = imageResult.secure_url;
@@ -266,7 +288,7 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Download and upload PDF if provided
+      // Download and upload PDF if provided (backward compatibility)
       if (pdfUrl) {
         try {
           const pdfResponse = await fetch(pdfUrl, {
@@ -279,9 +301,10 @@ export default async function assetRoutes(fastify: FastifyInstance) {
             const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
 
             const pdfResult = await uploadToCloudinary(pdfBuffer, {
-              folder: assetFolder,
-              public_id: `manual-${Date.now()}`,
-              resource_type: 'raw' // For PDF files
+              folder: productFolder,
+              public_id: `manual`,
+              resource_type: 'raw',
+              overwrite: true // Overwrite existing manual in shared folder
             });
 
             results.pdfUrl = pdfResult.secure_url;
@@ -289,6 +312,98 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         } catch (err) {
           console.error('Error downloading PDF:', err);
           results.pdfError = 'Failed to download PDF';
+        }
+      }
+
+      // Download and create AssetDocument records for all PDF documents
+      if (pdfDocuments && pdfDocuments.length > 0) {
+        results.documents = [];
+        results.documentsErrors = [];
+
+        // Check if other assets with same brand+model already have documents
+        const existingDocs = await prisma.assetDocument.findMany({
+          where: {
+            asset: {
+              brand: asset.brand,
+              modelNumber: asset.modelNumber
+            }
+          },
+          orderBy: { uploadedAt: 'asc' }, // Get oldest first (original uploads)
+          take: 10 // Limit to prevent excessive queries
+        });
+
+        for (const pdfDoc of pdfDocuments) {
+          try {
+            // Create a consistent public_id based on title (sanitized)
+            const sanitizedTitle = pdfDoc.title
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, '_')
+              .replace(/_+/g, '_')
+              .substring(0, 50); // Limit length
+
+            // Check if we already have this document for the product
+            const existingDoc = existingDocs.find(doc =>
+              doc.title.toLowerCase() === pdfDoc.title.toLowerCase() ||
+              doc.fileUrl.includes(sanitizedTitle)
+            );
+
+            let pdfResult;
+            let pdfBuffer;
+
+            if (existingDoc && existingDoc.fileUrl) {
+              // Reuse existing file URL from another asset with same product
+              console.log(`Reusing existing document: ${pdfDoc.title} from ${existingDoc.fileUrl}`);
+              pdfResult = { secure_url: existingDoc.fileUrl };
+              pdfBuffer = Buffer.from([]); // Empty buffer for reused file
+            } else {
+              // Download and upload new file
+              const pdfResponse = await fetch(pdfDoc.url, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+              });
+
+              if (pdfResponse.ok) {
+                pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+
+                pdfResult = await uploadToCloudinary(pdfBuffer, {
+                  folder: productFolder,
+                  public_id: sanitizedTitle,
+                  resource_type: 'raw',
+                  overwrite: true // Overwrite if somehow exists
+                });
+
+                console.log(`Downloaded new document: ${pdfDoc.title} to ${pdfResult.secure_url}`);
+              } else {
+                throw new Error(`Failed to fetch PDF: ${pdfResponse.statusText}`);
+              }
+            }
+
+            if (pdfResult) {
+              const fileName = pdfDoc.url.split('/').pop() || `${sanitizedTitle}.pdf`;
+
+              // Create AssetDocument record for this specific asset
+              const assetDocument = await prisma.assetDocument.create({
+                data: {
+                  assetId: asset.id,
+                  documentType: 'MANUAL', // Can be improved to detect type from title
+                  title: pdfDoc.title,
+                  fileUrl: pdfResult.secure_url,
+                  fileName: fileName,
+                  fileSize: pdfBuffer.length || existingDoc?.fileSize || 0,
+                  mimeType: 'application/pdf'
+                }
+              });
+
+              results.documents.push(assetDocument);
+            }
+          } catch (err) {
+            console.error(`Error downloading PDF ${pdfDoc.title}:`, err);
+            results.documentsErrors.push({
+              title: pdfDoc.title,
+              error: 'Failed to download'
+            });
+          }
         }
       }
 
@@ -378,6 +493,7 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         where,
         include: {
           category: true,
+          location: true,
           _count: {
             select: {
               maintenanceRecords: true,
@@ -400,10 +516,13 @@ export default async function assetRoutes(fastify: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
 
-      const asset = await prisma.asset.findUnique({
-        where: { id },
+      // Try to find by assetTag first, then by UUID
+      let asset = await prisma.asset.findUnique({
+        where: { assetTag: id },
         include: {
           category: true,
+          location: true,
+          supplierRelation: true,
           maintenanceRecords: {
             orderBy: { scheduledDate: 'desc' }
           },
@@ -412,9 +531,44 @@ export default async function assetRoutes(fastify: FastifyInstance) {
           },
           assignmentHistory: {
             orderBy: { assignmentDate: 'desc' }
+          },
+          transfers: {
+            include: {
+              fromLocation: true,
+              toLocation: true
+            },
+            orderBy: { transferDate: 'desc' }
           }
         }
       });
+
+      // If not found by assetTag, try by UUID
+      if (!asset) {
+        asset = await prisma.asset.findUnique({
+          where: { id },
+          include: {
+            category: true,
+            location: true,
+            supplierRelation: true,
+            maintenanceRecords: {
+              orderBy: { scheduledDate: 'desc' }
+            },
+            documents: {
+              orderBy: { uploadedAt: 'desc' }
+            },
+            assignmentHistory: {
+              orderBy: { assignmentDate: 'desc' }
+            },
+            transfers: {
+              include: {
+                fromLocation: true,
+                toLocation: true
+              },
+              orderBy: { transferDate: 'desc' }
+            }
+          }
+        });
+      }
 
       if (!asset) {
         return reply.status(404).send({ error: 'Asset not found' });
@@ -431,6 +585,14 @@ export default async function assetRoutes(fastify: FastifyInstance) {
   fastify.post('/', async (request, reply) => {
     try {
       const data = request.body as any;
+
+      // Clean up empty string values for foreign key fields to prevent constraint violations
+      const foreignKeyFields = ['locationId', 'supplierId', 'categoryId', 'assignedToId'];
+      foreignKeyFields.forEach(field => {
+        if (data[field] === '' || data[field] === null || data[field] === undefined) {
+          delete data[field];
+        }
+      });
 
       // Auto-generate asset tag if not provided
       if (!data.assetTag) {
@@ -453,6 +615,23 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         data.assetTag = `UD-${String(nextNumber).padStart(4, '0')}`;
       }
 
+      // Convert date strings to ISO DateTime format
+      if (data.purchaseDate && typeof data.purchaseDate === 'string') {
+        data.purchaseDate = new Date(data.purchaseDate).toISOString();
+      }
+      if (data.warrantyStartDate && typeof data.warrantyStartDate === 'string') {
+        data.warrantyStartDate = new Date(data.warrantyStartDate).toISOString();
+      }
+      if (data.warrantyEndDate && typeof data.warrantyEndDate === 'string') {
+        data.warrantyEndDate = new Date(data.warrantyEndDate).toISOString();
+      }
+      if (data.assignmentDate && typeof data.assignmentDate === 'string') {
+        data.assignmentDate = new Date(data.assignmentDate).toISOString();
+      }
+      if (data.disposalDate && typeof data.disposalDate === 'string') {
+        data.disposalDate = new Date(data.disposalDate).toISOString();
+      }
+
       const asset = await prisma.asset.create({
         data,
         include: {
@@ -473,15 +652,55 @@ export default async function assetRoutes(fastify: FastifyInstance) {
       const { id } = request.params as { id: string };
       const data = request.body as any;
 
-      const asset = await prisma.asset.update({
-        where: { id },
+      // Clean up empty string values for foreign key fields to prevent constraint violations
+      const foreignKeyFields = ['locationId', 'supplierId', 'categoryId', 'assignedToId'];
+      foreignKeyFields.forEach(field => {
+        if (data[field] === '' || data[field] === null || data[field] === undefined) {
+          delete data[field];
+        }
+      });
+
+      // Find asset by assetTag first, then by UUID
+      let asset = await prisma.asset.findUnique({
+        where: { assetTag: id }
+      });
+
+      if (!asset) {
+        asset = await prisma.asset.findUnique({
+          where: { id }
+        });
+      }
+
+      if (!asset) {
+        return reply.status(404).send({ error: 'Asset not found' });
+      }
+
+      // Convert date strings to ISO DateTime format
+      if (data.purchaseDate && typeof data.purchaseDate === 'string') {
+        data.purchaseDate = new Date(data.purchaseDate).toISOString();
+      }
+      if (data.warrantyStartDate && typeof data.warrantyStartDate === 'string') {
+        data.warrantyStartDate = new Date(data.warrantyStartDate).toISOString();
+      }
+      if (data.warrantyEndDate && typeof data.warrantyEndDate === 'string') {
+        data.warrantyEndDate = new Date(data.warrantyEndDate).toISOString();
+      }
+      if (data.assignmentDate && typeof data.assignmentDate === 'string') {
+        data.assignmentDate = new Date(data.assignmentDate).toISOString();
+      }
+      if (data.disposalDate && typeof data.disposalDate === 'string') {
+        data.disposalDate = new Date(data.disposalDate).toISOString();
+      }
+
+      const updatedAsset = await prisma.asset.update({
+        where: { id: asset.id },
         data,
         include: {
           category: true
         }
       });
 
-      return asset;
+      return updatedAsset;
     } catch (error) {
       console.error('Error updating asset:', error);
       return reply.status(500).send({ error: 'Failed to update asset' });
@@ -613,6 +832,85 @@ export default async function assetRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error deleting document:', error);
       return reply.status(500).send({ error: 'Failed to delete document' });
+    }
+  });
+
+  // Upload document with file
+  fastify.post('/:id/upload-document', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      // Get the uploaded file
+      const data = await request.file();
+      if (!data) {
+        return reply.status(400).send({ error: 'No file uploaded' });
+      }
+
+      const fileBuffer = await data.toBuffer();
+      const documentType = data.fields.documentType?.value as string || 'OTHER';
+      const title = data.fields.title?.value as string;
+
+      if (!title) {
+        return reply.status(400).send({ error: 'Document title is required' });
+      }
+
+      // Find asset to get brand and model
+      const asset = await prisma.asset.findUnique({
+        where: { assetTag: id },
+        select: { id: true, assetTag: true, brand: true, modelNumber: true }
+      });
+
+      if (!asset) {
+        // Try by UUID
+        const assetById = await prisma.asset.findUnique({
+          where: { id },
+          select: { id: true, assetTag: true, brand: true, modelNumber: true }
+        });
+
+        if (!assetById) {
+          return reply.status(404).send({ error: 'Asset not found' });
+        }
+
+        // Use assetById for the rest
+        Object.assign(asset, assetById);
+      }
+
+      // Create folder based on product (brand + model) for shared files
+      const productIdentifier = asset.brand && asset.modelNumber
+        ? `${asset.brand.replace(/[^a-zA-Z0-9]/g, '_')}_${asset.modelNumber.replace(/[^a-zA-Z0-9]/g, '_')}`
+        : asset.assetTag;
+
+      const productFolder = `udesign/assets/products/${productIdentifier}`;
+
+      console.log(`Uploading document to: ${productFolder}`);
+
+      // Upload to Cloudinary
+      const uploadResult = await uploadToCloudinary(fileBuffer, {
+        folder: productFolder,
+        public_id: `${title.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`,
+        resource_type: 'raw'
+      });
+
+      // Create document record
+      const document = await prisma.assetDocument.create({
+        data: {
+          assetId: asset.id,
+          documentType: documentType as any,
+          title: title,
+          fileUrl: uploadResult.secure_url,
+          fileName: data.filename,
+          fileSize: fileBuffer.length,
+          mimeType: data.mimetype
+        }
+      });
+
+      return {
+        success: true,
+        document
+      };
+    } catch (error) {
+      console.error('Error uploading document:', error);
+      return reply.status(500).send({ error: 'Failed to upload document' });
     }
   });
 
@@ -753,9 +1051,9 @@ export default async function assetRoutes(fastify: FastifyInstance) {
 
               return {
                 title: item.title || query,
-                link: item.link || item.image?.contextLink || '#',
+                link: item.image?.contextLink || item.link || '#', // Product page URL
                 snippet: item.snippet || '',
-                image: item.link || item.image?.thumbnailLink || '',
+                image: item.link || item.image?.thumbnailLink || '', // Image URL
                 price: item.pagemap?.offer?.[0]?.price || 'Price not available',
                 source,
                 isOfficialSite: true
@@ -804,9 +1102,9 @@ export default async function assetRoutes(fastify: FastifyInstance) {
 
         return {
           title: item.title || query,
-          link: item.link || item.image?.contextLink || '#',
+          link: item.image?.contextLink || item.link || '#', // Product page URL
           snippet: item.snippet || '',
-          image: item.link || item.image?.thumbnailLink || '',
+          image: item.link || item.image?.thumbnailLink || '', // Image URL
           price: item.pagemap?.offer?.[0]?.price || 'Price not available',
           source,
           isOfficialSite
@@ -941,34 +1239,54 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         }
       }
 
-      // Extract PDF links (manual, datasheet, spec sheet, etc.)
+      // Extract PDF links (manual, datasheet, spec sheet, etc.) with titles
       const pdfPatterns = [
-        /<a[^>]*href=["']([^"']*\.pdf)["'][^>]*>/gi,
-        /<a[^>]*href=["']([^"']*manual[^"']*)["'][^>]*>/gi,
-        /<a[^>]*href=["']([^"']*datasheet[^"']*)["'][^>]*>/gi,
-        /<a[^>]*href=["']([^"']*spec[^"']*)["'][^>]*>/gi,
+        /<a[^>]*href=["']([^"']*\.pdf)["'][^>]*>([^<]*)<\/a>/gi,
+        /<a[^>]*href=["']([^"']*manual[^"']*)["'][^>]*>([^<]*)<\/a>/gi,
+        /<a[^>]*href=["']([^"']*datasheet[^"']*)["'][^>]*>([^<]*)<\/a>/gi,
+        /<a[^>]*href=["']([^"']*spec[^"']*)["'][^>]*>([^<]*)<\/a>/gi,
+        /<a[^>]*href=["']([^"']*parts[^"']*)["'][^>]*>([^<]*)<\/a>/gi,
+        /<a[^>]*href=["']([^"']*breakdown[^"']*)["'][^>]*>([^<]*)<\/a>/gi,
       ];
 
-      const pdfUrls: string[] = [];
+      interface PdfDocument {
+        url: string;
+        title: string;
+      }
+
+      const pdfDocuments: PdfDocument[] = [];
       for (const pattern of pdfPatterns) {
         let match;
         while ((match = pattern.exec(html)) !== null) {
           let foundUrl = match[1];
+          let linkText = match[2]?.trim() || '';
+
           // Make URL absolute
           if (foundUrl.startsWith('/')) {
             foundUrl = `${validUrl.origin}${foundUrl}`;
           } else if (!foundUrl.startsWith('http')) {
             foundUrl = `${validUrl.origin}/${foundUrl}`;
           }
+
           // Only add PDF files
-          if (foundUrl.toLowerCase().endsWith('.pdf') && !pdfUrls.includes(foundUrl)) {
-            pdfUrls.push(foundUrl);
+          if (foundUrl.toLowerCase().endsWith('.pdf')) {
+            const exists = pdfDocuments.find(pdf => pdf.url === foundUrl);
+            if (!exists) {
+              // Extract filename from URL if no link text
+              const fileName = foundUrl.split('/').pop() || '';
+              const docTitle = linkText || fileName.replace('.pdf', '').replace(/[-_]/g, ' ');
+
+              pdfDocuments.push({
+                url: foundUrl,
+                title: docTitle
+              });
+            }
           }
         }
       }
 
-      // Use first PDF found (usually manual or datasheet)
-      pdfUrl = pdfUrls.length > 0 ? pdfUrls[0] : '';
+      // Use first PDF found for backward compatibility
+      pdfUrl = pdfDocuments.length > 0 ? pdfDocuments[0].url : '';
 
       return {
         success: true,
@@ -980,7 +1298,8 @@ export default async function assetRoutes(fastify: FastifyInstance) {
           price: price || 'Price not available',
           source: validUrl.hostname,
           isOfficialSite: false,
-          pdfUrl: pdfUrl
+          pdfUrl: pdfUrl,
+          pdfDocuments: pdfDocuments // Return all PDF documents found
         }
       };
     } catch (error) {
@@ -1016,6 +1335,453 @@ export default async function assetRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error fetching asset statistics:', error);
       return reply.status(500).send({ error: 'Failed to fetch statistics' });
+    }
+  });
+
+  // ===== ASSET LOCATION ROUTES =====
+
+  // Get all locations
+  fastify.get('/locations', async (request, reply) => {
+    try {
+      const locations = await prisma.assetLocation.findMany({
+        include: {
+          _count: {
+            select: { assets: true }
+          }
+        },
+        orderBy: { name: 'asc' }
+      });
+      return locations;
+    } catch (error) {
+      console.error('Error fetching locations:', error);
+      return reply.status(500).send({ error: 'Failed to fetch locations' });
+    }
+  });
+
+  // Get active locations
+  fastify.get('/locations/active', async (request, reply) => {
+    try {
+      const locations = await prisma.assetLocation.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' }
+      });
+      return locations;
+    } catch (error) {
+      console.error('Error fetching active locations:', error);
+      return reply.status(500).send({ error: 'Failed to fetch active locations' });
+    }
+  });
+
+  // Get single location
+  fastify.get('/locations/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const location = await prisma.assetLocation.findUnique({
+        where: { id },
+        include: {
+          assets: {
+            include: {
+              category: true
+            }
+          },
+          _count: {
+            select: { assets: true, transfersFrom: true, transfersTo: true }
+          }
+        }
+      });
+
+      if (!location) {
+        return reply.status(404).send({ error: 'Location not found' });
+      }
+
+      return location;
+    } catch (error) {
+      console.error('Error fetching location:', error);
+      return reply.status(500).send({ error: 'Failed to fetch location' });
+    }
+  });
+
+  // Create location
+  fastify.post('/locations', async (request, reply) => {
+    try {
+      const data = request.body as any;
+      const location = await prisma.assetLocation.create({
+        data
+      });
+      return location;
+    } catch (error) {
+      console.error('Error creating location:', error);
+      return reply.status(500).send({ error: 'Failed to create location' });
+    }
+  });
+
+  // Update location
+  fastify.patch('/locations/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = request.body as any;
+      const location = await prisma.assetLocation.update({
+        where: { id },
+        data
+      });
+      return location;
+    } catch (error) {
+      console.error('Error updating location:', error);
+      return reply.status(500).send({ error: 'Failed to update location' });
+    }
+  });
+
+  // Delete location
+  fastify.delete('/locations/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      // Check if location has assets
+      const assetsCount = await prisma.asset.count({
+        where: { locationId: id }
+      });
+
+      if (assetsCount > 0) {
+        return reply.status(400).send({
+          error: `Cannot delete location with ${assetsCount} existing asset(s)`
+        });
+      }
+
+      await prisma.assetLocation.delete({
+        where: { id }
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      return reply.status(500).send({ error: 'Failed to delete location' });
+    }
+  });
+
+  // ===== SUPPLIER ROUTES =====
+
+  // Get all suppliers
+  fastify.get('/suppliers', async (request, reply) => {
+    try {
+      const suppliers = await prisma.supplier.findMany({
+        include: {
+          _count: {
+            select: { assets: true }
+          }
+        },
+        orderBy: { name: 'asc' }
+      });
+      return suppliers;
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      return reply.status(500).send({ error: 'Failed to fetch suppliers' });
+    }
+  });
+
+  // Get active suppliers
+  fastify.get('/suppliers/active', async (request, reply) => {
+    try {
+      const suppliers = await prisma.supplier.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' }
+      });
+      return suppliers;
+    } catch (error) {
+      console.error('Error fetching active suppliers:', error);
+      return reply.status(500).send({ error: 'Failed to fetch active suppliers' });
+    }
+  });
+
+  // Get single supplier
+  fastify.get('/suppliers/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const supplier = await prisma.supplier.findUnique({
+        where: { id },
+        include: {
+          assets: {
+            include: {
+              category: true
+            }
+          },
+          _count: {
+            select: { assets: true }
+          }
+        }
+      });
+
+      if (!supplier) {
+        return reply.status(404).send({ error: 'Supplier not found' });
+      }
+
+      return supplier;
+    } catch (error) {
+      console.error('Error fetching supplier:', error);
+      return reply.status(500).send({ error: 'Failed to fetch supplier' });
+    }
+  });
+
+  // Create supplier
+  fastify.post('/suppliers', async (request, reply) => {
+    try {
+      const data = request.body as any;
+      const supplier = await prisma.supplier.create({
+        data
+      });
+      return supplier;
+    } catch (error) {
+      console.error('Error creating supplier:', error);
+      return reply.status(500).send({ error: 'Failed to create supplier' });
+    }
+  });
+
+  // Update supplier
+  fastify.patch('/suppliers/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = request.body as any;
+      const supplier = await prisma.supplier.update({
+        where: { id },
+        data
+      });
+      return supplier;
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      return reply.status(500).send({ error: 'Failed to update supplier' });
+    }
+  });
+
+  // Delete supplier
+  fastify.delete('/suppliers/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      // Check if supplier has assets
+      const assetsCount = await prisma.asset.count({
+        where: { supplierId: id }
+      });
+
+      if (assetsCount > 0) {
+        return reply.status(400).send({
+          error: `Cannot delete supplier with ${assetsCount} existing asset(s)`
+        });
+      }
+
+      await prisma.supplier.delete({
+        where: { id }
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      return reply.status(500).send({ error: 'Failed to delete supplier' });
+    }
+  });
+
+  // ===== ASSET TRANSFER ROUTES =====
+
+  // Get all transfers
+  fastify.get('/transfers', async (request, reply) => {
+    try {
+      const { status, assetId } = request.query as any;
+
+      const where: any = {};
+      if (status) where.status = status;
+      if (assetId) where.assetId = assetId;
+
+      const transfers = await prisma.assetTransfer.findMany({
+        where,
+        include: {
+          asset: {
+            include: {
+              category: true
+            }
+          },
+          fromLocation: true,
+          toLocation: true
+        },
+        orderBy: { transferDate: 'desc' }
+      });
+
+      return transfers;
+    } catch (error) {
+      console.error('Error fetching transfers:', error);
+      return reply.status(500).send({ error: 'Failed to fetch transfers' });
+    }
+  });
+
+  // Get single transfer
+  fastify.get('/transfers/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      const transfer = await prisma.assetTransfer.findUnique({
+        where: { id },
+        include: {
+          asset: {
+            include: {
+              category: true
+            }
+          },
+          fromLocation: true,
+          toLocation: true,
+          history: {
+            orderBy: { timestamp: 'asc' }
+          }
+        }
+      });
+
+      if (!transfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      return transfer;
+    } catch (error) {
+      console.error('Error fetching transfer:', error);
+      return reply.status(500).send({ error: 'Failed to fetch transfer' });
+    }
+  });
+
+  // Create asset transfer
+  fastify.post('/transfers', async (request, reply) => {
+    try {
+      const data = request.body as any;
+      const user = (request as any).user;
+
+      // Generate transfer number
+      const latestTransfer = await prisma.assetTransfer.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { transferNumber: true }
+      });
+
+      let nextNumber = 1;
+      if (latestTransfer && latestTransfer.transferNumber) {
+        const match = latestTransfer.transferNumber.match(/ATR-(\d+)/);
+        if (match) {
+          nextNumber = parseInt(match[1]) + 1;
+        }
+      }
+
+      const transferNumber = `ATR-${String(nextNumber).padStart(5, '0')}`;
+
+      // Create transfer
+      const transfer = await prisma.assetTransfer.create({
+        data: {
+          ...data,
+          transferNumber,
+          requestedById: user.id,
+          requestedByName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email
+        },
+        include: {
+          asset: {
+            include: {
+              category: true
+            }
+          },
+          fromLocation: true,
+          toLocation: true
+        }
+      });
+
+      // Create history entry
+      await prisma.assetTransferHistory.create({
+        data: {
+          transferId: transfer.id,
+          action: 'CREATED',
+          performedById: user.id,
+          performedByName: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
+          notes: `Transfer ${transferNumber} created`
+        }
+      });
+
+      return transfer;
+    } catch (error) {
+      console.error('Error creating transfer:', error);
+      return reply.status(500).send({ error: 'Failed to create transfer' });
+    }
+  });
+
+  // Update transfer status
+  fastify.patch('/transfers/:id/status', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { status, notes, conditionAfter } = request.body as any;
+      const user = (request as any).user;
+
+      const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+      const updateData: any = { status };
+
+      // Update fields based on status
+      if (status === 'IN_TRANSIT') {
+        // No additional fields needed
+      } else if (status === 'COMPLETED') {
+        updateData.completedById = user.id;
+        updateData.completedByName = userName;
+        updateData.completedAt = new Date();
+        updateData.actualArrival = new Date();
+        if (conditionAfter) updateData.conditionAfter = conditionAfter;
+
+        // Update asset location to new location
+        const transfer = await prisma.assetTransfer.findUnique({
+          where: { id },
+          select: { assetId: true, toLocationId: true }
+        });
+
+        if (transfer) {
+          await prisma.asset.update({
+            where: { id: transfer.assetId },
+            data: { locationId: transfer.toLocationId }
+          });
+        }
+      } else if (status === 'CANCELLED') {
+        // No additional fields needed
+      }
+
+      const transfer = await prisma.assetTransfer.update({
+        where: { id },
+        data: updateData,
+        include: {
+          asset: {
+            include: {
+              category: true
+            }
+          },
+          fromLocation: true,
+          toLocation: true
+        }
+      });
+
+      // Create history entry
+      await prisma.assetTransferHistory.create({
+        data: {
+          transferId: id,
+          action: status,
+          performedById: user.id,
+          performedByName: userName,
+          notes: notes || `Transfer status changed to ${status}`
+        }
+      });
+
+      return transfer;
+    } catch (error) {
+      console.error('Error updating transfer status:', error);
+      return reply.status(500).send({ error: 'Failed to update transfer status' });
+    }
+  });
+
+  // Delete transfer
+  fastify.delete('/transfers/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      await prisma.assetTransfer.delete({
+        where: { id }
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error deleting transfer:', error);
+      return reply.status(500).send({ error: 'Failed to delete transfer' });
     }
   });
 }

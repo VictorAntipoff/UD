@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import { config } from 'dotenv';
 import { expand } from 'dotenv-expand';
 import { PrismaClient } from '@prisma/client';
@@ -105,6 +106,14 @@ const setupServer = async () => {
       }
     },
     credentials: true
+  });
+
+  // Register multipart for file uploads (globally available to all routes)
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB max file size
+      files: 1 // Max 1 file per request
+    }
   });
 
   // Root route
