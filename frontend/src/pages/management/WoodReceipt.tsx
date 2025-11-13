@@ -558,9 +558,6 @@ const WoodReceipt = () => {
     const addHeader = async () => {
       // Add logo with correct aspect ratio (2486:616 = ~4.04:1)
       try {
-        const logo = new Image();
-        logo.crossOrigin = 'anonymous';
-
         // Try multiple logo paths
         const logoPaths = [
           '/logo.png',
@@ -571,21 +568,26 @@ const WoodReceipt = () => {
         let logoLoaded = false;
         for (const path of logoPaths) {
           try {
-            await new Promise((resolve, reject) => {
-              logo.onload = resolve;
-              logo.onerror = reject;
+            const logo = new Image();
+            logo.crossOrigin = 'anonymous';
+
+            await new Promise<void>((resolve, reject) => {
+              logo.onload = () => resolve();
+              logo.onerror = () => reject(new Error('Failed to load'));
               logo.src = path;
             });
+
             doc.addImage(logo, 'PNG', 14, 6, 28, 7); // Fixed: 28/7 = 4:1 ratio
             logoLoaded = true;
             break;
           } catch (e) {
+            // Try next path
             continue;
           }
         }
 
         if (!logoLoaded) {
-          console.warn('Could not load logo, continuing without it');
+          console.warn('Could not load logo from any path, continuing without it');
         }
       } catch (error) {
         console.warn('Error loading logo:', error);
