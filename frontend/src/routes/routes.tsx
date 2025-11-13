@@ -25,6 +25,7 @@ import AssetForm from '../pages/assets/AssetForm';
 import AssetSettings from '../pages/assets/AssetSettings';
 import AssetLocations from '../pages/assets/AssetLocations';
 import AssetTransfers from '../pages/assets/AssetTransfers';
+import AssetReports from '../pages/assets/AssetReports';
 import ComingSoon from '../pages/ComingSoon';
 import Pages from '../pages/website/Pages';
 import PageEditor from '../pages/website/PageEditor';
@@ -142,6 +143,10 @@ export const routes: RouteObject[] = [
           {
             path: 'transfers',
             element: <AssetTransfers />
+          },
+          {
+            path: 'reports',
+            element: <AssetReports />
           },
           {
             path: 'new',

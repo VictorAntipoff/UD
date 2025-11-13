@@ -1784,4 +1784,544 @@ export default async function assetRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'Failed to delete transfer' });
     }
   });
+
+  // ===== REPORTS ROUTES =====
+
+  // Generate asset report
+  fastify.get('/reports/generate', async (request, reply) => {
+    try {
+      const { reportType, locationId, categoryId, status, startDate, endDate } = request.query as {
+        reportType: 'general' | 'detailed';
+        locationId?: string;
+        categoryId?: string;
+        status?: string;
+        startDate?: string;
+        endDate?: string;
+      };
+
+      // Build filter conditions
+      const where: any = {};
+
+      if (locationId) {
+        where.locationId = locationId;
+      }
+
+      if (categoryId) {
+        where.categoryId = categoryId;
+      }
+
+      if (status) {
+        where.status = status;
+      }
+
+      if (startDate && endDate) {
+        where.purchaseDate = {
+          gte: new Date(startDate),
+          lte: new Date(endDate)
+        };
+      }
+
+      // Fetch assets based on report type
+      if (reportType === 'general') {
+        // General Report: Summary statistics
+        const assets = await prisma.asset.findMany({
+          where,
+          include: {
+            category: { select: { name: true, code: true } },
+            location: { select: { name: true, code: true, type: true, address: true } },
+            _count: {
+              select: {
+                maintenanceRecords: true,
+                documents: true
+              }
+            }
+          },
+          orderBy: { assetTag: 'asc' }
+        });
+
+        // Calculate summary statistics
+        const summary = {
+          totalAssets: assets.length,
+          totalValue: assets.reduce((sum, asset) => sum + asset.purchasePrice, 0),
+          byStatus: {} as Record<string, number>,
+          byCategory: {} as Record<string, number>,
+          byLocation: {} as Record<string, number>,
+          averageValue: 0,
+          oldestPurchase: null as Date | null,
+          newestPurchase: null as Date | null
+        };
+
+        // Group by status
+        assets.forEach(asset => {
+          summary.byStatus[asset.status] = (summary.byStatus[asset.status] || 0) + 1;
+          summary.byCategory[asset.category.name] = (summary.byCategory[asset.category.name] || 0) + 1;
+          if (asset.location) {
+            const locationKey = asset.location.name;
+            summary.byLocation[locationKey] = (summary.byLocation[locationKey] || 0) + 1;
+          }
+        });
+
+        summary.averageValue = summary.totalValue / (assets.length || 1);
+
+        if (assets.length > 0) {
+          const sortedByDate = [...assets].sort((a, b) =>
+            new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime()
+          );
+          summary.oldestPurchase = sortedByDate[0].purchaseDate;
+          summary.newestPurchase = sortedByDate[sortedByDate.length - 1].purchaseDate;
+        }
+
+        return {
+          reportType: 'general',
+          generatedAt: new Date(),
+          filters: { locationId, categoryId, status, startDate, endDate },
+          summary,
+          assets: assets.map(asset => ({
+            assetTag: asset.assetTag,
+            name: asset.name,
+            category: asset.category.name,
+            location: asset.location ? `${asset.location.name}${asset.location.room ? ' - ' + asset.location.room : ''}` : 'Unassigned',
+            status: asset.status,
+            purchasePrice: asset.purchasePrice,
+            purchaseDate: asset.purchaseDate,
+            brand: asset.brand,
+            modelNumber: asset.modelNumber,
+            maintenanceCount: asset._count.maintenanceRecords,
+            documentCount: asset._count.documents
+          }))
+        };
+      } else {
+        // Detailed Report: Complete information
+        const assets = await prisma.asset.findMany({
+          where,
+          include: {
+            category: true,
+            location: true,
+            supplierRelation: { select: { name: true, contactEmail: true, contactPhone: true } },
+            maintenanceRecords: {
+              select: {
+                id: true,
+                maintenanceDate: true,
+                type: true,
+                description: true,
+                cost: true,
+                status: true
+              },
+              orderBy: { maintenanceDate: 'desc' }
+            },
+            documents: {
+              select: {
+                id: true,
+                title: true,
+                documentType: true,
+                fileName: true,
+                uploadedAt: true
+              }
+            },
+            assignmentHistory: {
+              select: {
+                id: true,
+                assignedToUserId: true,
+                assignedToTeam: true,
+                assignedToProject: true,
+                assignmentDate: true,
+                returnDate: true,
+                assignedBy: true
+              },
+              orderBy: { assignmentDate: 'desc' }
+            }
+          },
+          orderBy: { assetTag: 'asc' }
+        });
+
+        return {
+          reportType: 'detailed',
+          generatedAt: new Date(),
+          filters: { locationId, categoryId, status, startDate, endDate },
+          totalAssets: assets.length,
+          totalValue: assets.reduce((sum, asset) => sum + asset.purchasePrice, 0),
+          assets: assets.map(asset => ({
+            // Basic Info
+            assetTag: asset.assetTag,
+            name: asset.name,
+            description: asset.description,
+            brand: asset.brand,
+            modelNumber: asset.modelNumber,
+            serialNumber: asset.serialNumber,
+            status: asset.status,
+            imageUrl: asset.imageUrl,
+
+            // Category & Location
+            category: {
+              name: asset.category.name,
+              code: asset.category.code,
+              description: asset.category.description
+            },
+            location: asset.location ? {
+              name: asset.location.name,
+              building: asset.location.building,
+              floor: asset.location.floor,
+              room: asset.location.room
+            } : null,
+
+            // Purchase Info
+            purchaseDate: asset.purchaseDate,
+            purchasePrice: asset.purchasePrice,
+            supplier: asset.supplierRelation ? asset.supplierRelation.name : asset.supplier,
+            supplierContact: asset.supplierRelation ? {
+              email: asset.supplierRelation.contactEmail,
+              phone: asset.supplierRelation.contactPhone
+            } : null,
+            invoiceNumber: asset.invoiceNumber,
+
+            // Warranty Info
+            warrantyStartDate: asset.warrantyStartDate,
+            warrantyEndDate: asset.warrantyEndDate,
+            warrantyDuration: asset.warrantyDurationValue && asset.warrantyDurationUnit
+              ? `${asset.warrantyDurationValue} ${asset.warrantyDurationUnit.toLowerCase()}`
+              : null,
+            warrantyTerms: asset.warrantyTerms,
+
+            // Assignment Info
+            currentAssignment: {
+              userId: asset.assignedToUserId,
+              team: asset.assignedToTeam,
+              project: asset.assignedToProject,
+              assignmentDate: asset.assignmentDate
+            },
+
+            // Counts & History
+            maintenanceRecords: asset.maintenanceRecords,
+            documents: asset.documents,
+            assignmentHistory: asset.assignmentHistory,
+
+            // Metadata
+            createdAt: asset.createdAt,
+            updatedAt: asset.updatedAt
+          }))
+        };
+      }
+    } catch (error) {
+      console.error('Error generating report:', error);
+      return reply.status(500).send({ error: 'Failed to generate report' });
+    }
+  });
+
+  // Generate PDF report
+  fastify.get('/reports/pdf', async (request, reply) => {
+    try {
+      const {
+        reportType = 'general',
+        locationId,
+        categoryId,
+        status,
+        startDate,
+        endDate,
+        includePrices = 'true'
+      } = request.query as {
+        reportType?: 'general' | 'detailed';
+        locationId?: string;
+        categoryId?: string;
+        status?: string;
+        startDate?: string;
+        endDate?: string;
+        includePrices?: string;
+      };
+
+      const showPrices = includePrices === 'true';
+
+      // Build filter conditions
+      const where: any = {};
+
+      if (locationId) {
+        where.locationId = locationId;
+      }
+
+      if (categoryId) {
+        where.categoryId = categoryId;
+      }
+
+      if (status) {
+        where.status = status;
+      }
+
+      if (startDate && endDate) {
+        where.purchaseDate = {
+          gte: new Date(startDate),
+          lte: new Date(endDate)
+        };
+      }
+
+      // Fetch assets
+      const assets = await prisma.asset.findMany({
+        where,
+        include: {
+          category: { select: { name: true, code: true } },
+          location: { select: { name: true, code: true, type: true, address: true } },
+          supplierRelation: { select: { name: true } },
+          _count: {
+            select: {
+              maintenanceRecords: true,
+              documents: true
+            }
+          }
+        },
+        orderBy: { assetTag: 'asc' }
+      });
+
+      // Import PDFKit and path
+      const PDFDocument = (await import('pdfkit')).default;
+      const path = await import('path');
+      const fs = await import('fs');
+
+      const doc = new PDFDocument({
+        margin: 0,
+        size: 'A4',
+        layout: 'landscape', // Landscape mode for more data
+        bufferPages: false,
+        autoFirstPage: false
+      });
+
+      // Collect PDF chunks in buffer
+      const chunks: Buffer[] = [];
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      // When PDF is complete, send it
+      const pdfPromise = new Promise<Buffer>((resolve, reject) => {
+        doc.on('end', () => {
+          const pdfBuffer = Buffer.concat(chunks);
+          resolve(pdfBuffer);
+        });
+        doc.on('error', reject);
+      });
+
+      // Add first page
+      doc.addPage();
+
+      // Logo path
+      const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+
+      // Helper function for formatting currency
+      const formatCurrency = (value: number) => {
+        return new Intl.NumberFormat('en-TZ', {
+          style: 'currency',
+          currency: 'TZS',
+          minimumFractionDigits: 0
+        }).format(value);
+      };
+
+      // Helper function for formatting date
+      const formatDate = (date: Date) => {
+        return new Date(date).toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric'
+        });
+      };
+
+      // Get current user from request
+      const user = (request as any).user;
+
+      // ===== CLEAN HEADER =====
+
+      // Logo on left
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, 40, 40, { width: 120 });
+      }
+
+      // Title - Centered
+      doc.fontSize(20).fillColor('#2c3e50').font('Helvetica-Bold').text('Asset Report', 40, 45, { width: 762, align: 'center', lineBreak: false });
+      doc.fontSize(10).fillColor('#64748b').font('Helvetica').text('Comprehensive Asset Inventory', 40, 70, { width: 762, align: 'center', lineBreak: false });
+
+      // Separator line
+      doc.moveTo(40, 100).lineTo(802, 100).strokeColor('#e2e8f0').lineWidth(1).stroke();
+
+      doc.y = 115;
+
+      // REPORT INFORMATION - Clean section
+      doc.fontSize(12).fillColor('#2c3e50').font('Helvetica-Bold').text('Report Information', 40, doc.y, { lineBreak: false });
+
+      let infoY = doc.y + 20;
+
+      doc.fontSize(10).fillColor('#64748b').font('Helvetica');
+      doc.text('Report Type:', 40, infoY, { lineBreak: false });
+      doc.fillColor('#2c3e50').text(reportType === 'general' ? 'Summary Report' : 'Detailed Report', 160, infoY, { lineBreak: false });
+
+      if (status) {
+        doc.fillColor('#64748b').text('Status Filter:', 350, infoY, { lineBreak: false });
+        doc.fillColor('#2c3e50').text(status, 470, infoY, { lineBreak: false });
+      }
+
+      if (startDate && endDate) {
+        infoY += 18;
+        doc.fillColor('#64748b').text('Date Range:', 40, infoY, { lineBreak: false });
+        doc.fillColor('#2c3e50').text(`${formatDate(new Date(startDate))} - ${formatDate(new Date(endDate))}`, 160, infoY, { lineBreak: false });
+      }
+
+      doc.y = infoY + 25;
+
+      // STATISTICS - Clean text style (no boxes)
+      const totalAssets = assets.length;
+      const totalValue = assets.reduce((sum, asset) => sum + asset.purchasePrice, 0);
+
+      doc.fontSize(12).fillColor('#2c3e50').font('Helvetica-Bold').text('Statistics', 40, doc.y, { lineBreak: false });
+
+      const statsY = doc.y + 20;
+      const statsSpacing = 250;
+
+      // Stat 1 - Total Assets
+      doc.fontSize(9).fillColor('#64748b').font('Helvetica').text('Total Assets', 40, statsY, { lineBreak: false });
+      doc.fontSize(16).fillColor('#2c3e50').font('Helvetica-Bold').text(`${totalAssets}`, 40, statsY + 12, { lineBreak: false });
+
+      if (showPrices) {
+        // Stat 2 - Total Value (only if prices are shown)
+        doc.fontSize(9).fillColor('#64748b').font('Helvetica').text('Total Value', 40 + statsSpacing, statsY, { lineBreak: false });
+        doc.fontSize(14).fillColor('#2c3e50').font('Helvetica-Bold').text(formatCurrency(totalValue), 40 + statsSpacing, statsY + 12, { lineBreak: false });
+      }
+
+      doc.y = statsY + 40;
+
+      // ASSET LIST
+      doc.fontSize(12).fillColor('#2c3e50').font('Helvetica-Bold').text('Asset List', 40, doc.y, { lineBreak: false });
+      doc.y += 15;
+
+      // Table headers with clean background - landscape has more width
+      const tableTop = doc.y;
+      const tableWidth = 762; // Landscape A4 width minus margins
+      const colWidths = showPrices
+        ? { tag: 58, name: 150, category: 75, location: 95, status: 55, supplier: 85, date: 85, price: 95 }
+        : { tag: 70, name: 200, category: 100, location: 120, status: 70, supplier: 120, date: 82 };
+
+      // Header background
+      doc.rect(40, tableTop, tableWidth, 18).fillAndStroke('#f8fafc', '#e2e8f0');
+
+      let xPos = 46;
+      const headerY = tableTop + 5;
+      doc.fontSize(8).fillColor('#64748b').font('Helvetica-Bold');
+      doc.text('Serial #', xPos, headerY, { width: colWidths.tag, continued: false, lineBreak: false });
+      xPos += colWidths.tag;
+      doc.text('Asset Name', xPos, headerY, { width: colWidths.name, continued: false, lineBreak: false });
+      xPos += colWidths.name;
+      doc.text('Category', xPos, headerY, { width: colWidths.category, continued: false, lineBreak: false });
+      xPos += colWidths.category;
+      doc.text('Location', xPos, headerY, { width: colWidths.location, continued: false, lineBreak: false });
+      xPos += colWidths.location;
+      doc.text('Status', xPos, headerY, { width: colWidths.status, continued: false, lineBreak: false });
+      xPos += colWidths.status;
+      doc.text('Supplier', xPos, headerY, { width: colWidths.supplier, continued: false, lineBreak: false });
+      xPos += colWidths.supplier;
+      doc.text('Purchase Date', xPos, headerY, { width: colWidths.date, continued: false, lineBreak: false });
+      xPos += colWidths.date;
+      if (showPrices) {
+        doc.text('Price (TZS)', xPos, headerY, { width: colWidths.price, continued: false, lineBreak: false });
+      }
+
+      doc.y = tableTop + 20;
+
+      // Table rows with smaller font to fit on one line
+      doc.font('Helvetica').fontSize(8).fillColor('#2c3e50');
+      assets.forEach((asset, index) => {
+        const rowHeight = 16;
+        const requiredSpace = rowHeight + 40; // Row + footer space
+
+        // Check if we need a new page
+        if (doc.y + requiredSpace > doc.page.height - 50) {
+          doc.addPage();
+          // Redraw header on new page
+          const newTableTop = 40;
+          doc.rect(40, newTableTop, tableWidth, 18).fillAndStroke('#f8fafc', '#e2e8f0');
+          let newXPos = 46;
+          const newHeaderY = newTableTop + 5;
+          doc.fontSize(8).fillColor('#64748b').font('Helvetica-Bold');
+          doc.text('Serial #', newXPos, newHeaderY, { width: colWidths.tag, continued: false, lineBreak: false });
+          newXPos += colWidths.tag;
+          doc.text('Asset Name', newXPos, newHeaderY, { width: colWidths.name, continued: false, lineBreak: false });
+          newXPos += colWidths.name;
+          doc.text('Category', newXPos, newHeaderY, { width: colWidths.category, continued: false, lineBreak: false });
+          newXPos += colWidths.category;
+          doc.text('Location', newXPos, newHeaderY, { width: colWidths.location, continued: false, lineBreak: false });
+          newXPos += colWidths.location;
+          doc.text('Status', newXPos, newHeaderY, { width: colWidths.status, continued: false, lineBreak: false });
+          newXPos += colWidths.status;
+          doc.text('Supplier', newXPos, newHeaderY, { width: colWidths.supplier, continued: false, lineBreak: false });
+          newXPos += colWidths.supplier;
+          doc.text('Purchase Date', newXPos, newHeaderY, { width: colWidths.date, continued: false, lineBreak: false });
+          newXPos += colWidths.date;
+          if (showPrices) {
+            doc.text('Price (TZS)', newXPos, newHeaderY, { width: colWidths.price, continued: false, lineBreak: false });
+          }
+          doc.y = newTableTop + 20;
+          doc.font('Helvetica').fontSize(8).fillColor('#2c3e50');
+        }
+
+        const yPos = doc.y;
+
+        // Clean border bottom line for each row
+        doc.moveTo(40, yPos + rowHeight).lineTo(802, yPos + rowHeight).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+
+        xPos = 46;
+        const textY = yPos + 4;
+
+        // Serial number in RED and BOLD
+        doc.fillColor('#dc2626').font('Helvetica-Bold').fontSize(8);
+        doc.text(asset.serialNumber || asset.assetTag, xPos, textY, { width: colWidths.tag - 5, continued: false, lineBreak: false });
+
+        // Reset to normal for other columns
+        doc.fillColor('#2c3e50').font('Helvetica').fontSize(8);
+        xPos += colWidths.tag;
+        doc.text(asset.name.substring(0, 45), xPos, textY, { width: colWidths.name - 5, continued: false, lineBreak: false });
+        xPos += colWidths.name;
+        doc.text(asset.category.name.substring(0, 18), xPos, textY, { width: colWidths.category - 5, continued: false, lineBreak: false });
+        xPos += colWidths.category;
+        doc.text((asset.location?.name || 'N/A').substring(0, 22), xPos, textY, { width: colWidths.location - 5, continued: false, lineBreak: false });
+        xPos += colWidths.location;
+        doc.text(asset.status, xPos, textY, { width: colWidths.status - 5, continued: false, lineBreak: false });
+        xPos += colWidths.status;
+        doc.text((asset.supplierRelation?.name || 'N/A').substring(0, 20), xPos, textY, { width: colWidths.supplier - 5, continued: false, lineBreak: false });
+        xPos += colWidths.supplier;
+        doc.text(formatDate(asset.purchaseDate), xPos, textY, { width: colWidths.date - 5, continued: false, lineBreak: false });
+        xPos += colWidths.date;
+        if (showPrices) {
+          doc.text(formatCurrency(asset.purchasePrice), xPos, textY, { width: colWidths.price - 5, continued: false, lineBreak: false });
+        }
+
+        doc.y = yPos + rowHeight;
+      });
+
+      // Add simple footer at bottom of current page
+      const footerY = doc.page.height - 35;
+      const generatedBy = `Generated by: ${user?.email || 'System'} • ${new Date().toLocaleString()}`;
+
+      // Footer separator line
+      doc.strokeColor('#e2e8f0').lineWidth(1)
+        .moveTo(40, footerY - 8)
+        .lineTo(802, footerY - 8)
+        .stroke();
+
+      // Footer text - centered with generated by info
+      const footerText = showPrices
+        ? 'UDesign Asset Management System • ' + generatedBy
+        : 'UDesign Asset Management System • PRICES HIDDEN • ' + generatedBy;
+
+      doc.fontSize(8).fillColor('#94a3b8').font('Helvetica');
+      doc.text(footerText, 40, footerY, {
+        width: 762,
+        align: 'center',
+        lineBreak: false
+      });
+
+      // Finalize PDF and wait for buffer
+      doc.end();
+      const pdfBuffer = await pdfPromise;
+
+      // Send PDF
+      reply.type('application/pdf');
+      reply.header('Content-Disposition', `attachment; filename="asset-report-${new Date().toISOString().split('T')[0]}.pdf"`);
+      reply.header('Content-Length', pdfBuffer.length.toString());
+      return reply.send(pdfBuffer);
+    } catch (error) {
+      console.error('Error generating PDF report:', error);
+      return reply.status(500).send({ error: 'Failed to generate PDF report' });
+    }
+  });
 }

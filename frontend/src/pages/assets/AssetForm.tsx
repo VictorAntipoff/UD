@@ -305,59 +305,60 @@ const AssetForm = () => {
           });
         }
 
-        // Only show progress if there are items to download
-        if (items.length === 0) {
-          console.log('No new files to download');
-          return; // Skip download if no new items
-        }
+        // Only process downloads if there are items to download
+        if (items.length > 0) {
+          console.log(`Starting download of ${items.length} items`);
 
-        // Show progress notification
-        setDownloadProgress(items);
-        setShowDownloadProgress(true);
+          // Show progress notification
+          setDownloadProgress(items);
+          setShowDownloadProgress(true);
 
-        try {
-          // Start downloading - update status to downloading
-          setDownloadProgress(prev => prev.map(item => ({ ...item, status: 'downloading' })));
+          try {
+            // Start downloading - update status to downloading
+            setDownloadProgress(prev => prev.map(item => ({ ...item, status: 'downloading' })));
 
-          const downloadPayload = {
-            assetTag: createdAsset.assetTag,
-            imageUrl: tempImageUrl?.startsWith('http') ? tempImageUrl : null,
-            pdfUrl: tempManualUrl?.startsWith('http') ? tempManualUrl : null,
-            pdfDocuments: newPdfDocuments.length > 0 ? newPdfDocuments : null
-          };
+            const downloadPayload = {
+              assetTag: createdAsset.assetTag,
+              imageUrl: tempImageUrl?.startsWith('http') ? tempImageUrl : null,
+              pdfUrl: tempManualUrl?.startsWith('http') ? tempManualUrl : null,
+              pdfDocuments: newPdfDocuments.length > 0 ? newPdfDocuments : null
+            };
 
-          const downloadResponse = await api.post('/assets/download-asset-files', downloadPayload);
+            const downloadResponse = await api.post('/assets/download-asset-files', downloadPayload);
 
-          if (downloadResponse.data.success) {
-            // Update progress - mark all as completed
-            setDownloadProgress(prev => prev.map(item => ({ ...item, status: 'completed' })));
+            if (downloadResponse.data.success) {
+              // Update progress - mark all as completed
+              setDownloadProgress(prev => prev.map(item => ({ ...item, status: 'completed' })));
 
-            // Update asset with downloaded file URLs
-            const updateData: any = {};
-            if (downloadResponse.data.imageUrl) {
-              updateData.imageUrl = downloadResponse.data.imageUrl;
+              // Update asset with downloaded file URLs
+              const updateData: any = {};
+              if (downloadResponse.data.imageUrl) {
+                updateData.imageUrl = downloadResponse.data.imageUrl;
+              }
+              if (downloadResponse.data.pdfUrl) {
+                updateData.technicalManualUrl = downloadResponse.data.pdfUrl;
+              }
+
+              if (Object.keys(updateData).length > 0) {
+                await api.patch(`/assets/${createdAsset.assetTag}`, updateData);
+              }
+
+              // Auto-close progress after 3 seconds
+              setTimeout(() => {
+                setShowDownloadProgress(false);
+              }, 3000);
             }
-            if (downloadResponse.data.pdfUrl) {
-              updateData.technicalManualUrl = downloadResponse.data.pdfUrl;
-            }
-
-            if (Object.keys(updateData).length > 0) {
-              await api.patch(`/assets/${createdAsset.assetTag}`, updateData);
-            }
-
-            // Auto-close progress after 3 seconds
-            setTimeout(() => {
-              setShowDownloadProgress(false);
-            }, 3000);
+          } catch (downloadError) {
+            console.error('Error downloading asset files:', downloadError);
+            // Mark all as error
+            setDownloadProgress(prev => prev.map(item => ({
+              ...item,
+              status: 'error',
+              error: 'Failed to download'
+            })));
           }
-        } catch (downloadError) {
-          console.error('Error downloading asset files:', downloadError);
-          // Mark all as error
-          setDownloadProgress(prev => prev.map(item => ({
-            ...item,
-            status: 'error',
-            error: 'Failed to download'
-          })));
+        } else {
+          console.log('No new files to download');
         }
       }
 

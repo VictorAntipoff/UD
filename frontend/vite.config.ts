@@ -72,6 +72,8 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          // Exclude API requests and backend URLs from service worker
+          navigateFallbackDenylist: [/^\/api/, /^http:\/\/localhost:3010/],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -101,12 +103,10 @@ export default defineConfig(({ mode }) => {
                 }
               }
             }
-          ],
-          // Exclude API requests and external resources from service worker control
-          navigateFallbackDenylist: [/^\/api/, /^http:\/\/localhost:3010/]
+          ]
         },
         devOptions: {
-          enabled: true,  // Enable PWA in development for testing
+          enabled: false,  // Disable PWA in development to avoid API caching issues
           type: 'module'
         }
       })

@@ -32,6 +32,7 @@ import WarehouseIcon from '@mui/icons-material/Warehouse';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import TuneIcon from '@mui/icons-material/Tune';
 import LanguageIcon from '@mui/icons-material/Language';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 import ArticleIcon from '@mui/icons-material/Article';
 import FolderIcon from '@mui/icons-material/Folder';
 import GroupsIcon from '@mui/icons-material/Groups';
@@ -318,6 +319,17 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                       <LocalShippingIcon />
                     </ListItemIcon>
                     <ListItemText primary="Transfers" />
+                  </ListItem>
+                  <ListItem
+                    button
+                    sx={submenuStyles}
+                    onClick={() => handleNavigate('/dashboard/assets/reports')}
+                    selected={location.pathname === '/dashboard/assets/reports'}
+                  >
+                    <ListItemIcon sx={{ color: location.pathname === '/dashboard/assets/reports' ? colors.primary : colors.grey.main }}>
+                      <AssessmentIcon />
+                    </ListItemIcon>
+                    <ListItemText primary="Reports" />
                   </ListItem>
                   <ListItem
                     button
