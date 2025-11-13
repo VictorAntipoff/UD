@@ -529,7 +529,7 @@ const WoodReceipt = () => {
     }
   };
 
-  const generateLotCostingPDF = () => {
+  const generateLotCostingPDF = async () => {
     if (!traceabilityData) return;
 
     const doc = new jsPDF({
@@ -555,11 +555,41 @@ const WoodReceipt = () => {
     const status = woodReceipt.status || 'N/A';
 
     // Helper function to add header
-    const addHeader = () => {
+    const addHeader = async () => {
       // Add logo with correct aspect ratio (2486:616 = ~4.04:1)
-      const logo = new Image();
-      logo.src = '/src/assets/images/logo.png';
-      doc.addImage(logo, 'PNG', 14, 6, 28, 7); // Fixed: 28/7 = 4:1 ratio
+      try {
+        const logo = new Image();
+        logo.crossOrigin = 'anonymous';
+
+        // Try multiple logo paths
+        const logoPaths = [
+          '/logo.png',
+          '/src/assets/images/logo.png',
+          'https://www.udesign.co.tz/logo.png'
+        ];
+
+        let logoLoaded = false;
+        for (const path of logoPaths) {
+          try {
+            await new Promise((resolve, reject) => {
+              logo.onload = resolve;
+              logo.onerror = reject;
+              logo.src = path;
+            });
+            doc.addImage(logo, 'PNG', 14, 6, 28, 7); // Fixed: 28/7 = 4:1 ratio
+            logoLoaded = true;
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+
+        if (!logoLoaded) {
+          console.warn('Could not load logo, continuing without it');
+        }
+      } catch (error) {
+        console.warn('Error loading logo:', error);
+      }
 
       // Title
       doc.setFontSize(12);
@@ -595,19 +625,19 @@ const WoodReceipt = () => {
     };
 
     // Helper function to check if new page is needed
-    const checkPageBreak = (requiredSpace: number): number => {
+    const checkPageBreak = async (requiredSpace: number): Promise<number> => {
       if (startY + requiredSpace > pageHeight - 25) {
         currentPage++;
         doc.addPage();
-        addHeader();
+        await addHeader();
         return 20; // Reset startY to top of new page
       }
       return startY;
     };
 
     // Helper function to add section header with clean style
-    const addSectionHeader = (title: string) => {
-      startY = checkPageBreak(10);
+    const addSectionHeader = async (title: string) => {
+      startY = await checkPageBreak(10);
 
       // Simple red line on the left
       doc.setDrawColor(220, 38, 38);
@@ -629,11 +659,11 @@ const WoodReceipt = () => {
     };
 
     // Start first page
-    addHeader();
+    await addHeader();
     let startY = 20;
 
     // LOT Information Section
-    addSectionHeader('LOT Information');
+    await addSectionHeader('LOT Information');
 
     // LOT info box - clean white background
     doc.setFillColor(255, 255, 255);
@@ -721,7 +751,7 @@ const WoodReceipt = () => {
     startY += 35;
 
     // Wood Receipt Information Section
-    addSectionHeader('Wood Receipt Details');
+    await addSectionHeader('Wood Receipt Details');
 
     const receiptRows: any[] = [];
     const allReceipts = traceabilityData.stages?.woodReceipts || (woodReceipt.id ? [woodReceipt] : []);
@@ -794,7 +824,7 @@ const WoodReceipt = () => {
     // Plank/Sleeper Measurements Section
     const measurements = woodReceipt.measurements;
     if (measurements && Array.isArray(measurements) && measurements.length > 0) {
-      addSectionHeader(`${woodReceipt.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'} Measurements`);
+      await addSectionHeader(`${woodReceipt.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'} Measurements`);
 
       const measurementRows: any[] = [];
       measurements.forEach((m: any, index: number) => {
@@ -872,7 +902,7 @@ const WoodReceipt = () => {
     // Slicing Operations Section
     const slicingOps = traceabilityData.stages?.slicing || [];
     if (slicingOps.length > 0) {
-      addSectionHeader('Slicing Operations');
+      await addSectionHeader('Slicing Operations');
 
       const slicingRows: any[] = [];
       slicingOps.forEach((op: any, index: number) => {
@@ -914,7 +944,7 @@ const WoodReceipt = () => {
     // Drying Processes Section (if available)
     const dryingProcesses = traceabilityData.stages?.dryingProcesses || [];
     if (dryingProcesses.length > 0) {
-      addSectionHeader('Drying Processes');
+      await addSectionHeader('Drying Processes');
 
       const dryingRows: any[] = [];
       dryingProcesses.forEach((batch: any) => {
@@ -956,7 +986,7 @@ const WoodReceipt = () => {
     // Activity History Section
     const history = traceabilityData.history || [];
     if (history.length > 0) {
-      addSectionHeader('Activity History');
+      await addSectionHeader('Activity History');
 
       const historyRows: any[] = [];
       // Limit to last 5 history items to save space
@@ -1007,7 +1037,7 @@ const WoodReceipt = () => {
                         costData.slicingExpenses || costData.otherExpenses;
 
     if (hasCostData) {
-      addSectionHeader('Cost Breakdown');
+      await addSectionHeader('Cost Breakdown');
 
       // Prepare cost data
       const costRows: any[] = [];
