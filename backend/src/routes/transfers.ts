@@ -923,6 +923,142 @@ async function transferRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Edit a transfer (only if NOT completed)
+  fastify.put('/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = request.body as any;
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      // SECURITY: Only ADMIN, FACTORY_MANAGER, or WAREHOUSE_MANAGER can edit transfers
+      if (!['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(userRole)) {
+        return reply.status(403).send({
+          error: 'Access denied',
+          message: 'You do not have permission to edit transfers'
+        });
+      }
+
+      // Get current user info for history
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      // Get existing transfer with all details
+      const existingTransfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: {
+          fromWarehouse: true,
+          toWarehouse: true,
+          items: {
+            include: {
+              woodType: true
+            }
+          }
+        }
+      });
+
+      if (!existingTransfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      // SECURITY: Cannot edit completed transfers (only admin can via admin-edit endpoint)
+      if (existingTransfer.status === 'COMPLETED') {
+        return reply.status(403).send({
+          error: 'Cannot edit completed transfer',
+          message: 'Only administrators can edit completed transfers'
+        });
+      }
+
+      // Track changes for history
+      const changes: string[] = [];
+
+      // Check what changed
+      if (data.transferDate && new Date(data.transferDate).getTime() !== new Date(existingTransfer.transferDate).getTime()) {
+        changes.push(`Transfer date changed from ${new Date(existingTransfer.transferDate).toLocaleDateString()} to ${new Date(data.transferDate).toLocaleDateString()}`);
+      }
+
+      if (data.notes !== undefined && data.notes !== existingTransfer.notes) {
+        changes.push(`Notes updated`);
+      }
+
+      if (data.fromWarehouseId && data.fromWarehouseId !== existingTransfer.fromWarehouseId) {
+        changes.push(`Source warehouse changed`);
+      }
+
+      if (data.toWarehouseId && data.toWarehouseId !== existingTransfer.toWarehouseId) {
+        changes.push(`Destination warehouse changed`);
+      }
+
+      // Update transfer and log history in a transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // Update the transfer
+        const updatedTransfer = await tx.transfer.update({
+          where: { id },
+          data: {
+            transferDate: data.transferDate ? new Date(data.transferDate) : undefined,
+            notes: data.notes !== undefined ? data.notes : undefined,
+            fromWarehouseId: data.fromWarehouseId || undefined,
+            toWarehouseId: data.toWarehouseId || undefined
+          },
+          include: {
+            fromWarehouse: true,
+            toWarehouse: true,
+            items: {
+              include: {
+                woodType: true
+              }
+            },
+            createdBy: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true
+              }
+            },
+            approvedBy: {
+              select: {
+                id: true,
+                email: true,
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        });
+
+        // Log history only if changes were made
+        if (changes.length > 0) {
+          const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+          await tx.transferHistory.create({
+            data: {
+              transferId: updatedTransfer.id,
+              transferNumber: updatedTransfer.transferNumber,
+              userId: currentUser.id,
+              userName,
+              userEmail: currentUser.email,
+              action: 'EDITED',
+              details: changes.join(', ')
+            }
+          });
+        }
+
+        return updatedTransfer;
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error editing transfer:', error);
+      return reply.status(500).send({ error: 'Failed to edit transfer' });
+    }
+  });
+
   // Admin-only: Edit a transfer (even if completed)
   fastify.put('/:id/admin-edit', async (request, reply) => {
     try {
@@ -1051,7 +1187,7 @@ async function transferRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Admin-only: Edit transfer items
+  // Edit transfer items (only for non-completed transfers)
   fastify.put('/:id/items/:itemId', async (request, reply) => {
     try {
       const { id, itemId } = request.params as { id: string; itemId: string };
@@ -1059,11 +1195,11 @@ async function transferRoutes(fastify: FastifyInstance) {
       const userId = (request as any).user?.userId;
       const userRole = (request as any).user?.role;
 
-      // SECURITY: Only ADMIN can edit transfer items
-      if (userRole !== 'ADMIN') {
+      // SECURITY: Only ADMIN, FACTORY_MANAGER, or WAREHOUSE_MANAGER can edit transfer items
+      if (!['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(userRole)) {
         return reply.status(403).send({
           error: 'Access denied',
-          message: 'Only administrators can edit transfer items'
+          message: 'You do not have permission to edit transfer items'
         });
       }
 
@@ -1077,17 +1213,63 @@ async function transferRoutes(fastify: FastifyInstance) {
         return reply.status(401).send({ error: 'User not found' });
       }
 
-      // Get existing item
+      // Get existing item with transfer details
       const existingItem = await prisma.transferItem.findUnique({
         where: { id: itemId },
         include: {
-          transfer: true,
+          transfer: {
+            include: {
+              fromWarehouse: true,
+              toWarehouse: true
+            }
+          },
           woodType: true
         }
       });
 
       if (!existingItem || existingItem.transferId !== id) {
         return reply.status(404).send({ error: 'Transfer item not found' });
+      }
+
+      // SECURITY: Cannot edit items in completed transfers (only admin can)
+      if (existingItem.transfer.status === 'COMPLETED' && userRole !== 'ADMIN') {
+        return reply.status(403).send({
+          error: 'Cannot edit completed transfer',
+          message: 'Only administrators can edit items in completed transfers'
+        });
+      }
+
+      // If transfer is IN_TRANSIT and quantity is increasing, check stock availability
+      if (existingItem.transfer.status === 'IN_TRANSIT' &&
+          existingItem.transfer.fromWarehouse.stockControlEnabled &&
+          data.quantity > existingItem.quantity) {
+        const additionalQuantity = data.quantity - existingItem.quantity;
+
+        // Check available stock
+        const stock = await prisma.stock.findUnique({
+          where: {
+            warehouseId_woodTypeId_thickness: {
+              warehouseId: existingItem.transfer.fromWarehouseId,
+              woodTypeId: existingItem.woodTypeId,
+              thickness: existingItem.thickness
+            }
+          }
+        });
+
+        if (!stock) {
+          return reply.status(400).send({
+            error: `Stock not found in source warehouse for ${existingItem.woodType.name}`
+          });
+        }
+
+        const statusField = `status${existingItem.woodStatus.charAt(0) + existingItem.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}` as keyof typeof stock;
+        const availableQuantity = stock[statusField] as number;
+
+        if (availableQuantity < additionalQuantity) {
+          return reply.status(400).send({
+            error: `Insufficient stock. Available: ${availableQuantity}, Additional needed: ${additionalQuantity}`
+          });
+        }
       }
 
       // Track changes
@@ -1102,8 +1284,60 @@ async function transferRoutes(fastify: FastifyInstance) {
         changes.push(`Status changed from ${existingItem.woodStatus} to ${data.woodStatus}`);
       }
 
-      // Update item and log history
+      // Update item, adjust stock if needed, and log history
       const result = await prisma.$transaction(async (tx) => {
+        // If transfer is IN_TRANSIT, adjust stock based on quantity change
+        if (existingItem.transfer.status === 'IN_TRANSIT' && data.quantity !== existingItem.quantity) {
+          const quantityDelta = data.quantity - existingItem.quantity;
+          const statusField = `status${existingItem.woodStatus.charAt(0) + existingItem.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
+
+          // Adjust source warehouse stock (only if source has stock control)
+          if (existingItem.transfer.fromWarehouse.stockControlEnabled) {
+            if (quantityDelta > 0) {
+              // Quantity increased - deduct more from source
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: existingItem.transfer.fromWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness
+                },
+                data: {
+                  [statusField]: { decrement: quantityDelta },
+                  statusInTransitOut: { increment: quantityDelta }
+                }
+              });
+            } else {
+              // Quantity decreased - return to source
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: existingItem.transfer.fromWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness
+                },
+                data: {
+                  [statusField]: { increment: Math.abs(quantityDelta) },
+                  statusInTransitOut: { decrement: Math.abs(quantityDelta) }
+                }
+              });
+            }
+          }
+
+          // Adjust destination warehouse in-transit stock (only if destination has stock control)
+          if (existingItem.transfer.toWarehouse.stockControlEnabled) {
+            await tx.stock.updateMany({
+              where: {
+                warehouseId: existingItem.transfer.toWarehouseId,
+                woodTypeId: existingItem.woodTypeId,
+                thickness: existingItem.thickness
+              },
+              data: {
+                statusInTransitIn: { increment: quantityDelta }
+              }
+            });
+          }
+        }
+
+        // Update the item
         const updatedItem = await tx.transferItem.update({
           where: { id: itemId },
           data: {
@@ -1129,7 +1363,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               userName,
               userEmail: currentUser.email,
               action: 'ITEM_EDITED',
-              details: `Admin edit (${existingItem.woodType.name}): ${changes.join(', ')}`
+              details: `Item edit (${existingItem.woodType.name}): ${changes.join(', ')}`
             }
           });
         }

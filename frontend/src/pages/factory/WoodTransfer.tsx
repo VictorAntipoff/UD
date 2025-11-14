@@ -4,12 +4,6 @@ import {
   Box,
   Typography,
   Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   IconButton,
   Button,
   Dialog,
@@ -23,16 +17,20 @@ import {
   Container,
   MenuItem,
   Stack,
-  Tooltip,
   Divider,
   InputAdornment,
   Grid,
-  Collapse
+  Accordion,
+  AccordionSummary,
+  AccordionDetails
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import DeleteIcon from '@mui/icons-material/Delete';
+import PendingIcon from '@mui/icons-material/HourglassEmpty';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
@@ -44,8 +42,6 @@ import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import NotesIcon from '@mui/icons-material/Notes';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import SearchIcon from '@mui/icons-material/Search';
 import InfoIcon from '@mui/icons-material/Info';
 import InventoryIcon from '@mui/icons-material/Inventory';
@@ -87,6 +83,18 @@ interface TransferItem {
   remarks: string | null;
 }
 
+interface TransferHistory {
+  id: string;
+  transferId: string;
+  transferNumber: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  action: string;
+  details: string | null;
+  timestamp: string;
+}
+
 interface Transfer {
   id: string;
   transferNumber: string;
@@ -101,6 +109,7 @@ interface Transfer {
   createdAt: string;
   approvedAt: string | null;
   completedAt: string | null;
+  history?: TransferHistory[];
 }
 
 const woodStatuses = [
@@ -127,6 +136,7 @@ const WoodTransfer: FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [warehouseStock, setWarehouseStock] = useState<any[]>([]);
   const [loadingStock, setLoadingStock] = useState(false);
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
 
   // Dialog states
   const [openDialog, setOpenDialog] = useState(false);
@@ -147,6 +157,7 @@ const WoodTransfer: FC = () => {
     transferDate: '',
     notes: ''
   });
+  const [editItems, setEditItems] = useState<TransferItem[]>([]);
 
   // Line items state
   const [lineItems, setLineItems] = useState([
@@ -165,6 +176,20 @@ const WoodTransfer: FC = () => {
     fetchWoodTypes();
     fetchUsers();
   }, []);
+
+  // Auto-expand sections with data, collapse empty ones (except completed is always collapsed)
+  useEffect(() => {
+    const newExpanded: string[] = [];
+
+    const pending = transfers.filter(t => t.status === 'PENDING');
+    const inTransit = transfers.filter(t => t.status === 'APPROVED' || t.status === 'IN_TRANSIT');
+
+    if (pending.length > 0) newExpanded.push('pending');
+    if (inTransit.length > 0) newExpanded.push('inTransit');
+    // 'completed' is never auto-expanded
+
+    setExpandedSections(newExpanded);
+  }, [transfers]);
 
   // Handle transfer URL parameter to auto-open details
   useEffect(() => {
@@ -271,9 +296,18 @@ const WoodTransfer: FC = () => {
     setOpenDialog(false);
   };
 
-  const handleOpenDetails = (transfer: Transfer) => {
-    setSelectedTransfer(transfer);
-    setOpenDetailsDialog(true);
+  const handleOpenDetails = async (transfer: Transfer) => {
+    try {
+      // Fetch full transfer details including history
+      const response = await api.get(`/transfers/${transfer.id}`);
+      setSelectedTransfer(response.data);
+      setOpenDetailsDialog(true);
+    } catch (err) {
+      console.error('Failed to fetch transfer details:', err);
+      // Fallback to the transfer from the list
+      setSelectedTransfer(transfer);
+      setOpenDetailsDialog(true);
+    }
   };
 
   const handleCloseDetails = () => {
@@ -403,28 +437,99 @@ const WoodTransfer: FC = () => {
     }
   };
 
-  const handleOpenEdit = (transfer: Transfer) => {
+  const handleOpenEdit = async (transfer: Transfer) => {
     setSelectedTransfer(transfer);
     setEditFormData({
       transferDate: transfer.transferDate.split('T')[0],
       notes: transfer.notes || ''
     });
+    setEditItems(transfer.items);
+
+    // If transfer is IN_TRANSIT and source warehouse has stock control, fetch stock for validation
+    if (transfer.status === 'IN_TRANSIT' && transfer.fromWarehouse.stockControlEnabled) {
+      await fetchWarehouseStock(transfer.fromWarehouse.id);
+    }
+
     setOpenEditDialog(true);
   };
 
   const handleCloseEdit = () => {
     setOpenEditDialog(false);
     setSelectedTransfer(null);
+    setWarehouseStock([]);
+  };
+
+  const handleEditItemChange = (index: number, field: string, value: any) => {
+    const updatedItems = [...editItems];
+    updatedItems[index] = { ...updatedItems[index], [field]: value };
+    setEditItems(updatedItems);
   };
 
   const handleSubmitEdit = async () => {
     if (!selectedTransfer) return;
 
     try {
-      await api.put(`/transfers/${selectedTransfer.id}/admin-edit`, editFormData);
+      // Validate stock availability for IN_TRANSIT transfers if source has stock control
+      if (selectedTransfer.status === 'IN_TRANSIT' && selectedTransfer.fromWarehouse.stockControlEnabled) {
+        for (const item of editItems) {
+          const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+          if (!originalItem) continue;
+
+          // Check if quantity increased
+          if (item.quantity > originalItem.quantity) {
+            const additionalQuantity = item.quantity - originalItem.quantity;
+            const availableStock = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
+
+            if (availableStock < additionalQuantity) {
+              setError(`Insufficient stock for ${item.woodType.name} (${item.thickness}). Available: ${availableStock}, Additional needed: ${additionalQuantity}`);
+              return;
+            }
+          }
+        }
+      }
+
+      // Use admin-edit endpoint only for completed transfers, regular PUT for non-completed
+      const endpoint = selectedTransfer.status === 'COMPLETED'
+        ? `/transfers/${selectedTransfer.id}/admin-edit`
+        : `/transfers/${selectedTransfer.id}`;
+
+      // Update transfer metadata (date, notes)
+      await api.put(endpoint, editFormData);
+
+      // Update each item if it changed
+      for (const item of editItems) {
+        const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+        if (!originalItem) continue;
+
+        // Check if item changed
+        if (
+          item.quantity !== originalItem.quantity ||
+          item.thickness !== originalItem.thickness ||
+          item.woodStatus !== originalItem.woodStatus ||
+          item.remarks !== originalItem.remarks
+        ) {
+          await api.put(`/transfers/${selectedTransfer.id}/items/${item.id}`, {
+            quantity: item.quantity,
+            thickness: item.thickness,
+            woodStatus: item.woodStatus,
+            remarks: item.remarks
+          });
+        }
+      }
+
       setSuccess('Transfer updated successfully');
       handleCloseEdit();
-      fetchTransfers();
+      await fetchTransfers();
+
+      // If details dialog is open, refresh the selected transfer to show updated history
+      if (selectedTransfer && openDetailsDialog) {
+        try {
+          const response = await api.get(`/transfers/${selectedTransfer.id}`);
+          setSelectedTransfer(response.data);
+        } catch (err) {
+          console.error('Failed to refresh transfer details:', err);
+        }
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update transfer');
     }
@@ -489,35 +594,40 @@ const WoodTransfer: FC = () => {
     );
   };
 
-  // Calculate counts for each tab
-  const pendingCount = transfers.filter(t => t.status === 'PENDING').length;
-  const inTransitCount = transfers.filter(t => t.status === 'APPROVED' || t.status === 'IN_TRANSIT').length;
-  const completedCount = transfers.filter(t => t.status === 'COMPLETED').length;
-
-  const filteredTransfers = transfers.filter(transfer => {
-    // Filter by tab
-    let matchesTab = false;
-    if (tabValue === 0) matchesTab = transfer.status === 'PENDING';
-    else if (tabValue === 1) matchesTab = transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT';
-    else if (tabValue === 2) matchesTab = transfer.status === 'COMPLETED';
-    else matchesTab = true;
-
-    if (!matchesTab) return false;
-
-    // Filter by search query
-    if (!searchQuery.trim()) return true;
-
-    const query = searchQuery.toLowerCase();
-    return (
-      transfer.transferNumber.toLowerCase().includes(query) ||
-      transfer.fromWarehouse.code.toLowerCase().includes(query) ||
-      transfer.fromWarehouse.name.toLowerCase().includes(query) ||
-      transfer.toWarehouse.code.toLowerCase().includes(query) ||
-      transfer.toWarehouse.name.toLowerCase().includes(query) ||
-      transfer.items.some(item => item.woodType.name.toLowerCase().includes(query)) ||
-      (transfer.notes && transfer.notes.toLowerCase().includes(query))
+  // Toggle section expansion
+  const toggleSection = (section: string) => {
+    setExpandedSections(prev =>
+      prev.includes(section)
+        ? prev.filter(s => s !== section)
+        : [...prev, section]
     );
-  });
+  };
+
+  // Filter transfers by search
+  const filterTransfers = (statusFilter: string[]) => {
+    return transfers.filter(transfer => {
+      const matchesStatus = statusFilter.includes(transfer.status);
+      if (!matchesStatus) return false;
+
+      if (!searchQuery.trim()) return true;
+
+      const query = searchQuery.toLowerCase();
+      return (
+        transfer.transferNumber.toLowerCase().includes(query) ||
+        transfer.fromWarehouse.code.toLowerCase().includes(query) ||
+        transfer.fromWarehouse.name.toLowerCase().includes(query) ||
+        transfer.toWarehouse.code.toLowerCase().includes(query) ||
+        transfer.toWarehouse.name.toLowerCase().includes(query) ||
+        transfer.items.some(item => item.woodType.name.toLowerCase().includes(query)) ||
+        (transfer.notes && transfer.notes.toLowerCase().includes(query))
+      );
+    });
+  };
+
+  // Calculate counts
+  const pendingTransfers = filterTransfers(['PENDING']);
+  const inTransitTransfers = filterTransfers(['APPROVED', 'IN_TRANSIT']);
+  const completedTransfers = filterTransfers(['COMPLETED']);
 
   if (loading && transfers.length === 0) {
     return (
@@ -559,120 +669,148 @@ const WoodTransfer: FC = () => {
           </Alert>
         )}
 
-        {/* Search and Filter */}
-        <Box sx={{ mb: 3, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Chip
-              label={`Pending Approval (${pendingCount})`}
-              onClick={() => setTabValue(0)}
-              color={tabValue === 0 ? 'primary' : 'default'}
-              variant={tabValue === 0 ? 'filled' : 'outlined'}
-              sx={{
-                fontWeight: tabValue === 0 ? 'bold' : 'normal',
-                px: 1,
-                cursor: 'pointer'
-              }}
-            />
-            <Chip
-              label={`In Transit (${inTransitCount})`}
-              onClick={() => setTabValue(1)}
-              color={tabValue === 1 ? 'warning' : 'default'}
-              variant={tabValue === 1 ? 'filled' : 'outlined'}
-              sx={{
-                fontWeight: tabValue === 1 ? 'bold' : 'normal',
-                px: 1,
-                cursor: 'pointer'
-              }}
-            />
-            <Chip
-              label="Completed"
-              onClick={() => setTabValue(2)}
-              color={tabValue === 2 ? 'success' : 'default'}
-              variant={tabValue === 2 ? 'filled' : 'outlined'}
-              sx={{
-                fontWeight: tabValue === 2 ? 'bold' : 'normal',
-                px: 1,
-                cursor: 'pointer'
-              }}
-            />
-            <Chip
-              label="All Transfers"
-              onClick={() => setTabValue(3)}
-              color={tabValue === 3 ? 'secondary' : 'default'}
-              variant={tabValue === 3 ? 'filled' : 'outlined'}
-              sx={{
-                fontWeight: tabValue === 3 ? 'bold' : 'normal',
-                px: 1,
-                cursor: 'pointer'
-              }}
-            />
-          </Box>
-
+        {/* Search Box */}
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2.5,
+            mb: 3,
+            border: '1px solid #e2e8f0',
+            borderRadius: 2,
+            backgroundColor: '#fff'
+          }}
+        >
           <TextField
-            placeholder="Search transfers..."
+            placeholder="Search transfers by number, warehouse, wood type..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            size="small"
+            fullWidth
+            size="medium"
             sx={{
-              width: 300,
-              backgroundColor: '#fff',
               '& .MuiOutlinedInput-root': {
-                fontSize: '0.875rem'
+                fontSize: '0.9rem',
+                '& fieldset': {
+                  borderColor: '#e2e8f0',
+                },
+                '&:hover fieldset': {
+                  borderColor: '#cbd5e1',
+                },
+                '&.Mui-focused fieldset': {
+                  borderColor: '#dc2626',
+                  borderWidth: '2px',
+                },
               }
             }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon sx={{ color: '#64748b' }} />
+                  <SearchIcon sx={{ color: '#94a3b8', fontSize: 22 }} />
                 </InputAdornment>
               ),
             }}
           />
-        </Box>
+        </Paper>
 
-        {/* Transfers Cards */}
-        {filteredTransfers.length === 0 ? (
-          <Paper sx={{ p: 6, textAlign: 'center' }}>
-            <Typography color="text.secondary" variant="h6">
-              No transfers found in this category.
-            </Typography>
-          </Paper>
-        ) : (
-          <Stack spacing={2}>
-            {filteredTransfers.map((transfer) => {
-              const isExpanded = expandedCards.has(transfer.id);
-              return (
-                <Paper
+        {/* Collapsible Sections */}
+        <Grid container spacing={2}>
+          {/* Pending Approval Section */}
+          <Grid item xs={12}>
+            <Accordion
+              expanded={expandedSections.includes('pending')}
+              onChange={() => toggleSection('pending')}
+              elevation={0}
+              sx={{
+                border: '1px solid #e2e8f0',
+                '&:before': { display: 'none' },
+                borderRadius: '12px',
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
+                backgroundColor: '#f8fafc'
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ color: '#475569', fontSize: 28 }} />}
+                sx={{
+                  backgroundColor: '#f1f5f9',
+                  '&:hover': {
+                    backgroundColor: '#e2e8f0',
+                  },
+                  minHeight: 72,
+                  '& .MuiAccordionSummary-content': {
+                    my: 2
+                  }
+                }}
+              >
+                <Box display="flex" alignItems="center" gap={2.5} width="100%">
+                  <Box
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '10px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <PendingIcon sx={{ fontSize: 28, color: '#64748b' }} />
+                  </Box>
+                  <Box flex={1}>
+                    <Typography variant="h6" fontWeight="bold" sx={{ color: '#334155', fontSize: '1.1rem', mb: 0.3 }}>
+                      Pending Approval
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.85rem' }}>
+                      {pendingTransfers.length} {pendingTransfers.length === 1 ? 'transfer' : 'transfers'} awaiting approval
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={pendingTransfers.length}
+                    sx={{
+                      backgroundColor: '#64748b',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      fontSize: '0.9rem',
+                      height: 32,
+                      minWidth: 40,
+                      borderRadius: '8px',
+                    }}
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                {pendingTransfers.length === 0 ? (
+                  <Box sx={{ p: 4, textAlign: 'center' }}>
+                    <Typography color="text.secondary">No pending transfers</Typography>
+                  </Box>
+                ) : (
+                  <Stack spacing={0} divider={<Divider sx={{ borderColor: '#e2e8f0' }} />}>
+                    {pendingTransfers.map((transfer) => (
+                <Box
                   key={transfer.id}
-                  elevation={0}
                   sx={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 2,
-                    mb: 2,
-                    transition: 'all 0.2s',
-                    overflow: 'hidden',
-                    '&:before': {
-                      display: 'none'
+                    p: 2.5,
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      backgroundColor: '#f1f5f9',
+                      transform: 'translateX(4px)'
                     }
                   }}
                 >
-                  {/* Collapsed Header */}
-                  <Box
-                    sx={{
-                      p: 2,
-                      backgroundColor: '#f8fafc',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      cursor: 'pointer',
-                      '&:hover': {
-                        backgroundColor: '#f1f5f9'
-                      }
-                    }}
-                    onClick={() => toggleCardExpanded(transfer.id)}
-                  >
-                    <Box display="flex" alignItems="center" gap={2} flex={1}>
-                      <LocalShippingIcon sx={{ fontSize: 24, color: '#dc2626' }} />
+                  <Box display="flex" alignItems="center" gap={2.5} flex={1}>
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 1.5,
+                        backgroundColor: '#f1f5f9',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <LocalShippingIcon sx={{ fontSize: 22, color: '#64748b' }} />
+                    </Box>
                       <Box flex={1}>
                         <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.875rem' }}>
                           {transfer.transferNumber}
@@ -701,150 +839,16 @@ const WoodTransfer: FC = () => {
                         color={getStatusColor(transfer.status)}
                         sx={{ fontWeight: 700, fontSize: '0.75rem' }}
                       />
-                      <IconButton size="small" sx={{ ml: 1 }}>
-                        {isExpanded ? <ExpandLessIcon sx={{ color: '#dc2626' }} /> : <ExpandMoreIcon sx={{ color: '#dc2626' }} />}
-                      </IconButton>
-                    </Box>
-                  </Box>
-
-                  {/* Expanded Content */}
-                  {isExpanded && (
-                    <>
-                      <Divider />
-                      <Box sx={{ p: 3 }}>
-                        <Stack spacing={3}>
-                          {/* Warehouse Info */}
-                          <Box display="flex" gap={4}>
-                    <Box flex={1}>
-                      <Typography variant="caption" color="text.secondary" fontWeight="medium">
-                        FROM
-                      </Typography>
-                      <Typography variant="body1" fontWeight="medium">
-                        {transfer.fromWarehouse.name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {transfer.fromWarehouse.code}
-                      </Typography>
-                    </Box>
-                    <Box display="flex" alignItems="center" sx={{ color: 'text.secondary' }}>
-                      <ArrowForwardIcon />
-                    </Box>
-                    <Box flex={1}>
-                      <Typography variant="caption" color="text.secondary" fontWeight="medium">
-                        TO
-                      </Typography>
-                      <Typography variant="body1" fontWeight="medium">
-                        {transfer.toWarehouse.name}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {transfer.toWarehouse.code}
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Items Summary */}
-                  <Box
-                    sx={{
-                      bgcolor: '#f8fafc',
-                      p: 2,
-                      borderRadius: 1,
-                      border: '1px solid #e2e8f0'
-                    }}
-                  >
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <Typography variant="caption" color="text.secondary" fontWeight="medium">
-                          TOTAL ITEMS
-                        </Typography>
-                        <Typography variant="h6" fontWeight="bold" color="primary">
-                          {transfer.items?.length || 0}
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={6}>
-                        <Typography variant="caption" color="text.secondary" fontWeight="medium">
-                          TOTAL QUANTITY
-                        </Typography>
-                        <Typography variant="h6" fontWeight="bold" color="primary">
-                          {transfer.items?.reduce((sum, item) => sum + item.quantity, 0) || 0} pcs
-                        </Typography>
-                      </Grid>
-                    </Grid>
-                  </Box>
-
-                  {/* Items Preview */}
-                  {transfer.items && transfer.items.length > 0 && (
-                    <Box>
-                      <Typography variant="caption" color="text.secondary" fontWeight="medium" sx={{ mb: 1, display: 'block' }}>
-                        ITEMS
-                      </Typography>
-                      <Stack spacing={1}>
-                        {transfer.items.slice(0, 3).map((item, idx) => (
-                          <Box
-                            key={item.id}
-                            display="flex"
-                            justifyContent="space-between"
-                            alignItems="center"
-                            sx={{
-                              py: 1,
-                              px: 1.5,
-                              bgcolor: 'background.paper',
-                              borderRadius: 1,
-                              border: '1px solid #e2e8f0'
-                            }}
-                          >
-                            <Box display="flex" gap={2} alignItems="center">
-                              <Typography variant="caption" color="text.secondary" fontWeight="bold">
-                                #{idx + 1}
-                              </Typography>
-                              <Typography variant="body2" fontWeight="medium">
-                                {item.woodType.name}
-                              </Typography>
-                              <Chip
-                                label={item.thickness}
-                                size="small"
-                                variant="outlined"
-                                sx={{ height: 20, fontSize: '0.7rem' }}
-                              />
-                              <Chip
-                                label={getWoodStatusLabel(item.woodStatus)}
-                                size="small"
-                                sx={{ height: 20, fontSize: '0.7rem' }}
-                              />
-                            </Box>
-                            <Typography variant="body2" fontWeight="bold">
-                              {item.quantity} pcs
-                            </Typography>
-                          </Box>
-                        ))}
-                        {transfer.items.length > 3 && (
-                          <Typography variant="caption" color="primary" sx={{ pl: 1.5, fontStyle: 'italic' }}>
-                            +{transfer.items.length - 3} more item{transfer.items.length - 3 !== 1 ? 's' : ''}
-                          </Typography>
-                        )}
-                      </Stack>
-                    </Box>
-                  )}
-
-                  {/* Actions */}
-                  <Box display="flex" gap={1} justifyContent="flex-end">
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<VisibilityIcon />}
-                      onClick={() => handleOpenDetails(transfer)}
-                      sx={{
-                        color: '#dc2626',
-                        borderColor: '#dc2626',
-                        fontSize: '0.75rem',
-                        textTransform: 'none',
-                        '&:hover': {
-                          borderColor: '#b91c1c',
-                          backgroundColor: 'rgba(220, 38, 38, 0.04)',
-                        }
-                      }}
-                    >
-                      View Details
-                    </Button>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleOpenDetails(transfer)}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                        >
+                          Details
+                        </Button>
                     {transfer.status === 'PENDING' && (
                       <>
                         <Button
@@ -877,6 +881,19 @@ const WoodTransfer: FC = () => {
                         Mark Received
                       </Button>
                     )}
+                    {/* Edit button for non-completed transfers - FACTORY_MANAGER, WAREHOUSE_MANAGER, ADMIN */}
+                    {['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(user?.role || '') &&
+                     transfer.status !== 'COMPLETED' && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="warning"
+                        startIcon={<EditIcon />}
+                        onClick={() => handleOpenEdit(transfer)}
+                      >
+                        Edit
+                      </Button>
+                    )}
                     {/* Admin-only: Edit button for completed transfers */}
                     {user?.role === 'ADMIN' && transfer.status === 'COMPLETED' && (
                       <>
@@ -904,16 +921,355 @@ const WoodTransfer: FC = () => {
                         </Button>
                       </>
                     )}
-                          </Box>
+                      </Stack>
+                    </Box>
+                  </Box>
+                  ))}
+                  </Stack>
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </Grid>
+
+          {/* In Transit Section */}
+          <Grid item xs={12}>
+            <Accordion
+              expanded={expandedSections.includes('inTransit')}
+              onChange={() => toggleSection('inTransit')}
+              elevation={0}
+              sx={{
+                border: '1px solid #fecaca',
+                '&:before': { display: 'none' },
+                borderRadius: '12px',
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
+                backgroundColor: '#fef2f2'
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ color: '#991b1b', fontSize: 28 }} />}
+                sx={{
+                  backgroundColor: '#fee2e2',
+                  '&:hover': {
+                    backgroundColor: '#fecaca',
+                  },
+                  minHeight: 72,
+                  '& .MuiAccordionSummary-content': {
+                    my: 2
+                  }
+                }}
+              >
+                <Box display="flex" alignItems="center" gap={2.5} width="100%">
+                  <Box
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '10px',
+                      backgroundColor: '#fef2f2',
+                      border: '1px solid #fecaca',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <LocalShippingIcon sx={{ fontSize: 28, color: '#dc2626' }} />
+                  </Box>
+                  <Box flex={1}>
+                    <Typography variant="h6" fontWeight="bold" sx={{ color: '#991b1b', fontSize: '1.1rem', mb: 0.3 }}>
+                      In Transit
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#b91c1c', fontSize: '0.85rem' }}>
+                      {inTransitTransfers.length} {inTransitTransfers.length === 1 ? 'transfer' : 'transfers'} in progress
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={inTransitTransfers.length}
+                    sx={{
+                      backgroundColor: '#dc2626',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      fontSize: '0.9rem',
+                      height: 32,
+                      minWidth: 40,
+                      borderRadius: '8px',
+                    }}
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                {inTransitTransfers.length === 0 ? (
+                  <Box sx={{ p: 4, textAlign: 'center' }}>
+                    <Typography color="text.secondary">No transfers in transit</Typography>
+                  </Box>
+                ) : (
+                  <Stack spacing={0} divider={<Divider sx={{ borderColor: '#fee2e2' }} />}>
+                    {inTransitTransfers.map((transfer) => (
+                <Box
+                  key={transfer.id}
+                  sx={{
+                    p: 2.5,
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      backgroundColor: '#fee2e2',
+                      transform: 'translateX(4px)'
+                    }
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={2.5} flex={1}>
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 1.5,
+                        backgroundColor: '#fee2e2',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <LocalShippingIcon sx={{ fontSize: 22, color: '#dc2626' }} />
+                    </Box>
+                      <Box flex={1}>
+                        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.875rem' }}>
+                          {transfer.transferNumber}
+                        </Typography>
+                        <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {transfer.fromWarehouse.code} → {transfer.toWarehouse.code}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            •
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {transfer.items?.length || 0} items ({transfer.items?.reduce((sum, item) => sum + item.quantity, 0) || 0} pcs)
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            •
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Chip
+                        label={transfer.status.replace('_', ' ')}
+                        size="small"
+                        color={getStatusColor(transfer.status)}
+                        sx={{ fontWeight: 700, fontSize: '0.75rem' }}
+                      />
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleOpenDetails(transfer)}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                        >
+                          Details
+                        </Button>
+                    {(transfer.status === 'APPROVED' || transfer.status === 'IN_TRANSIT') && (
+                      <Button
+                        variant="contained"
+                        size="small"
+                        color="primary"
+                        onClick={() => handleOpenComplete(transfer)}
+                        sx={{ fontSize: '0.75rem' }}
+                      >
+                        Receive
+                      </Button>
+                    )}
+                    {['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(user?.role || '') && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="warning"
+                        startIcon={<EditIcon />}
+                        onClick={() => handleOpenEdit(transfer)}
+                        sx={{ fontSize: '0.75rem' }}
+                      >
+                        Edit
+                      </Button>
+                    )}
                         </Stack>
                       </Box>
-                    </>
-                  )}
-                </Paper>
-              );
-            })}
-          </Stack>
-        )}
+                    </Box>
+                    ))}
+                  </Stack>
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </Grid>
+
+          {/* Completed Section */}
+          <Grid item xs={12}>
+            <Accordion
+              expanded={expandedSections.includes('completed')}
+              onChange={() => toggleSection('completed')}
+              elevation={0}
+              sx={{
+                border: '1px solid #e2e8f0',
+                '&:before': { display: 'none' },
+                borderRadius: '12px',
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
+                backgroundColor: '#f8fafc'
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ color: '#475569', fontSize: 28 }} />}
+                sx={{
+                  backgroundColor: '#f1f5f9',
+                  '&:hover': {
+                    backgroundColor: '#e2e8f0',
+                  },
+                  minHeight: 72,
+                  '& .MuiAccordionSummary-content': {
+                    my: 2
+                  }
+                }}
+              >
+                <Box display="flex" alignItems="center" gap={2.5} width="100%">
+                  <Box
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '10px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <CheckIcon sx={{ fontSize: 28, color: '#64748b' }} />
+                  </Box>
+                  <Box flex={1}>
+                    <Typography variant="h6" fontWeight="bold" sx={{ color: '#334155', fontSize: '1.1rem', mb: 0.3 }}>
+                      Completed
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.85rem' }}>
+                      {completedTransfers.length} {completedTransfers.length === 1 ? 'transfer' : 'transfers'} completed
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={completedTransfers.length}
+                    sx={{
+                      backgroundColor: '#64748b',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      fontSize: '0.9rem',
+                      height: 32,
+                      minWidth: 40,
+                      borderRadius: '8px',
+                    }}
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                {completedTransfers.length === 0 ? (
+                  <Box sx={{ p: 4, textAlign: 'center' }}>
+                    <Typography color="text.secondary">No completed transfers</Typography>
+                  </Box>
+                ) : (
+                  <Stack spacing={0} divider={<Divider sx={{ borderColor: '#e2e8f0' }} />}>
+                    {completedTransfers.map((transfer) => (
+                <Box
+                  key={transfer.id}
+                  sx={{
+                    p: 2.5,
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      backgroundColor: '#f1f5f9',
+                      transform: 'translateX(4px)'
+                    }
+                  }}
+                >
+                  <Box display="flex" alignItems="center" gap={2.5} flex={1}>
+                    <Box
+                      sx={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 1.5,
+                        backgroundColor: '#f1f5f9',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      <LocalShippingIcon sx={{ fontSize: 22, color: '#64748b' }} />
+                    </Box>
+                      <Box flex={1}>
+                        <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.875rem' }}>
+                          {transfer.transferNumber}
+                        </Typography>
+                        <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {transfer.fromWarehouse.code} → {transfer.toWarehouse.code}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            •
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {transfer.items?.length || 0} items ({transfer.items?.reduce((sum, item) => sum + item.quantity, 0) || 0} pcs)
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            •
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Chip
+                        label={transfer.status.replace('_', ' ')}
+                        size="small"
+                        color={getStatusColor(transfer.status)}
+                        sx={{ fontWeight: 700, fontSize: '0.75rem' }}
+                      />
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<VisibilityIcon />}
+                          onClick={() => handleOpenDetails(transfer)}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                        >
+                          Details
+                        </Button>
+                    {user?.role === 'ADMIN' && (
+                      <>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="warning"
+                          startIcon={<EditIcon />}
+                          onClick={() => handleOpenEdit(transfer)}
+                          sx={{ fontSize: '0.75rem' }}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="primary"
+                          startIcon={<PersonIcon />}
+                          onClick={() => handleOpenNotify(transfer)}
+                          sx={{ fontSize: '0.75rem' }}
+                        >
+                          Notify
+                        </Button>
+                      </>
+                    )}
+                        </Stack>
+                      </Box>
+                    </Box>
+                    ))}
+                  </Stack>
+                )}
+              </AccordionDetails>
+            </Accordion>
+          </Grid>
+        </Grid>
 
         {/* Create Transfer Dialog */}
         <Dialog
@@ -1439,49 +1795,85 @@ const WoodTransfer: FC = () => {
                   </Stack>
                 </Paper>
 
-                {/* Timeline */}
+                {/* Timeline / History */}
                 <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 2 }}>
                   <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem', mb: 1 }}>
-                    Timeline
+                    Transfer History
                   </Typography>
-                  <Stack spacing={1.5}>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-                        Created By
-                      </Typography>
-                      <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 500, fontSize: '0.85rem' }}>
-                        {getUserDisplay(selectedTransfer.createdBy)}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {format(new Date(selectedTransfer.createdAt), 'MMM dd, yyyy HH:mm')}
-                      </Typography>
-                    </Box>
-
-                    {selectedTransfer.approvedBy && (
-                      <Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-                          {selectedTransfer.status === 'REJECTED' ? 'Rejected By' : 'Approved By'}
-                        </Typography>
-                        <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 500, fontSize: '0.85rem' }}>
-                          {getUserDisplay(selectedTransfer.approvedBy)}
-                        </Typography>
-                        {selectedTransfer.approvedAt && (
-                          <Typography variant="caption" color="text.secondary">
-                            {format(new Date(selectedTransfer.approvedAt), 'MMM dd, yyyy HH:mm')}
+                  <Stack spacing={1}>
+                    {selectedTransfer.history && selectedTransfer.history.length > 0 ? (
+                      selectedTransfer.history.map((historyItem, index) => (
+                        <Box
+                          key={historyItem.id}
+                          sx={{
+                            borderLeft: '2px solid #e2e8f0',
+                            pl: 2,
+                            pb: index < selectedTransfer.history!.length - 1 ? 1 : 0
+                          }}
+                        >
+                          <Typography variant="body2" sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#2c3e50' }}>
+                            {historyItem.action.replace(/_/g, ' ')}
                           </Typography>
-                        )}
-                      </Box>
-                    )}
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {historyItem.userName} • {format(new Date(historyItem.timestamp), 'MMM dd, yyyy HH:mm')}
+                          </Typography>
+                          {historyItem.details && (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                display: 'block',
+                                mt: 0.5,
+                                color: '#64748b',
+                                fontStyle: 'italic',
+                                fontSize: '0.7rem'
+                              }}
+                            >
+                              {historyItem.details}
+                            </Typography>
+                          )}
+                        </Box>
+                      ))
+                    ) : (
+                      <Stack spacing={1.5}>
+                        <Box>
+                          <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                            Created By
+                          </Typography>
+                          <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 500, fontSize: '0.85rem' }}>
+                            {getUserDisplay(selectedTransfer.createdBy)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {format(new Date(selectedTransfer.createdAt), 'MMM dd, yyyy HH:mm')}
+                          </Typography>
+                        </Box>
 
-                    {selectedTransfer.completedAt && (
-                      <Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-                          Completed
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {format(new Date(selectedTransfer.completedAt), 'MMM dd, yyyy HH:mm')}
-                        </Typography>
-                      </Box>
+                        {selectedTransfer.approvedBy && (
+                          <Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              {selectedTransfer.status === 'REJECTED' ? 'Rejected By' : 'Approved By'}
+                            </Typography>
+                            <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 500, fontSize: '0.85rem' }}>
+                              {getUserDisplay(selectedTransfer.approvedBy)}
+                            </Typography>
+                            {selectedTransfer.approvedAt && (
+                              <Typography variant="caption" color="text.secondary">
+                                {format(new Date(selectedTransfer.approvedAt), 'MMM dd, yyyy HH:mm')}
+                              </Typography>
+                            )}
+                          </Box>
+                        )}
+
+                        {selectedTransfer.completedAt && (
+                          <Box>
+                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              Completed
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {format(new Date(selectedTransfer.completedAt), 'MMM dd, yyyy HH:mm')}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Stack>
                     )}
                   </Stack>
                 </Paper>
@@ -1526,7 +1918,7 @@ const WoodTransfer: FC = () => {
                         }}
                       />
                     }
-                    fileName={`transfer-${selectedTransfer.transferNumber}.pdf`}
+                    fileName={`${selectedTransfer.transferNumber}.pdf`}
                     style={{ textDecoration: 'none' }}
                   >
                     <Button
@@ -1557,16 +1949,22 @@ const WoodTransfer: FC = () => {
             <Box display="flex" alignItems="center" gap={1}>
               <EditIcon color="warning" />
               <Typography variant="h6" fontWeight="bold">
-                Edit Transfer (Admin)
+                {selectedTransfer?.status === 'COMPLETED' ? 'Edit Transfer (Admin)' : 'Edit Transfer'}
               </Typography>
             </Box>
           </DialogTitle>
           <DialogContent>
             {selectedTransfer && (
               <Stack spacing={3} sx={{ mt: 2 }}>
-                <Alert severity="warning">
-                  You are editing a completed transfer. All changes will be logged in the transfer history.
-                </Alert>
+                {selectedTransfer.status === 'COMPLETED' ? (
+                  <Alert severity="warning">
+                    You are editing a completed transfer. All changes will be logged in the transfer history.
+                  </Alert>
+                ) : (
+                  <Alert severity="info">
+                    You are editing this transfer. All changes will be logged in the transfer history.
+                  </Alert>
+                )}
 
                 <Paper elevation={0} sx={{ p: 1.5, bgcolor: '#f1f5f9', border: '1px solid #e2e8f0' }}>
                   <Typography variant="caption" color="text.secondary">
@@ -1612,9 +2010,145 @@ const WoodTransfer: FC = () => {
                   }}
                 />
 
-                <Alert severity="info">
-                  <strong>Note:</strong> Warehouse and item details cannot be changed after completion. Contact system administrator if stock adjustments are needed.
-                </Alert>
+                {/* Transfer Items - Only show for IN_TRANSIT status */}
+                {selectedTransfer.status === 'IN_TRANSIT' && editItems.length > 0 && (
+                  <>
+                    <Divider />
+                    <Box>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CategoryIcon fontSize="small" />
+                        Transfer Items
+                      </Typography>
+                      <Stack spacing={2}>
+                        {editItems.map((item, index) => {
+                          const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+                          return (
+                            <Paper
+                              key={item.id}
+                              elevation={0}
+                              sx={{
+                                p: 2,
+                                border: '1px solid #e2e8f0',
+                                borderRadius: 2,
+                                bgcolor: '#f8fafc'
+                              }}
+                            >
+                              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                                <Typography variant="body2" fontWeight="medium">
+                                  {item.woodType.name}
+                                </Typography>
+                                <Chip
+                                  label={getWoodStatusLabel(item.woodStatus)}
+                                  size="small"
+                                  sx={{ height: 20, fontSize: '0.7rem' }}
+                                />
+                              </Box>
+
+                              <Stack spacing={2}>
+                                <Box display="flex" gap={2}>
+                                  <TextField
+                                    label="Thickness"
+                                    value={item.thickness}
+                                    size="small"
+                                    fullWidth
+                                    disabled
+                                    sx={{ bgcolor: '#f1f5f9' }}
+                                  />
+
+                                  <TextField
+                                    label="Quantity"
+                                    type="number"
+                                    value={item.quantity}
+                                    onChange={(e) => handleEditItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
+                                    fullWidth
+                                    size="small"
+                                    inputProps={{ min: 1 }}
+                                    helperText={
+                                      selectedTransfer.fromWarehouse.stockControlEnabled && originalItem
+                                        ? item.quantity > originalItem.quantity
+                                          ? `Available to add: ${getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)} pcs`
+                                          : `Original: ${originalItem.quantity} pcs`
+                                        : ''
+                                    }
+                                    error={Boolean(
+                                      selectedTransfer.fromWarehouse.stockControlEnabled &&
+                                      originalItem &&
+                                      item.quantity > originalItem.quantity &&
+                                      (item.quantity - originalItem.quantity) > getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)
+                                    )}
+                                  />
+                                </Box>
+
+                                <TextField
+                                  label="Remarks (Optional)"
+                                  value={item.remarks || ''}
+                                  onChange={(e) => handleEditItemChange(index, 'remarks', e.target.value)}
+                                  fullWidth
+                                  size="small"
+                                  multiline
+                                  rows={2}
+                                  placeholder="Add remarks for this item..."
+                                />
+
+                                {/* Stock Availability Display - Only show if quantity is increasing */}
+                                {selectedTransfer.fromWarehouse.stockControlEnabled &&
+                                 originalItem &&
+                                 item.quantity > originalItem.quantity && (
+                                  <Box sx={{ mt: 1 }}>
+                                    {loadingStock ? (
+                                      <Box display="flex" alignItems="center" gap={1}>
+                                        <CircularProgress size={16} />
+                                        <Typography variant="caption" color="text.secondary">
+                                          Loading inventory...
+                                        </Typography>
+                                      </Box>
+                                    ) : (() => {
+                                      const stockItem = getStockItem(item.woodType.id, item.thickness);
+                                      if (!stockItem) {
+                                        return (
+                                          <Alert severity="warning" icon={<InfoIcon fontSize="small" />} sx={{ py: 0.5 }}>
+                                            <Typography variant="caption">
+                                              No stock available for {item.woodType.name} - {item.thickness}
+                                            </Typography>
+                                          </Alert>
+                                        );
+                                      }
+
+                                      const additionalNeeded = item.quantity - originalItem.quantity;
+                                      const availableForStatus = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
+
+                                      return (
+                                        <Paper elevation={0} sx={{ p: 1.5, bgcolor: availableForStatus >= additionalNeeded ? '#f0fdf4' : '#fef2f2', border: `1px solid ${availableForStatus >= additionalNeeded ? '#86efac' : '#fca5a5'}` }}>
+                                          <Box display="flex" alignItems="center" justifyContent="space-between" mb={0.5}>
+                                            <Box display="flex" alignItems="center" gap={0.5}>
+                                              <InventoryIcon sx={{ fontSize: 14, color: availableForStatus >= additionalNeeded ? '#16a34a' : '#dc2626' }} />
+                                              <Typography variant="caption" fontWeight="bold" color={availableForStatus >= additionalNeeded ? '#16a34a' : '#dc2626'}>
+                                                Additional needed: {additionalNeeded} pcs
+                                              </Typography>
+                                            </Box>
+                                            <Typography variant="caption" fontWeight="bold" color={availableForStatus >= additionalNeeded ? '#16a34a' : '#dc2626'}>
+                                              Available ({getWoodStatusLabel(item.woodStatus)}): {availableForStatus} pcs
+                                            </Typography>
+                                          </Box>
+                                        </Paper>
+                                      );
+                                    })()}
+                                  </Box>
+                                )}
+                              </Stack>
+                            </Paper>
+                          );
+                        })}
+                      </Stack>
+                    </Box>
+                  </>
+                )}
+
+                {selectedTransfer.status === 'COMPLETED' && (
+                  <Alert severity="info">
+                    <strong>Note:</strong> Warehouse and item details cannot be changed after completion. Contact system administrator if stock adjustments are needed.
+                  </Alert>
+                )}
               </Stack>
             )}
           </DialogContent>
@@ -1628,6 +2162,22 @@ const WoodTransfer: FC = () => {
               color="warning"
               size="large"
               startIcon={<EditIcon />}
+              disabled={
+                selectedTransfer?.status === 'IN_TRANSIT' &&
+                selectedTransfer?.fromWarehouse.stockControlEnabled &&
+                editItems.some(item => {
+                  const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+                  if (!originalItem) return false;
+
+                  // Check if quantity increased and exceeds available stock
+                  if (item.quantity > originalItem.quantity) {
+                    const additionalQuantity = item.quantity - originalItem.quantity;
+                    const availableStock = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
+                    return additionalQuantity > availableStock;
+                  }
+                  return false;
+                })
+              }
             >
               Save Changes
             </Button>
