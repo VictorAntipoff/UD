@@ -19,7 +19,8 @@ import {
   TextField,
   MenuItem,
   Stack,
-  Divider
+  Divider,
+  CircularProgress
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -120,6 +121,14 @@ export default function DryingCostReports() {
     }
   };
 
+  // Helper function to format thickness consistently
+  const formatThickness = (thicknessValue: number, unit: string = 'mm'): string => {
+    const inches = thicknessValue / (unit === 'inch' ? 1 : 25.4);
+    // Remove .0 decimal if it's a whole number (e.g., 2.0" -> 2")
+    const formatted = inches % 1 === 0 ? inches.toFixed(0) : inches.toFixed(1);
+    return `${formatted}"`;
+  };
+
   // Group processes by wood type and thickness
   const getCostSummaries = (): CostSummary[] => {
     const groups: Record<string, CostSummary> = {};
@@ -171,7 +180,7 @@ export default function DryingCostReports() {
         // Old style: process has direct wood type and thickness
         const woodTypeName = process.woodType?.name || 'Unknown';
         const thickness = process.thickness
-          ? `${(process.thickness / (process.thicknessUnit === 'inch' ? 1 : 25.4)).toFixed(1)}"`
+          ? formatThickness(process.thickness, process.thicknessUnit)
           : 'Unknown';
 
         // Skip if filtering
@@ -235,7 +244,7 @@ export default function DryingCostReports() {
     processes.flatMap(p => {
       const thicknesses: string[] = [];
       if (p.thickness) {
-        thicknesses.push(`${(p.thickness / (p.thicknessUnit === 'inch' ? 1 : 25.4)).toFixed(1)}"`);
+        thicknesses.push(formatThickness(p.thickness, p.thicknessUnit));
       }
       if (p.items) {
         p.items.forEach(item => {
@@ -265,8 +274,10 @@ export default function DryingCostReports() {
 
   if (loading) {
     return (
-      <StyledContainer>
-        <Typography>Loading...</Typography>
+      <StyledContainer maxWidth="xl">
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress sx={{ color: '#dc2626' }} />
+        </Box>
       </StyledContainer>
     );
   }
