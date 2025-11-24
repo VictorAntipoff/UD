@@ -377,7 +377,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                 }}>
                   <WarehouseIcon />
                 </ListItemIcon>
-                <ListItemText primary="Inventory & Stock" />
+                <ListItemText primary="Inventory" />
                 <Box sx={{
                   transition: 'transform 0.3s ease',
                   transform: inventoryStockOpen ? 'rotate(180deg)' : 'rotate(0deg)',
@@ -474,7 +474,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                 }}>
                   <BarChartIcon />
                 </ListItemIcon>
-                <ListItemText primary="Reports & Analysis" />
+                <ListItemText primary="Reports" />
                 <Box sx={{
                   transition: 'transform 0.3s ease',
                   transform: reportsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
