@@ -25,6 +25,7 @@ interface DashboardStats {
   totalVolume: number;
   recentLots: any[];
   ongoingDrying: any[];
+  inTransitTransfers: any[];
 }
 
 const Dashboard = () => {
@@ -41,7 +42,8 @@ const Dashboard = () => {
     woodTypes: 0,
     totalVolume: 0,
     recentLots: [],
-    ongoingDrying: []
+    ongoingDrying: [],
+    inTransitTransfers: []
   });
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -54,12 +56,13 @@ const Dashboard = () => {
       setLoading(true);
 
       // Fetch all necessary data
-      const [receiptsRes, woodTypesRes, approvalsRes, dryingRes, stockRes] = await Promise.all([
+      const [receiptsRes, woodTypesRes, approvalsRes, dryingRes, stockRes, transfersRes] = await Promise.all([
         api.get('/management/wood-receipts'),
         api.get('/factory/wood-types'),
         api.get('/management/approvals/pending-count'),
         api.get('/factory/drying-processes'),
-        api.get('/management/stock/consolidated')
+        api.get('/management/stock/consolidated'),
+        api.get('/transfers')
       ]);
 
       const receipts = receiptsRes.data || [];
@@ -67,6 +70,7 @@ const Dashboard = () => {
       const dryingProcesses = dryingRes.data || [];
       const stockResponse = stockRes.data || { detailed: [] };
       const stockData = stockResponse.detailed || [];
+      const transfers = transfersRes.data || [];
 
       // Calculate statistics
       const activeLots = receipts.filter((r: any) =>
@@ -107,6 +111,11 @@ const Dashboard = () => {
         p.status === 'IN_PROGRESS' || p.status === 'ACTIVE'
       );
 
+      // Filter in-transit transfers
+      const inTransitTransfers = transfers.filter((t: any) =>
+        t.status === 'APPROVED' || t.status === 'IN_TRANSIT'
+      );
+
       setStats({
         totalLots: receipts.length,
         activeLots,
@@ -117,7 +126,8 @@ const Dashboard = () => {
         woodTypes: woodTypes.length,
         totalVolume: totalPieces,
         recentLots,
-        ongoingDrying
+        ongoingDrying,
+        inTransitTransfers
       });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -622,6 +632,126 @@ const Dashboard = () => {
                       size="small"
                       sx={{
                         backgroundColor: '#f59e0b',
+                        color: '#fff',
+                        fontWeight: 700,
+                        fontSize: '0.75rem',
+                        height: 28
+                      }}
+                    />
+                  </Grid>
+                </Grid>
+              </Paper>
+            ))}
+          </Box>
+        </Paper>
+      )}
+
+      {/* In-Transit Transfers */}
+      {!loading && stats.inTransitTransfers.length > 0 && (
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            mt: 2,
+            background: '#fff',
+            border: '1px solid #fee2e2',
+            borderRadius: 1.5
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <LocalShippingIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+              <Typography
+                variant="h6"
+                sx={{
+                  fontSize: '1rem',
+                  fontWeight: 700,
+                  color: '#1e293b'
+                }}
+              >
+                In-Transit Transfers
+              </Typography>
+            </Box>
+            <Typography
+              onClick={() => navigate('/dashboard/factory/wood-transfer')}
+              sx={{
+                color: '#dc2626',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                '&:hover': {
+                  textDecoration: 'underline'
+                }
+              }}
+            >
+              View All →
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {stats.inTransitTransfers.map((transfer: any) => (
+              <Paper
+                key={transfer.id}
+                elevation={0}
+                onClick={() => navigate('/dashboard/factory/wood-transfer')}
+                sx={{
+                  p: 1.5,
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 1,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    transform: 'translateX(4px)',
+                    borderColor: '#dc2626',
+                    boxShadow: '0 4px 12px rgba(220, 38, 38, 0.1)'
+                  }
+                }}
+              >
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} sm={3}>
+                    <Box sx={{
+                      display: 'inline-block',
+                      backgroundColor: '#dc2626',
+                      color: '#fff',
+                      px: 2,
+                      py: 0.75,
+                      borderRadius: 1,
+                      fontWeight: 700,
+                      fontSize: '0.875rem'
+                    }}>
+                      {transfer.transferNumber}
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Route
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {transfer.fromWarehouse?.code} → {transfer.toWarehouse?.code}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Items
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {transfer.items?.length || 0}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', mb: 0.5 }}>
+                      Total Pieces
+                    </Typography>
+                    <Typography sx={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                      {transfer.items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 0}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={2}>
+                    <Chip
+                      label={transfer.status === 'APPROVED' ? 'Approved' : 'In Transit'}
+                      size="small"
+                      sx={{
+                        backgroundColor: '#dc2626',
                         color: '#fff',
                         fontWeight: 700,
                         fontSize: '0.75rem',

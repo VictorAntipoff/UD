@@ -673,6 +673,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
           readings: {
             orderBy: { readingTime: 'asc' }
           },
+          recharges: {
+            orderBy: { rechargeDate: 'asc' }
+          },
           items: {
             include: {
               woodType: true,
@@ -701,6 +704,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
           woodType: true,
           readings: {
             orderBy: { readingTime: 'asc' }
+          },
+          recharges: {
+            orderBy: { rechargeDate: 'asc' }
           },
           items: {
             include: {
@@ -908,36 +914,100 @@ async function factoryRoutes(fastify: FastifyInstance) {
         notes?: string;
       };
 
-      // If completing the process, calculate cost
+      // If completing the process, calculate cost and set endTime to last reading time
       let calculatedCost = data.totalCost;
+      let autoEndTime = data.endTime;
+
       if (data.status === 'COMPLETED') {
-        // Fetch the process with readings
+        // Fetch the process with readings and recharges
         const processWithReadings = await prisma.dryingProcess.findUnique({
           where: { id },
           include: {
             readings: {
               orderBy: { readingTime: 'asc' }
-            }
+            },
+            recharges: {
+              orderBy: { rechargeDate: 'asc' }
+            },
+            items: true
           }
         });
 
-        if (processWithReadings && processWithReadings.readings.length >= 2) {
-          // Get electricity price from settings
-          const electricityPriceSetting = await prisma.setting.findUnique({
-            where: { key: 'electricityPricePerKWh' }
+        if (processWithReadings && processWithReadings.readings.length > 0) {
+          // Set endTime to last reading time (not button click time)
+          const lastReading = processWithReadings.readings[processWithReadings.readings.length - 1];
+          autoEndTime = lastReading.readingTime.toISOString();
+
+          // Get settings for cost calculation
+          const settings: Record<string, number> = {};
+          const settingsKeys = ['ovenPurchasePrice', 'ovenLifespanYears', 'maintenanceCostPerYear', 'laborCostPerHour'];
+
+          for (const key of settingsKeys) {
+            const setting = await prisma.setting.findUnique({ where: { key } });
+            settings[key] = setting ? parseFloat(setting.value) : 0;
+          }
+
+          // Get electricity rate from most recent recharge
+          const latestRecharge = await prisma.electricityRecharge.findFirst({
+            orderBy: { rechargeDate: 'desc' }
           });
+          const electricityRate = latestRecharge ? (latestRecharge.totalPaid / latestRecharge.kwhAmount) : 292;
 
-          const pricePerKWh = electricityPriceSetting
-            ? parseFloat(electricityPriceSetting.value)
-            : 0.15; // Default fallback
+          // Calculate cost per hour rates
+          const annualDepreciation = settings.ovenPurchasePrice / settings.ovenLifespanYears;
+          const depreciationPerHour = annualDepreciation / 8760;
+          const maintenancePerHour = settings.maintenanceCostPerYear / 8760;
 
-          // Calculate total electricity used
+          // Calculate electricity consumption with recharge awareness
+          let totalElectricityUsed = 0;
           const firstReading = processWithReadings.readings[0].electricityMeter;
-          const lastReading = processWithReadings.readings[processWithReadings.readings.length - 1].electricityMeter;
-          const totalKWh = lastReading - firstReading;
 
-          // Calculate cost
-          calculatedCost = totalKWh * pricePerKWh;
+          for (let i = 0; i < processWithReadings.readings.length; i++) {
+            const currentReading = processWithReadings.readings[i];
+            const currentTime = new Date(currentReading.readingTime);
+
+            let prevReading: number;
+            let prevTime: Date;
+
+            if (i === 0) {
+              prevReading = processWithReadings.startingElectricityUnits || firstReading;
+              prevTime = new Date(processWithReadings.startTime);
+            } else {
+              prevReading = processWithReadings.readings[i - 1].electricityMeter;
+              prevTime = new Date(processWithReadings.readings[i - 1].readingTime);
+            }
+
+            // Find recharges between prev and current reading
+            const rechargesBetween = processWithReadings.recharges.filter(r =>
+              new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
+            );
+
+            if (rechargesBetween.length > 0) {
+              // Recharge occurred - use formula: prevReading + recharged - currentReading
+              const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
+              const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+              totalElectricityUsed += Math.max(0, consumed);
+            } else {
+              // Normal consumption (prepaid meter counting down)
+              const consumed = prevReading - currentReading.electricityMeter;
+              if (consumed > 0) {
+                totalElectricityUsed += consumed;
+              }
+            }
+          }
+
+          // Calculate running hours using last reading time
+          const startTime = new Date(processWithReadings.startTime).getTime();
+          const lastReadingTime = new Date(lastReading.readingTime).getTime();
+          const runningHours = (lastReadingTime - startTime) / (1000 * 60 * 60);
+
+          // Calculate total cost
+          const electricityCost = totalElectricityUsed * electricityRate;
+          const depreciationCost = runningHours * depreciationPerHour;
+          const maintenanceCost = runningHours * maintenancePerHour;
+          const laborCost = runningHours * settings.laborCostPerHour;
+
+          calculatedCost = electricityCost + depreciationCost + maintenanceCost + laborCost;
         }
       }
 
@@ -959,7 +1029,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
             ...(data.startingElectricityUnits !== undefined && { startingElectricityUnits: data.startingElectricityUnits }),
             ...(data.startTime && { startTime: new Date(data.startTime) }),
             ...(data.status && { status: data.status }),
-            ...(data.endTime && { endTime: new Date(data.endTime) }),
+            ...(autoEndTime && { endTime: new Date(autoEndTime) }), // Use autoEndTime (last reading time)
             ...(calculatedCost !== undefined && { totalCost: calculatedCost }),
             ...(data.notes !== undefined && { notes: data.notes })
           },
@@ -967,6 +1037,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
             woodType: true,
             readings: {
               orderBy: { readingTime: 'asc' }
+            },
+            recharges: {
+              orderBy: { rechargeDate: 'asc' }
             }
           }
         });
@@ -1016,6 +1089,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
             woodType: true,
             readings: {
               orderBy: { readingTime: 'asc' }
+            },
+            recharges: {
+              orderBy: { rechargeDate: 'asc' }
             },
             items: {
               include: {

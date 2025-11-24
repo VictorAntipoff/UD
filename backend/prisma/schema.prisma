@@ -120,21 +120,30 @@ model Setting {
 }
 
 model ElectricityRecharge {
-  id              String   @id @default(uuid())
-  rechargeDate    DateTime
-  token           String
-  kwhAmount       Float
-  totalPaid       Float
-  baseCost        Float?
-  vat             Float?
-  ewuraFee        Float?
-  reaFee          Float?
-  debtCollected   Float?
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String         @id @default(uuid())
+  rechargeDate      DateTime
+  token             String
+  kwhAmount         Float
+  totalPaid         Float
+  baseCost          Float?
+  vat               Float?
+  ewuraFee          Float?
+  reaFee            Float?
+  debtCollected     Float?
+  notes             String?
+
+  // Link to drying process
+  dryingProcessId   String?
+  meterReadingAfter Float?        // Meter reading AFTER recharge was applied
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // Relations
+  dryingProcess     DryingProcess? @relation(fields: [dryingProcessId], references: [id], onDelete: Cascade)
 
   @@index([rechargeDate])
+  @@index([dryingProcessId])
 }
 
 model WoodType {
@@ -291,6 +300,7 @@ model DryingProcess {
   sourceWarehouse   Warehouse?               @relation(fields: [sourceWarehouseId], references: [id])
   readings          DryingReading[]
   items             DryingProcessItem[]      // NEW: Multiple wood types support
+  recharges         ElectricityRecharge[]    // Luku recharges during this process
 
   @@index([status])
   @@index([woodTypeId])
@@ -328,7 +338,6 @@ model DryingReading {
   electricityMeter  Float          // Luku meter reading
   humidity          Float          // Humidity percentage
   notes             String?
-  lukuSms           String?        // Original Luku SMS text for reference
 
   // User tracking for audit trail
   createdById       String?        // User ID who created/saved the reading

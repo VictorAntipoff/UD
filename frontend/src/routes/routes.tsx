@@ -19,6 +19,7 @@ import Layout from '../components/Layout/Layout';
 import ApprovalsManagement from '../pages/management/ApprovalsManagement';
 import WoodReceipt from '../pages/management/WoodReceipt';
 import WoodDryingSettings from '../pages/management/WoodDryingSettings';
+import DryingCostReports from '../pages/management/DryingCostReports';
 import AssetList from '../pages/assets/AssetList';
 import AssetDetail from '../pages/assets/AssetDetail';
 import AssetForm from '../pages/assets/AssetForm';
@@ -105,6 +106,10 @@ export const routes: RouteObject[] = [
           {
             path: 'drying-settings',
             element: <WoodDryingSettings />
+          },
+          {
+            path: 'drying-cost-reports',
+            element: <DryingCostReports />
           }
         ]
       },

@@ -557,6 +557,20 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                   <ListItemText primary="Drying Settings" />
                 </ListItem>
               )}
+
+              {hasPermission('drying-process', 'amount') && (
+                <ListItem
+                  button
+                  sx={submenuStyles}
+                  onClick={() => handleNavigate('/dashboard/management/drying-cost-reports')}
+                  selected={location.pathname === '/dashboard/management/drying-cost-reports'}
+                >
+                  <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/drying-cost-reports' ? colors.primary : colors.grey.main }}>
+                    <AssessmentIcon />
+                  </ListItemIcon>
+                  <ListItemText primary="Drying Cost Reports" />
+                </ListItem>
+              )}
             </List>
           </Collapse>
             </>

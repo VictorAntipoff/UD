@@ -161,6 +161,24 @@ interface DryingReading {
   updatedAt: string;
 }
 
+interface ElectricityRecharge {
+  id: string;
+  dryingProcessId?: string;
+  rechargeDate: string;
+  token: string;
+  kwhAmount: number;
+  totalPaid: number;
+  baseCost?: number;
+  vat?: number;
+  ewuraFee?: number;
+  reaFee?: number;
+  debtCollected?: number;
+  meterReadingAfter?: number;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface DryingProcessItem {
   id: string;
   woodTypeId: string;
@@ -189,15 +207,17 @@ interface DryingProcess {
   createdById?: string;
   createdByName?: string;
   readings: DryingReading[];
+  recharges?: ElectricityRecharge[]; // Luku recharges
   items?: DryingProcessItem[]; // Multi-wood support
   createdAt: string;
   updatedAt: string;
 }
 
 export default function DryingProcess() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { timezone } = useTimezone();
   const isAdmin = user?.role === 'ADMIN';
+  const canViewAmount = hasPermission('drying-process', 'amount');
 
   const [processes, setProcesses] = useState<DryingProcess[]>([]);
   const [woodTypes, setWoodTypes] = useState<WoodType[]>([]);
@@ -268,9 +288,12 @@ export default function DryingProcess() {
     notes: ''
   });
 
-  const [lukuSms, setLukuSms] = useState('');
-  const [lukuError, setLukuError] = useState<string | null>(null);
-  const [lukuSuccess, setLukuSuccess] = useState(false);
+  const [rechargeDialogOpen, setRechargeDialogOpen] = useState(false);
+  const [selectedProcessForRecharge, setSelectedProcessForRecharge] = useState<DryingProcess | null>(null);
+  const [rechargeData, setRechargeData] = useState({
+    smsText: '',
+    meterReadingAfter: ''
+  });
   const [annualDepreciation, setAnnualDepreciation] = useState<number>(0);
   const [electricityRatePerKwh, setElectricityRatePerKwh] = useState<number>(292); // Default fallback rate
 
@@ -281,8 +304,7 @@ export default function DryingProcess() {
     electricityMeter: '',
     humidity: '',
     readingTime: '',
-    notes: '',
-    lukuSms: ''
+    notes: ''
   });
 
   useEffect(() => {
@@ -317,14 +339,14 @@ export default function DryingProcess() {
       const recharges = response.data || [];
 
       if (recharges.length > 0) {
-        // Get the most recent recharge
-        const latestRecharge = recharges[0];
+        // Get the most recent recharge with actual cost data (filter out migrated recharges with totalPaid = 0)
+        const latestRechargeWithCost = recharges.find((r: any) => r.totalPaid > 0);
 
         // Calculate rate: totalPaid / kwhAmount
-        if (latestRecharge.kwhAmount && latestRecharge.kwhAmount > 0) {
-          const rate = latestRecharge.totalPaid / latestRecharge.kwhAmount;
+        if (latestRechargeWithCost && latestRechargeWithCost.kwhAmount && latestRechargeWithCost.kwhAmount > 0) {
+          const rate = latestRechargeWithCost.totalPaid / latestRechargeWithCost.kwhAmount;
           setElectricityRatePerKwh(rate);
-          console.log(`Using actual electricity rate: ${rate.toFixed(2)} TZS/kWh (from latest recharge)`);
+          console.log(`Using actual electricity rate: ${rate.toFixed(2)} TZS/kWh (from latest recharge with cost data)`);
         }
       }
     } catch (error) {
@@ -469,18 +491,89 @@ export default function DryingProcess() {
     }
   };
 
-  const handleAddLuku = async () => {
+  const handleOpenRechargeDialog = (process: DryingProcess) => {
+    setSelectedProcessForRecharge(process);
+    setRechargeDialogOpen(true);
+    setRechargeData({
+      smsText: '',
+      meterReadingAfter: ''
+    });
+  };
+
+  const handleAddRecharge = async () => {
     try {
-      setLukuError(null);
-      await api.post('/electricity/recharges/parse-sms', {
-        smsText: lukuSms
+      if (!selectedProcessForRecharge || !rechargeData.smsText || !rechargeData.meterReadingAfter) {
+        alert('Please provide SMS text and meter reading after recharge');
+        return;
+      }
+
+      // Parse SMS to extract recharge information
+      const smsText = rechargeData.smsText;
+
+      // Extract token
+      const tokenMatch = smsText.match(/TOKEN[:：\s]*([0-9\s\-]+)/i);
+      const token = tokenMatch ? tokenMatch[1].replace(/\s+/g, '').substring(0, 50) : '';
+
+      // Extract kWh amount
+      const kwhMatch = smsText.match(/([0-9]+(?:\.[0-9]+)?)\s*KWH/i);
+      const kwhAmount = kwhMatch ? parseFloat(kwhMatch[1]) : 0;
+
+      // Extract costs
+      const baseCostMatch = smsText.match(/MALIPO[_\-]UMEME[_\-]([0-9]+(?:\.[0-9]+)?)/i);
+      const baseCost = baseCostMatch ? parseFloat(baseCostMatch[1]) : 0;
+
+      const vatMatch = smsText.match(/VAT[_\-]([0-9]+(?:\.[0-9]+)?)/i);
+      const vat = vatMatch ? parseFloat(vatMatch[1]) : 0;
+
+      const ewuraMatch = smsText.match(/EWURA[_\-]([0-9]+(?:\.[0-9]+)?)/i);
+      const ewuraFee = ewuraMatch ? parseFloat(ewuraMatch[1]) : 0;
+
+      const reaMatch = smsText.match(/REA[_\-]([0-9]+(?:\.[0-9]+)?)/i);
+      const reaFee = reaMatch ? parseFloat(reaMatch[1]) : 0;
+
+      const totalMatch = smsText.match(/Jumla\s+([0-9]+(?:\.[0-9]+)?)/i);
+      const totalPaid = totalMatch ? parseFloat(totalMatch[1]) : 0;
+
+      // Extract date: "22/10/2025 06:12" or "22/10/2025"
+      const dateMatch = smsText.match(/Tarehe\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/i);
+      let rechargeDate = new Date().toISOString();
+
+      if (dateMatch) {
+        const day = parseInt(dateMatch[1]);
+        const month = parseInt(dateMatch[2]) - 1;
+        const year = parseInt(dateMatch[3]);
+        const hour = dateMatch[4] ? parseInt(dateMatch[4]) : 0;
+        const minute = dateMatch[5] ? parseInt(dateMatch[5]) : 0;
+        rechargeDate = new Date(year, month, day, hour, minute).toISOString();
+      }
+
+      if (!kwhAmount || kwhAmount === 0) {
+        alert('Could not parse kWh amount from SMS. Please check the SMS format.');
+        return;
+      }
+
+      // Create recharge record
+      await api.post('/electricity/recharges', {
+        dryingProcessId: selectedProcessForRecharge.id,
+        rechargeDate,
+        token,
+        kwhAmount,
+        totalPaid,
+        baseCost,
+        vat,
+        ewuraFee,
+        reaFee,
+        meterReadingAfter: parseFloat(rechargeData.meterReadingAfter),
+        notes: 'Added during drying process'
       });
-      setLukuSuccess(true);
-      setLukuSms('');
-      setTimeout(() => setLukuSuccess(false), 3000);
+
+      // Refresh data
+      await fetchData();
+      setRechargeDialogOpen(false);
+      alert('Recharge added successfully!');
     } catch (error: any) {
-      console.error('Error parsing luku SMS:', error);
-      setLukuError(error.response?.data?.error || 'Failed to parse SMS. Please check the format.');
+      console.error('Error adding recharge:', error);
+      alert(error.response?.data?.error || 'Failed to add recharge');
     }
   };
 
@@ -497,8 +590,7 @@ export default function DryingProcess() {
         electricityMeter: parseFloat(newReading.electricityMeter),
         humidity: parseFloat(newReading.humidity),
         readingTime: readingTimeISO,
-        notes: newReading.notes,
-        lukuSms: lukuSms.trim() || null // Include Luku SMS if provided
+        notes: newReading.notes
       });
 
       // Refresh the process data
@@ -510,9 +602,6 @@ export default function DryingProcess() {
         readingTime: getCurrentLocalDatetime(),
         notes: ''
       });
-      setLukuSms('');
-      setLukuError(null);
-      setLukuSuccess(false);
     } catch (error: any) {
       console.error('Error adding reading:', error);
       alert(error.response?.data?.error || 'Failed to add reading. Please try again.');
@@ -532,8 +621,7 @@ export default function DryingProcess() {
         electricityMeter: parseFloat(editReadingData.electricityMeter),
         humidity: parseFloat(editReadingData.humidity),
         readingTime: readingTimeISO,
-        notes: editReadingData.notes,
-        lukuSms: editReadingData.lukuSms.trim() || null
+        notes: editReadingData.notes
       });
 
       // Refresh the process data
@@ -544,8 +632,7 @@ export default function DryingProcess() {
         electricityMeter: '',
         humidity: '',
         readingTime: '',
-        notes: '',
-        lukuSms: ''
+        notes: ''
       });
     } catch (error) {
       console.error('Error updating reading:', error);
@@ -560,8 +647,7 @@ export default function DryingProcess() {
       electricityMeter: reading.electricityMeter.toString(),
       humidity: reading.humidity.toString(),
       readingTime: readingTimeValue,
-      notes: reading.notes || '',
-      lukuSms: reading.lukuSms || ''
+      notes: reading.notes || ''
     });
     setEditReadingDialogOpen(true);
   };
@@ -583,9 +669,9 @@ export default function DryingProcess() {
         return;
       }
 
+      // Backend will automatically set endTime to last reading time and calculate costs
       await api.put(`/factory/drying-processes/${process.id}`, {
-        status: 'COMPLETED',
-        endTime: new Date().toISOString()
+        status: 'COMPLETED'
       });
 
       await fetchData();
@@ -629,32 +715,42 @@ export default function DryingProcess() {
     if (!process.readings || process.readings.length === 0) return 0;
 
     const readings = process.readings;
+    const recharges = process.recharges || [];
     let totalUsed = 0;
 
-    // Calculate usage from consecutive readings
-    for (let i = 1; i < readings.length; i++) {
-      const prevReading = readings[i - 1].electricityMeter;
-      const currReading = readings[i].electricityMeter;
-      const diff = currReading - prevReading;
+    // Calculate usage with recharge awareness
+    for (let i = 0; i < readings.length; i++) {
+      const currentReading = readings[i];
+      const currentTime = new Date(currentReading.readingTime);
 
-      // If meter went down, it's normal usage (prepaid meter counting down)
-      // If meter went up significantly (>100), it's a recharge - ignore it
-      if (diff < 0) {
-        totalUsed += Math.abs(diff);
-      } else if (diff <= 100) {
-        // Small positive change might be usage on regular meter
-        totalUsed += diff;
+      let prevReading: number;
+      let prevTime: Date;
+
+      if (i === 0) {
+        prevReading = process.startingElectricityUnits || readings[0].electricityMeter;
+        prevTime = new Date(process.startTime);
+      } else {
+        prevReading = readings[i - 1].electricityMeter;
+        prevTime = new Date(readings[i - 1].readingTime);
       }
-    }
 
-    // Also account for usage from starting point to first reading
-    if (process.startingElectricityUnits && readings.length > 0) {
-      const firstReading = readings[0].electricityMeter;
-      const diff = firstReading - process.startingElectricityUnits;
-      if (diff < 0) {
-        totalUsed += Math.abs(diff);
-      } else if (diff <= 100) {
-        totalUsed += diff;
+      // Find recharges between prev and current reading
+      const rechargesBetween = recharges.filter(r => {
+        const rechargeTime = new Date(r.rechargeDate);
+        return rechargeTime > prevTime && rechargeTime <= currentTime;
+      });
+
+      if (rechargesBetween.length > 0) {
+        // Recharge occurred - use formula: prevReading + recharged - currentReading
+        const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
+        const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+        totalUsed += Math.max(0, consumed);
+      } else {
+        // Normal consumption (prepaid meter counting down)
+        const consumed = prevReading - currentReading.electricityMeter;
+        if (consumed > 0) {
+          totalUsed += consumed;
+        }
       }
     }
 
@@ -1182,6 +1278,36 @@ export default function DryingProcess() {
                             </Button>
                             <Button
                               size="small"
+                              startIcon={<ElectricBoltIcon />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenRechargeDialog(process);
+                              }}
+                              sx={{
+                                color: '#f59e0b',
+                                borderColor: '#f59e0b',
+                                fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                                textTransform: 'none',
+                                px: { xs: 1.5, sm: 2 },
+                                py: { xs: 0.5, sm: 0.75 },
+                                minWidth: { xs: '70px', sm: 'auto' },
+                                whiteSpace: 'nowrap',
+                                '& .MuiButton-startIcon': {
+                                  marginRight: { xs: 0.5, sm: 1 },
+                                  marginLeft: 0
+                                },
+                                '&:hover': {
+                                  borderColor: '#d97706',
+                                  backgroundColor: alpha('#f59e0b', 0.04),
+                                }
+                              }}
+                              variant="outlined"
+                            >
+                              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Add Luku</Box>
+                              <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Luku</Box>
+                            </Button>
+                            <Button
+                              size="small"
                               startIcon={<CheckCircleIcon />}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1318,21 +1444,23 @@ export default function DryingProcess() {
                         </Grid>
                       )}
 
-                      <Grid item xs={12} sm={6} md={3}>
-                        <Card elevation={0} sx={{ backgroundColor: '#dcfce7', border: '1px solid #bbf7d0' }}>
-                          <CardContent sx={{ p: 2 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                              <ElectricBoltIcon sx={{ fontSize: 20, color: '#16a34a' }} />
-                              <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 600 }}>
-                                Electricity Used
+                      {canViewAmount && (
+                        <Grid item xs={12} sm={6} md={3}>
+                          <Card elevation={0} sx={{ backgroundColor: '#dcfce7', border: '1px solid #bbf7d0' }}>
+                            <CardContent sx={{ p: 2 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <ElectricBoltIcon sx={{ fontSize: 20, color: '#16a34a' }} />
+                                <Typography variant="body2" sx={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 600 }}>
+                                  Electricity Used
+                                </Typography>
+                              </Box>
+                              <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.25rem' }}>
+                                {Math.abs(electricityUsed).toFixed(2)} Unit
                               </Typography>
-                            </Box>
-                            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', fontSize: '1.25rem' }}>
-                              {Math.abs(electricityUsed).toFixed(2)} Unit
-                            </Typography>
-                          </CardContent>
-                        </Card>
-                      </Grid>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      )}
 
                       <Grid item xs={12} sm={6} md={3}>
                         <Card elevation={0} sx={{ backgroundColor: '#eff6ff', border: '1px solid #dbeafe' }}>
@@ -1959,7 +2087,9 @@ export default function DryingProcess() {
                             )}
                           </Box>
                         </TableCell>
-                        <TableCell sx={{ fontWeight: 700, color: '#1e293b' }}>Electricity Used</TableCell>
+                        {canViewAmount && (
+                          <TableCell sx={{ fontWeight: 700, color: '#1e293b' }}>Electricity Used</TableCell>
+                        )}
                         <TableCell sx={{ fontWeight: 700, color: '#1e293b', textAlign: 'right' }}>Actions</TableCell>
                       </TableRow>
                     </TableHead>
@@ -2052,14 +2182,16 @@ export default function DryingProcess() {
                                 </Box>
                               </Card>
                             </TableCell>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <ElectricBoltIcon sx={{ fontSize: 18, color: '#16a34a' }} />
-                                <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                                  {Math.abs(electricityUsed).toFixed(2)} Unit
-                                </Typography>
-                              </Box>
-                            </TableCell>
+                            {canViewAmount && (
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <ElectricBoltIcon sx={{ fontSize: 18, color: '#16a34a' }} />
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
+                                    {Math.abs(electricityUsed).toFixed(2)} Unit
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                            )}
                             <TableCell align="right">
                               <Stack direction="row" spacing={1} justifyContent="flex-end">
                                 <Button
@@ -2691,77 +2823,6 @@ export default function DryingProcess() {
               size="small"
               sx={textFieldSx}
             />
-
-            <Divider sx={{ my: 1 }} />
-
-            {/* Luku (Electricity Recharge) Section */}
-            <Accordion elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 1 }}>
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon />}
-                sx={{
-                  '&:hover': {
-                    backgroundColor: alpha('#dc2626', 0.02)
-                  }
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ElectricBoltIcon sx={{ fontSize: 20, color: '#dc2626' }} />
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                    Add Luku (Optional)
-                  </Typography>
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Stack spacing={2}>
-                  <Typography variant="caption" sx={{ color: '#64748b' }}>
-                    Paste the SMS from your electricity provider to record the recharge
-                  </Typography>
-
-                  {lukuSuccess && (
-                    <Alert severity="success" sx={{ fontSize: '0.75rem' }}>
-                      Luku added successfully!
-                    </Alert>
-                  )}
-
-                  {lukuError && (
-                    <Alert severity="error" sx={{ fontSize: '0.75rem' }}>
-                      {lukuError}
-                    </Alert>
-                  )}
-
-                  <TextField
-                    fullWidth
-                    label="Paste SMS Here"
-                    multiline
-                    rows={4}
-                    value={lukuSms}
-                    onChange={(e) => setLukuSms(e.target.value)}
-                    placeholder="Malipo yamekamilika... TOKEN 5375 8923... 1399.3KWH Cost 408606.56..."
-                    size="small"
-                    sx={textFieldSx}
-                  />
-
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={handleAddLuku}
-                    disabled={!lukuSms.trim()}
-                    sx={{
-                      color: '#dc2626',
-                      borderColor: '#dc2626',
-                      textTransform: 'none',
-                      fontWeight: 600,
-                      '&:hover': {
-                        borderColor: '#b91c1c',
-                        backgroundColor: alpha('#dc2626', 0.04),
-                      }
-                    }}
-                  >
-                    Parse & Save Luku
-                  </Button>
-                </Stack>
-              </AccordionDetails>
-            </Accordion>
           </Stack>
         </DialogContent>
         <Divider />
@@ -2868,71 +2929,6 @@ export default function DryingProcess() {
               size="small"
               sx={textFieldSx}
             />
-
-            <Divider sx={{ my: 1 }} />
-
-            {/* Luku (Electricity Recharge) Section - Show stored SMS */}
-            <Accordion elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 1 }}>
-              <AccordionSummary
-                expandIcon={<ExpandMoreIcon />}
-                sx={{
-                  '&:hover': {
-                    backgroundColor: alpha('#dc2626', 0.02)
-                  }
-                }}
-              >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ElectricBoltIcon sx={{ fontSize: 20, color: editReadingData.lukuSms ? '#f59e0b' : '#94a3b8' }} />
-                  <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b' }}>
-                    Luku Recharge SMS {editReadingData.lukuSms ? '✓' : '(Not recorded)'}
-                  </Typography>
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Stack spacing={2}>
-                  {editReadingData.lukuSms ? (
-                    <>
-                      <Typography variant="caption" sx={{ color: '#64748b' }}>
-                        Electricity recharge SMS recorded with this reading
-                      </Typography>
-                      <TextField
-                        fullWidth
-                        label="Luku SMS"
-                        multiline
-                        rows={4}
-                        value={editReadingData.lukuSms}
-                        onChange={(e) => setEditReadingData({ ...editReadingData, lukuSms: e.target.value })}
-                        size="small"
-                        sx={textFieldSx}
-                      />
-                      <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.7rem' }}>
-                        You can edit this SMS text if needed
-                      </Typography>
-                    </>
-                  ) : (
-                    <>
-                      <Alert severity="info" sx={{ fontSize: '0.75rem' }}>
-                        No electricity recharge was recorded with this reading
-                      </Alert>
-                      <Typography variant="caption" sx={{ color: '#64748b' }}>
-                        You can add Luku SMS now if needed
-                      </Typography>
-                      <TextField
-                        fullWidth
-                        label="Paste SMS Here (Optional)"
-                        multiline
-                        rows={4}
-                        value={editReadingData.lukuSms}
-                        onChange={(e) => setEditReadingData({ ...editReadingData, lukuSms: e.target.value })}
-                        placeholder="Malipo yamekamilika... TOKEN 5375 8923... 1399.3KWH Cost 408606.56..."
-                        size="small"
-                        sx={textFieldSx}
-                      />
-                    </>
-                  )}
-                </Stack>
-              </AccordionDetails>
-            </Accordion>
           </Stack>
         </DialogContent>
         <Divider />
@@ -3176,48 +3172,67 @@ export default function DryingProcess() {
 
                     return (
                       <>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <Card elevation={0} sx={{ backgroundColor: '#dcfce7', border: '1px solid #bbf7d0' }}>
-                            <CardContent sx={{ p: 1.5 }}>
-                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                                Electricity Used
-                              </Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
-                                {Math.abs(electricityUsed).toFixed(2)} Unit
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <Card elevation={0} sx={{ backgroundColor: '#fef3c7', border: '1px solid #fde68a' }}>
-                            <CardContent sx={{ p: 1.5 }}>
-                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                                Electricity Cost
-                              </Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
-                                TZS {electricityCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
-                                @ {electricityRatePerKwh.toFixed(2)} TZS/kWh
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <Card elevation={0} sx={{ backgroundColor: '#fce7f3', border: '1px solid #fbcfe8' }}>
-                            <CardContent sx={{ p: 1.5 }}>
-                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                                Depreciation Cost
-                              </Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
-                                TZS {depreciationCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
-                                {runningHours.toFixed(1)} hours
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
+                        {canViewAmount && (
+                          <>
+                            <Grid item xs={12} sm={6} md={3}>
+                              <Card elevation={0} sx={{ backgroundColor: '#dcfce7', border: '1px solid #bbf7d0' }}>
+                                <CardContent sx={{ p: 1.5 }}>
+                                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                                    Electricity Used
+                                  </Typography>
+                                  <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
+                                    {Math.abs(electricityUsed).toFixed(2)} Unit
+                                  </Typography>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                            <Grid item xs={12} sm={6} md={3}>
+                              <Card elevation={0} sx={{ backgroundColor: '#fef3c7', border: '1px solid #fde68a' }}>
+                                <CardContent sx={{ p: 1.5 }}>
+                                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                                    Electricity Cost
+                                  </Typography>
+                                  <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
+                                    TZS {electricityCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
+                                    @ {electricityRatePerKwh.toFixed(2)} TZS/kWh
+                                  </Typography>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                            <Grid item xs={12} sm={6} md={3}>
+                              <Card elevation={0} sx={{ backgroundColor: '#fce7f3', border: '1px solid #fbcfe8' }}>
+                                <CardContent sx={{ p: 1.5 }}>
+                                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                                    Depreciation Cost
+                                  </Typography>
+                                  <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
+                                    TZS {depreciationCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
+                                    {runningHours.toFixed(1)} hours
+                                  </Typography>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                            <Grid item xs={12} sm={6} md={3}>
+                              <Card elevation={0} sx={{ backgroundColor: '#fee2e2', border: '1px solid #fecaca' }}>
+                                <CardContent sx={{ p: 1.5 }}>
+                                  <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+                                    Total Cost
+                                  </Typography>
+                                  <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem', color: '#dc2626' }}>
+                                    TZS {(electricityCost + depreciationCost).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
+                                    Electricity + Depreciation
+                                  </Typography>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                          </>
+                        )}
                         <Grid item xs={12} sm={6} md={3}>
                           <Card elevation={0} sx={{ backgroundColor: '#eff6ff', border: '1px solid #dbeafe' }}>
                             <CardContent sx={{ p: 1.5 }}>
@@ -3226,21 +3241,6 @@ export default function DryingProcess() {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem' }}>
                                 {currentHumidity.toFixed(1)}%
-                              </Typography>
-                            </CardContent>
-                          </Card>
-                        </Grid>
-                        <Grid item xs={12} sm={6} md={3}>
-                          <Card elevation={0} sx={{ backgroundColor: '#fee2e2', border: '1px solid #fecaca' }}>
-                            <CardContent sx={{ p: 1.5 }}>
-                              <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                                Total Cost
-                              </Typography>
-                              <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1.1rem', color: '#dc2626' }}>
-                                TZS {(electricityCost + depreciationCost).toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: '0.65rem' }}>
-                                Electricity + Depreciation
                               </Typography>
                             </CardContent>
                           </Card>
@@ -3348,7 +3348,7 @@ export default function DryingProcess() {
         </DialogContent>
         <Divider />
         <DialogActions sx={{ p: 2.5, justifyContent: 'space-between' }}>
-          {selectedProcess && (() => {
+          {canViewAmount && selectedProcess && (() => {
             // Use the same calculation as the UI display
             const electricityUsed = calculateElectricityUsed(selectedProcess);
             const electricityCost = Math.abs(electricityUsed) * electricityRatePerKwh;
@@ -3660,6 +3660,100 @@ export default function DryingProcess() {
             }}
           >
             {updating ? 'Updating...' : 'Update Process'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Add Luku Recharge Dialog */}
+      <Dialog
+        open={rechargeDialogOpen}
+        onClose={() => setRechargeDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+          }
+        }}
+      >
+        <DialogTitle sx={{ pb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <ElectricBoltIcon sx={{ color: '#dc2626', fontSize: 28 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
+              Add Luku Recharge - {selectedProcessForRecharge?.batchNumber}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 3 }}>
+          <Stack spacing={2.5}>
+            <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
+              Paste the Luku SMS and enter the meter reading AFTER the recharge was applied.
+            </Alert>
+
+            <TextField
+              fullWidth
+              label="Luku SMS"
+              multiline
+              rows={5}
+              value={rechargeData.smsText}
+              onChange={(e) => setRechargeData({ ...rechargeData, smsText: e.target.value })}
+              placeholder="Malipo yamekamilika.199d451c4c852896 9007252842029144016 TOKEN 1193 7922 8154 0931 2016 1403.5KWH..."
+              size="small"
+              sx={textFieldSx}
+              required
+            />
+
+            <TextField
+              fullWidth
+              label="Meter Reading AFTER Recharge (Unit)"
+              type="number"
+              value={rechargeData.meterReadingAfter}
+              onChange={(e) => setRechargeData({ ...rechargeData, meterReadingAfter: e.target.value })}
+              size="small"
+              sx={textFieldSx}
+              inputProps={{ step: 0.01 }}
+              required
+              helperText="Enter the electricity meter reading shown AFTER the recharge was added"
+            />
+
+            <Typography variant="caption" sx={{ color: '#64748b', mt: 1 }}>
+              <strong>Example:</strong> If meter was at 400 units, you recharged 2,807 kWh, and meter now shows 3,148 units, enter 3148.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <Divider />
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button
+            onClick={() => setRechargeDialogOpen(false)}
+            sx={{
+              color: '#64748b',
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleAddRecharge}
+            variant="contained"
+            disabled={!rechargeData.smsText.trim() || !rechargeData.meterReadingAfter}
+            sx={{
+              backgroundColor: '#dc2626',
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                backgroundColor: '#b91c1c',
+              },
+              '&:disabled': {
+                backgroundColor: '#f87171',
+                color: 'white',
+                opacity: 0.7
+              }
+            }}
+          >
+            Add Recharge
           </Button>
         </DialogActions>
       </Dialog>
