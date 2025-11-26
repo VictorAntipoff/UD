@@ -332,10 +332,11 @@ const InventoryReports: FC = () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
-    // Add logo - proper aspect ratio (logo is roughly 3.5:1)
-    const logo = new Image();
-    logo.src = '/src/assets/images/logo.png';
-    doc.addImage(logo, 'PNG', 14, 10, 35, 10);
+    // Add logo - temporarily disabled due to async loading issues in production
+    // TODO: Implement logo as base64 encoded image for reliable PDF generation
+    // const logo = new Image();
+    // logo.src = '/logo.png';
+    // doc.addImage(logo, 'PNG', 14, 10, 35, 10);
 
     // Title "Inventory Report"
     doc.setFontSize(16);
