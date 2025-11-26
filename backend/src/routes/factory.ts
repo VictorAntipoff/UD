@@ -1140,7 +1140,6 @@ async function factoryRoutes(fastify: FastifyInstance) {
         humidity: number;
         readingTime?: string;
         notes?: string;
-        lukuSms?: string;
       };
 
       // Get authenticated user info
@@ -1180,7 +1179,6 @@ async function factoryRoutes(fastify: FastifyInstance) {
           humidity: data.humidity,
           readingTime: readingTimeISO,
           notes: data.notes || '',
-          lukuSms: data.lukuSms || null,
           createdById: user.userId,
           createdByName: userName,
           updatedById: user.userId,
