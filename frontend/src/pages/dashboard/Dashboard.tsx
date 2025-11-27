@@ -142,7 +142,7 @@ const Dashboard = () => {
       count: loading ? <CircularProgress size={24} /> : stats.totalLots,
       label: 'Total LOTs',
       color: '#dc2626',
-      subtext: `${stats.activeLots} Active`,
+      subtext: `${stats.completedLots} Completed`,
       path: '/dashboard/management/wood-receipt',
       gradient: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'
     },
@@ -161,7 +161,7 @@ const Dashboard = () => {
       label: 'Pending Approvals',
       color: '#f59e0b',
       subtext: 'Require Action',
-      path: '/management/approvals',
+      path: '/dashboard/management/approvals',
       gradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
     },
     {
