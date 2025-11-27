@@ -131,7 +131,10 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
         const transferNotifs = await api.get('/notifications');
         const transferData = transferNotifs.data || [];
 
-        transferData.forEach((notif: any) => {
+        // Filter only unread notifications
+        const unreadTransferData = transferData.filter((notif: any) => !notif.isRead);
+
+        unreadTransferData.forEach((notif: any) => {
           let icon, color;
           switch(notif.type) {
             case 'TRANSFER_CREATED':
