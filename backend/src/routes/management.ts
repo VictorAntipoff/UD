@@ -677,6 +677,25 @@ async function managementRoutes(fastify: FastifyInstance) {
         }
       });
 
+      // Create history entry for approval
+      const user = (request as any).user;
+      if (user && existingReceipt.lotNumber) {
+        try {
+          await prisma.receiptHistory.create({
+            data: {
+              receiptId: existingReceipt.lotNumber,
+              userId: user.userId,
+              userName: user.email || user.userId,
+              action: 'APPROVED',
+              details: `Receipt approved by admin and marked as COMPLETED`,
+              timestamp: new Date()
+            }
+          });
+        } catch (historyError) {
+          console.error('Error creating approval history:', historyError);
+        }
+      }
+
       console.log(`Wood Receipt ${receipt.lotNumber} approved by admin and status set to COMPLETED`);
       return receipt;
     } catch (error) {

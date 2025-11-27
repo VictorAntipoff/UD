@@ -1464,6 +1464,17 @@ const ReceiptProcessing = () => {
       setMeasurementUnit((receipt as any).measurementUnit as 'imperial' | 'metric');
     }
 
+    // Load change history for this receipt
+    try {
+      const historyResponse = await api.get(`/factory/receipt-history?receipt_id=${lotNumber}`);
+      setChangeHistory(historyResponse.data || []);
+    } catch (historyError: any) {
+      if (historyError.response?.status !== 404) {
+        console.error('Error loading history:', historyError);
+      }
+      setChangeHistory([]);
+    }
+
     // Load measurements for this receipt using receipt ID
     try {
       const measurementsResponse = await api.get(`/factory/measurements?receipt_id=${receipt.id}`);
@@ -2665,29 +2676,39 @@ const ReceiptProcessing = () => {
                             }}
                           >
                             <Chip
-                              label={entry.action}
+                              label={entry.action.replace(/_/g, ' ')}
                               size="small"
                               sx={{
                                 fontSize: '0.75rem',
-                                fontWeight: 500,
-                                height: '24px',
+                                fontWeight: 600,
+                                height: '26px',
+                                borderRadius: '6px',
                                 bgcolor:
-                                  entry.action === 'CREATE'
-                                    ? alpha('#10b981', 0.1)
-                                    : entry.action === 'UPDATE'
-                                    ? alpha('#3b82f6', 0.1)
+                                  entry.action === 'CREATE' || entry.action === 'DRAFT_CREATED'
+                                    ? alpha('#10b981', 0.15)
+                                    : entry.action === 'UPDATE' || entry.action === 'DRAFT_UPDATED'
+                                    ? alpha('#3b82f6', 0.15)
+                                    : entry.action === 'APPROVED'
+                                    ? alpha('#8b5cf6', 0.15)
+                                    : entry.action === 'COMPLETED'
+                                    ? alpha('#059669', 0.15)
                                     : entry.action === 'SUBMIT'
-                                    ? alpha('#dc2626', 0.1)
-                                    : alpha('#64748b', 0.1),
+                                    ? alpha('#f59e0b', 0.15)
+                                    : alpha('#64748b', 0.15),
                                 color:
-                                  entry.action === 'CREATE'
+                                  entry.action === 'CREATE' || entry.action === 'DRAFT_CREATED'
                                     ? '#059669'
-                                    : entry.action === 'UPDATE'
+                                    : entry.action === 'UPDATE' || entry.action === 'DRAFT_UPDATED'
                                     ? '#2563eb'
+                                    : entry.action === 'APPROVED'
+                                    ? '#7c3aed'
+                                    : entry.action === 'COMPLETED'
+                                    ? '#047857'
                                     : entry.action === 'SUBMIT'
-                                    ? '#dc2626'
+                                    ? '#d97706'
                                     : '#475569',
                                 border: 'none',
+                                textTransform: 'capitalize',
                               }}
                             />
                           </TableCell>

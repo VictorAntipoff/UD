@@ -1737,6 +1737,31 @@ async function factoryRoutes(fastify: FastifyInstance) {
         console.log(`Updated receipt ${data.receipt_id} status to PENDING`);
       }
 
+      // Create history entry for draft creation
+      if (data.updated_by && data.receipt_id) {
+        try {
+          const user = await prisma.user.findUnique({
+            where: { id: data.updated_by }
+          });
+
+          if (user) {
+            const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
+            await prisma.receiptHistory.create({
+              data: {
+                receiptId: data.receipt_id,
+                userId: data.updated_by,
+                userName: user.email || user.id,
+                action: 'DRAFT_CREATED',
+                details: `Draft created with ${measurementCount} measurements`,
+                timestamp: new Date()
+              }
+            });
+          }
+        } catch (historyError) {
+          console.error('Error creating draft creation history:', historyError);
+        }
+      }
+
       return draft;
     } catch (error) {
       console.error('Error creating draft:', error);
@@ -1780,6 +1805,31 @@ async function factoryRoutes(fastify: FastifyInstance) {
             data: { status: 'PENDING' }
           });
           console.log(`Updated receipt ${existingDraft.receiptId} status to PENDING`);
+        }
+
+        // Create history entry for draft update
+        if (data.updated_by && existingDraft.receiptId) {
+          try {
+            const user = await prisma.user.findUnique({
+              where: { id: data.updated_by }
+            });
+
+            if (user) {
+              const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
+              await prisma.receiptHistory.create({
+                data: {
+                  receiptId: existingDraft.receiptId,
+                  userId: data.updated_by,
+                  userName: user.email || user.id,
+                  action: 'DRAFT_UPDATED',
+                  details: `Draft updated with ${measurementCount} measurements`,
+                  timestamp: new Date()
+                }
+              });
+            }
+          } catch (historyError) {
+            console.error('Error creating draft update history:', historyError);
+          }
         }
       }
 
@@ -2112,6 +2162,28 @@ async function factoryRoutes(fastify: FastifyInstance) {
           receiptConfirmedAt: new Date()
         }
       });
+
+      // Create history entry for completion
+      const completingUser = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (completingUser && lotNumber) {
+        try {
+          await prisma.receiptHistory.create({
+            data: {
+              receiptId: lotNumber,
+              userId: userId,
+              userName: completingUser.email || completingUser.id,
+              action: 'COMPLETED',
+              details: `Receipt completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³)`,
+              timestamp: new Date()
+            }
+          });
+        } catch (historyError) {
+          console.error('Error creating completion history:', historyError);
+        }
+      }
 
       // 7. Create notifications for subscribed users
       const subscriptions = await prisma.notificationSubscription.findMany({

@@ -1,25 +1,28 @@
-import { PrismaClient } from '@prisma/client';
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
 const prisma = new PrismaClient();
 
 async function checkHistory() {
   try {
     const history = await prisma.receiptHistory.findMany({
-      where: { receiptId: 'LOT-2025-004' },
-      orderBy: { timestamp: 'desc' }
+      where: { receiptId: 'LOT-2025-005' },
+      orderBy: { timestamp: 'asc' }
     });
     
-    console.log('\n=== RECEIPT HISTORY FOR LOT-2025-004 ===\n');
-    console.log('Total entries:', history.length);
-    console.log('');
-    
-    history.forEach((entry, idx) => {
-      console.log((idx + 1) + '. ' + entry.timestamp);
-      console.log('   User: ' + entry.userName + ' (' + entry.userId + ')');
-      console.log('   Action: ' + entry.action);
-      console.log('   Details: ' + entry.details);
-      console.log('');
+    console.log(`\nHistory entries for LOT-2025-005: ${history.length}`);
+    history.forEach(h => {
+      console.log(`  ${h.timestamp} - ${h.action} by ${h.userName}`);
+      console.log(`    Details: ${h.details}\n`);
+    });
+
+    const receipt = await prisma.woodReceipt.findFirst({
+      where: { lotNumber: 'LOT-2025-005' },
+      select: { status: true, createdAt: true, receiptConfirmedAt: true }
     });
     
+    console.log('Receipt status:', receipt?.status);
+    console.log('Created at:', receipt?.createdAt);
+    console.log('Confirmed at:', receipt?.receiptConfirmedAt);
   } catch (error) {
     console.error('Error:', error);
   } finally {
