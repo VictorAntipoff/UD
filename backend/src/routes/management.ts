@@ -51,7 +51,8 @@ async function managementRoutes(fastify: FastifyInstance) {
       const receipts = await prisma.woodReceipt.findMany({
         include: {
           woodType: true,
-          warehouse: true
+          warehouse: true,
+          measurements: true // Include sleeper/plank measurements
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -269,7 +270,8 @@ async function managementRoutes(fastify: FastifyInstance) {
       const woodReceipts = await prisma.woodReceipt.findMany({
         where: { lotNumber },
         include: {
-          woodType: true
+          woodType: true,
+          measurements: true
         },
         orderBy: {
           createdAt: 'asc'
@@ -624,6 +626,45 @@ async function managementRoutes(fastify: FastifyInstance) {
   fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+
+      // Get the receipt first to get lotNumber
+      const existingReceipt = await prisma.woodReceipt.findUnique({
+        where: { id },
+        include: { woodType: true }
+      });
+
+      if (!existingReceipt) {
+        return reply.status(404).send({ error: 'Receipt not found' });
+      }
+
+      // Get draft measurements
+      const draft = await prisma.receiptDraft.findFirst({
+        where: { receiptId: existingReceipt.lotNumber },
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      // If draft has measurements, save them to SleeperMeasurement table
+      if (draft && draft.measurements) {
+        const measurements = draft.measurements as any[];
+
+        // Delete existing measurements for this receipt (if any)
+        await prisma.sleeperMeasurement.deleteMany({
+          where: { receiptId: id }
+        });
+
+        // Create new measurements
+        await prisma.sleeperMeasurement.createMany({
+          data: measurements.map(m => ({
+            receiptId: id,
+            thickness: parseFloat(m.thickness) || 0,
+            width: parseFloat(m.width) || 0,
+            length: parseFloat(m.length) || 0,
+            qty: parseInt(m.qty) || 1,
+            volumeM3: parseFloat(m.m3) || 0,
+            isCustom: m.isCustom === true
+          }))
+        });
+      }
 
       const receipt = await prisma.woodReceipt.update({
         where: { id },

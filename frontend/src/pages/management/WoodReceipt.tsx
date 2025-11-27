@@ -241,7 +241,8 @@ const WoodReceipt = () => {
         total_amount: receipt.estimatedAmount,
         created_at: receipt.createdAt,
         updated_at: receipt.updatedAt,
-        wood_type: receipt.woodType
+        wood_type: receipt.woodType,
+        measurements: receipt.measurements || []
       }));
       setReceipts(mappedReceipts);
     } catch (error: any) {
