@@ -25,6 +25,14 @@ async function electricityRoutes(fastify: FastifyInstance) {
   fastify.get('/recharges', async (request, reply) => {
     try {
       const recharges = await prisma.electricityRecharge.findMany({
+        include: {
+          dryingProcess: {
+            select: {
+              batchNumber: true,
+              status: true
+            }
+          }
+        },
         orderBy: {
           rechargeDate: 'desc'
         }

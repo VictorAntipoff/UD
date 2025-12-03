@@ -246,6 +246,9 @@ export default function AdminSettings() {
     {
       category: 'Administration',
       items: [
+        { key: 'approvals', label: 'Approvals', hasActions: true },
+        { key: 'drying-settings', label: 'Drying Settings', hasActions: true },
+        { key: 'luku-recharge', label: 'Luku Recharge', hasActions: true },
         { key: 'user-settings', label: 'User Settings', hasActions: true },
         { key: 'admin-settings', label: 'Admin Settings', hasActions: true },
         { key: 'notification-settings', label: 'Notification Settings', hasActions: true },

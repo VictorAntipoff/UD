@@ -591,6 +591,15 @@ async function factoryRoutes(fastify) {
                     woodType: true,
                     readings: {
                         orderBy: { readingTime: 'asc' }
+                    },
+                    recharges: {
+                        orderBy: { rechargeDate: 'asc' }
+                    },
+                    items: {
+                        include: {
+                            woodType: true,
+                            sourceWarehouse: true
+                        }
                     }
                 },
                 orderBy: { createdAt: 'desc' }
@@ -612,6 +621,15 @@ async function factoryRoutes(fastify) {
                     woodType: true,
                     readings: {
                         orderBy: { readingTime: 'asc' }
+                    },
+                    recharges: {
+                        orderBy: { rechargeDate: 'asc' }
+                    },
+                    items: {
+                        include: {
+                            woodType: true,
+                            sourceWarehouse: true
+                        }
                     }
                 }
             });
@@ -631,44 +649,90 @@ async function factoryRoutes(fastify) {
             const data = request.body;
             // Get authenticated user info
             const user = request.user;
-            const userName = user.firstName && user.lastName
-                ? `${user.firstName} ${user.lastName}`
-                : user.email;
+            // Fetch full user details from database to get name
+            const userDetails = await prisma.user.findUnique({
+                where: { id: user.userId },
+                select: { firstName: true, lastName: true, email: true }
+            });
+            const userName = userDetails && userDetails.firstName && userDetails.lastName
+                ? `${userDetails.firstName} ${userDetails.lastName}`
+                : (userDetails?.email || 'System');
+            // Determine if using old or new format
+            const isMultiWood = data.items && data.items.length > 0;
             // Validate required fields
-            if (!data.woodTypeId || !data.thickness || !data.pieceCount || !data.startTime) {
-                return reply.status(400).send({ error: 'Missing required fields' });
+            if (!isMultiWood && (!data.woodTypeId || !data.thickness || !data.pieceCount)) {
+                return reply.status(400).send({ error: 'Missing required fields for single wood process' });
+            }
+            if (isMultiWood && (!data.items || data.items.length === 0)) {
+                return reply.status(400).send({ error: 'Missing items for multi-wood process' });
+            }
+            if (!data.startTime) {
+                return reply.status(400).send({ error: 'Missing start time' });
             }
             // Generate unique batch number (format: UD-DRY-00001)
             const count = await prisma.dryingProcess.count();
             const batchNumber = `UD-DRY-${String(count + 1).padStart(5, '0')}`;
-            // Use transaction if updating stock
+            // Use transaction for stock updates with increased timeout for Neon DB
             const process = await prisma.$transaction(async (tx) => {
                 // Create the drying process
                 const createdProcess = await tx.dryingProcess.create({
                     data: {
                         batchNumber,
-                        woodTypeId: data.woodTypeId,
-                        thickness: data.thickness,
-                        thicknessUnit: data.thicknessUnit || 'mm',
-                        pieceCount: data.pieceCount,
+                        // OLD FIELDS - only for backward compatibility
+                        ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
+                        ...(data.thickness && { thickness: data.thickness }),
+                        ...(data.thicknessUnit && { thicknessUnit: data.thicknessUnit }),
+                        ...(data.pieceCount && { pieceCount: data.pieceCount }),
+                        ...(data.warehouseId && { sourceWarehouseId: data.warehouseId }),
+                        ...(data.stockThickness && { stockThickness: data.stockThickness }),
                         startingHumidity: data.startingHumidity,
                         startingElectricityUnits: data.startingElectricityUnits,
                         startTime: new Date(data.startTime),
                         notes: data.notes || '',
                         status: 'IN_PROGRESS',
-                        useStock: data.useStock || false,
-                        sourceWarehouseId: data.warehouseId || null,
-                        stockThickness: data.stockThickness || null,
+                        useStock: isMultiWood || data.useStock || false,
                         createdById: user.userId,
                         createdByName: userName
-                    },
-                    include: {
-                        woodType: true,
-                        readings: true
                     }
                 });
-                // If using stock, update the warehouse stock
-                if (data.useStock && data.warehouseId && data.stockThickness) {
+                // If multi-wood, create items and update stock for each
+                if (isMultiWood && data.items) {
+                    for (const item of data.items) {
+                        // Validate stock availability
+                        const stock = await tx.stock.findFirst({
+                            where: {
+                                warehouseId: item.warehouseId,
+                                woodTypeId: item.woodTypeId,
+                                thickness: item.thickness
+                            }
+                        });
+                        if (!stock || stock.statusNotDried < item.pieceCount) {
+                            throw new Error(`Insufficient stock for wood type at thickness ${item.thickness}`);
+                        }
+                        // Create drying process item
+                        await tx.dryingProcessItem.create({
+                            data: {
+                                dryingProcessId: createdProcess.id,
+                                woodTypeId: item.woodTypeId,
+                                thickness: item.thickness,
+                                pieceCount: item.pieceCount,
+                                sourceWarehouseId: item.warehouseId
+                            }
+                        });
+                        // Update stock: NotDried -> UnderDrying
+                        await tx.stock.update({
+                            where: {
+                                id: stock.id
+                            },
+                            data: {
+                                statusNotDried: { decrement: item.pieceCount },
+                                statusUnderDrying: { increment: item.pieceCount }
+                            }
+                        });
+                    }
+                }
+                // OLD FORMAT - single wood stock update
+                else if (data.useStock && data.warehouseId && data.stockThickness && data.woodTypeId) {
                     await tx.stock.updateMany({
                         where: {
                             warehouseId: data.warehouseId,
@@ -681,13 +745,32 @@ async function factoryRoutes(fastify) {
                         }
                     });
                 }
-                return createdProcess;
+                // Fetch complete process with relations
+                const completeProcess = await tx.dryingProcess.findUnique({
+                    where: { id: createdProcess.id },
+                    include: {
+                        woodType: true,
+                        readings: true,
+                        items: {
+                            include: {
+                                woodType: true,
+                                sourceWarehouse: true
+                            }
+                        }
+                    }
+                });
+                return completeProcess;
+            }, {
+                maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
+                timeout: 30000, // Transaction timeout 30 seconds
             });
             return process;
         }
         catch (error) {
             console.error('Error creating drying process:', error);
-            return reply.status(500).send({ error: 'Failed to create drying process' });
+            return reply.status(500).send({
+                error: error instanceof Error ? error.message : 'Failed to create drying process'
+            });
         }
     });
     // Update drying process
@@ -695,32 +778,85 @@ async function factoryRoutes(fastify) {
         try {
             const { id } = request.params;
             const data = request.body;
-            // If completing the process, calculate cost
+            // If completing the process, calculate cost and set endTime to last reading time
             let calculatedCost = data.totalCost;
+            let autoEndTime = data.endTime;
             if (data.status === 'COMPLETED') {
-                // Fetch the process with readings
+                // Fetch the process with readings and recharges
                 const processWithReadings = await prisma.dryingProcess.findUnique({
                     where: { id },
                     include: {
                         readings: {
                             orderBy: { readingTime: 'asc' }
-                        }
+                        },
+                        recharges: {
+                            orderBy: { rechargeDate: 'asc' }
+                        },
+                        items: true
                     }
                 });
-                if (processWithReadings && processWithReadings.readings.length >= 2) {
-                    // Get electricity price from settings
-                    const electricityPriceSetting = await prisma.setting.findUnique({
-                        where: { key: 'electricityPricePerKWh' }
+                if (processWithReadings && processWithReadings.readings.length > 0) {
+                    // Set endTime to last reading time (not button click time)
+                    const lastReading = processWithReadings.readings[processWithReadings.readings.length - 1];
+                    autoEndTime = lastReading.readingTime.toISOString();
+                    // Get settings for cost calculation
+                    const settings = {};
+                    const settingsKeys = ['ovenPurchasePrice', 'ovenLifespanYears', 'maintenanceCostPerYear', 'laborCostPerHour'];
+                    for (const key of settingsKeys) {
+                        const setting = await prisma.setting.findUnique({ where: { key } });
+                        settings[key] = setting ? parseFloat(setting.value) : 0;
+                    }
+                    // Get electricity rate from most recent recharge
+                    const latestRecharge = await prisma.electricityRecharge.findFirst({
+                        orderBy: { rechargeDate: 'desc' }
                     });
-                    const pricePerKWh = electricityPriceSetting
-                        ? parseFloat(electricityPriceSetting.value)
-                        : 0.15; // Default fallback
-                    // Calculate total electricity used
+                    const electricityRate = latestRecharge ? (latestRecharge.totalPaid / latestRecharge.kwhAmount) : 292;
+                    // Calculate cost per hour rates
+                    const annualDepreciation = settings.ovenPurchasePrice / settings.ovenLifespanYears;
+                    const depreciationPerHour = annualDepreciation / 8760;
+                    const maintenancePerHour = settings.maintenanceCostPerYear / 8760;
+                    // Calculate electricity consumption with recharge awareness
+                    let totalElectricityUsed = 0;
                     const firstReading = processWithReadings.readings[0].electricityMeter;
-                    const lastReading = processWithReadings.readings[processWithReadings.readings.length - 1].electricityMeter;
-                    const totalKWh = lastReading - firstReading;
-                    // Calculate cost
-                    calculatedCost = totalKWh * pricePerKWh;
+                    for (let i = 0; i < processWithReadings.readings.length; i++) {
+                        const currentReading = processWithReadings.readings[i];
+                        const currentTime = new Date(currentReading.readingTime);
+                        let prevReading;
+                        let prevTime;
+                        if (i === 0) {
+                            prevReading = processWithReadings.startingElectricityUnits || firstReading;
+                            prevTime = new Date(processWithReadings.startTime);
+                        }
+                        else {
+                            prevReading = processWithReadings.readings[i - 1].electricityMeter;
+                            prevTime = new Date(processWithReadings.readings[i - 1].readingTime);
+                        }
+                        // Find recharges between prev and current reading
+                        const rechargesBetween = processWithReadings.recharges.filter(r => new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime);
+                        if (rechargesBetween.length > 0) {
+                            // Recharge occurred - use formula: prevReading + recharged - currentReading
+                            const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
+                            const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+                            totalElectricityUsed += Math.max(0, consumed);
+                        }
+                        else {
+                            // Normal consumption (prepaid meter counting down)
+                            const consumed = prevReading - currentReading.electricityMeter;
+                            if (consumed > 0) {
+                                totalElectricityUsed += consumed;
+                            }
+                        }
+                    }
+                    // Calculate running hours using last reading time
+                    const startTime = new Date(processWithReadings.startTime).getTime();
+                    const lastReadingTime = new Date(lastReading.readingTime).getTime();
+                    const runningHours = (lastReadingTime - startTime) / (1000 * 60 * 60);
+                    // Calculate total cost
+                    const electricityCost = totalElectricityUsed * electricityRate;
+                    const depreciationCost = runningHours * depreciationPerHour;
+                    const maintenanceCost = runningHours * maintenancePerHour;
+                    const laborCost = runningHours * settings.laborCostPerHour;
+                    calculatedCost = electricityCost + depreciationCost + maintenanceCost + laborCost;
                 }
             }
             // Use transaction to update stock when completing
@@ -740,7 +876,7 @@ async function factoryRoutes(fastify) {
                         ...(data.startingElectricityUnits !== undefined && { startingElectricityUnits: data.startingElectricityUnits }),
                         ...(data.startTime && { startTime: new Date(data.startTime) }),
                         ...(data.status && { status: data.status }),
-                        ...(data.endTime && { endTime: new Date(data.endTime) }),
+                        ...(autoEndTime && { endTime: new Date(autoEndTime) }), // Use autoEndTime (last reading time)
                         ...(calculatedCost !== undefined && { totalCost: calculatedCost }),
                         ...(data.notes !== undefined && { notes: data.notes })
                     },
@@ -748,27 +884,72 @@ async function factoryRoutes(fastify) {
                         woodType: true,
                         readings: {
                             orderBy: { readingTime: 'asc' }
+                        },
+                        recharges: {
+                            orderBy: { rechargeDate: 'asc' }
                         }
                     }
                 });
-                // If completing the process and it uses stock, update warehouse stock
-                if (data.status === 'COMPLETED' &&
-                    currentProcess?.useStock &&
-                    currentProcess?.sourceWarehouseId &&
-                    currentProcess?.stockThickness) {
-                    await tx.stock.updateMany({
-                        where: {
-                            warehouseId: currentProcess.sourceWarehouseId,
-                            woodTypeId: currentProcess.woodTypeId,
-                            thickness: currentProcess.stockThickness
-                        },
-                        data: {
-                            statusUnderDrying: { decrement: currentProcess.pieceCount },
-                            statusDried: { increment: currentProcess.pieceCount }
-                        }
+                // If completing the process, update warehouse stock
+                if (data.status === 'COMPLETED' && currentProcess?.useStock) {
+                    // Check if it's a multi-wood process (has items)
+                    const processItems = await tx.dryingProcessItem.findMany({
+                        where: { dryingProcessId: id }
                     });
+                    if (processItems.length > 0) {
+                        // MULTI-WOOD: Update stock for each item
+                        for (const item of processItems) {
+                            await tx.stock.updateMany({
+                                where: {
+                                    warehouseId: item.sourceWarehouseId,
+                                    woodTypeId: item.woodTypeId,
+                                    thickness: item.thickness
+                                },
+                                data: {
+                                    statusUnderDrying: { decrement: item.pieceCount },
+                                    statusDried: { increment: item.pieceCount }
+                                }
+                            });
+                        }
+                    }
+                    else if (currentProcess.sourceWarehouseId && currentProcess.stockThickness && currentProcess.woodTypeId) {
+                        // OLD SINGLE-WOOD: Update stock using old fields
+                        await tx.stock.updateMany({
+                            where: {
+                                warehouseId: currentProcess.sourceWarehouseId,
+                                woodTypeId: currentProcess.woodTypeId,
+                                thickness: currentProcess.stockThickness
+                            },
+                            data: {
+                                statusUnderDrying: { decrement: currentProcess.pieceCount },
+                                statusDried: { increment: currentProcess.pieceCount }
+                            }
+                        });
+                    }
                 }
-                return updatedProcess;
+                // Fetch updated process with all relations
+                const completeProcess = await tx.dryingProcess.findUnique({
+                    where: { id },
+                    include: {
+                        woodType: true,
+                        readings: {
+                            orderBy: { readingTime: 'asc' }
+                        },
+                        recharges: {
+                            orderBy: { rechargeDate: 'asc' }
+                        },
+                        items: {
+                            include: {
+                                woodType: true,
+                                sourceWarehouse: true
+                            }
+                        }
+                    }
+                });
+                return completeProcess;
+            }, {
+                maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
+                timeout: 30000, // Transaction timeout 30 seconds
             });
             return process;
         }
@@ -798,9 +979,14 @@ async function factoryRoutes(fastify) {
             const data = request.body;
             // Get authenticated user info
             const user = request.user;
-            const userName = user.firstName && user.lastName
-                ? `${user.firstName} ${user.lastName}`
-                : user.email;
+            // Fetch full user details from database to get name
+            const userDetails = await prisma.user.findUnique({
+                where: { id: user.userId },
+                select: { firstName: true, lastName: true, email: true }
+            });
+            const userName = userDetails && userDetails.firstName && userDetails.lastName
+                ? `${userDetails.firstName} ${userDetails.lastName}`
+                : (userDetails?.email || 'System');
             // Validate required fields
             if (data.electricityMeter === undefined || data.humidity === undefined) {
                 return reply.status(400).send({ error: 'Missing required fields' });
@@ -812,10 +998,8 @@ async function factoryRoutes(fastify) {
             if (!process) {
                 return reply.status(404).send({ error: 'Drying process not found' });
             }
-            // Convert datetime-local format to ISO while preserving exact time
-            const readingTimeISO = data.readingTime
-                ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
-                : new Date().toISOString();
+            // Frontend sends UTC time in ISO format from parseLocalToUTC()
+            const readingTimeISO = data.readingTime || new Date().toISOString();
             const reading = await prisma.dryingReading.create({
                 data: {
                     dryingProcessId: id,
@@ -823,13 +1007,41 @@ async function factoryRoutes(fastify) {
                     humidity: data.humidity,
                     readingTime: readingTimeISO,
                     notes: data.notes || '',
-                    lukuSms: data.lukuSms || null,
                     createdById: user.userId,
                     createdByName: userName,
                     updatedById: user.userId,
                     updatedByName: userName
                 }
             });
+            // Send notifications to subscribed users (excluding the creator)
+            try {
+                const subscriptions = await prisma.notificationSubscription.findMany({
+                    where: {
+                        eventType: 'DRYING_READING_ADDED',
+                        inApp: true,
+                        userId: {
+                            not: user.userId // Don't notify the user who created the reading
+                        }
+                    }
+                });
+                if (subscriptions.length > 0) {
+                    const notifications = subscriptions.map(sub => ({
+                        userId: sub.userId,
+                        type: 'DRYING_READING_ADDED',
+                        title: 'New Drying Reading Added',
+                        message: `${userName} added a new reading to ${process.name} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
+                        linkUrl: `/dashboard/factory/drying-process`,
+                        isRead: false
+                    }));
+                    await prisma.notification.createMany({
+                        data: notifications
+                    });
+                }
+            }
+            catch (notifError) {
+                console.error('Error sending drying reading notifications:', notifError);
+                // Don't fail the request if notifications fail
+            }
             return reading;
         }
         catch (error) {
@@ -1136,19 +1348,20 @@ async function factoryRoutes(fastify) {
             const data = request.body;
             // Get authenticated user info
             const user = request.user;
-            const userName = user.firstName && user.lastName
-                ? `${user.firstName} ${user.lastName}`
-                : user.email;
-            // Convert datetime-local format to ISO while preserving exact time
-            const readingTimeISO = data.readingTime !== undefined
-                ? (data.readingTime.includes('T') ? data.readingTime + ':00.000Z' : new Date(data.readingTime).toISOString())
-                : undefined;
+            // Fetch full user details from database to get name
+            const userDetails = await prisma.user.findUnique({
+                where: { id: user.userId },
+                select: { firstName: true, lastName: true, email: true }
+            });
+            const userName = userDetails && userDetails.firstName && userDetails.lastName
+                ? `${userDetails.firstName} ${userDetails.lastName}`
+                : (userDetails?.email || 'System');
             const reading = await prisma.dryingReading.update({
                 where: { id },
                 data: {
                     ...(data.electricityMeter !== undefined && { electricityMeter: data.electricityMeter }),
                     ...(data.humidity !== undefined && { humidity: data.humidity }),
-                    ...(readingTimeISO !== undefined && { readingTime: readingTimeISO }),
+                    ...(data.readingTime !== undefined && { readingTime: data.readingTime }),
                     ...(data.notes !== undefined && { notes: data.notes }),
                     ...(data.lukuSms !== undefined && { lukuSms: data.lukuSms }),
                     updatedById: user.userId,
@@ -1177,6 +1390,24 @@ async function factoryRoutes(fastify) {
         }
     });
     // ===== RECEIPT DRAFT ROUTES =====
+    // Get sleeper measurements for a receipt
+    fastify.get('/measurements', async (request, reply) => {
+        try {
+            const { receipt_id } = request.query;
+            if (!receipt_id) {
+                return reply.status(400).send({ error: 'receipt_id is required' });
+            }
+            const measurements = await prisma.sleeperMeasurement.findMany({
+                where: { receiptId: receipt_id },
+                orderBy: { createdAt: 'asc' }
+            });
+            return measurements;
+        }
+        catch (error) {
+            console.error('Error fetching measurements:', error);
+            return reply.status(500).send({ error: 'Failed to fetch measurements' });
+        }
+    });
     // Get drafts (optionally filtered by receipt_id)
     fastify.get('/drafts', async (request, reply) => {
         try {
@@ -1209,6 +1440,7 @@ async function factoryRoutes(fastify) {
                 data: {
                     receiptId: data.receipt_id,
                     measurements: data.measurements,
+                    measurementUnit: data.measurement_unit || 'imperial',
                     updatedBy: data.updated_by
                 }
             });
@@ -1222,6 +1454,30 @@ async function factoryRoutes(fastify) {
                     data: { status: 'PENDING' }
                 });
                 console.log(`Updated receipt ${data.receipt_id} status to PENDING`);
+            }
+            // Create history entry for draft creation
+            if (data.updated_by && data.receipt_id) {
+                try {
+                    const user = await prisma.user.findUnique({
+                        where: { id: data.updated_by }
+                    });
+                    if (user) {
+                        const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
+                        await prisma.receiptHistory.create({
+                            data: {
+                                receiptId: data.receipt_id,
+                                userId: data.updated_by,
+                                userName: user.email || user.id,
+                                action: 'DRAFT_CREATED',
+                                details: `Draft created with ${measurementCount} measurements`,
+                                timestamp: new Date()
+                            }
+                        });
+                    }
+                }
+                catch (historyError) {
+                    console.error('Error creating draft creation history:', historyError);
+                }
             }
             return draft;
         }
@@ -1239,6 +1495,7 @@ async function factoryRoutes(fastify) {
                 where: { id },
                 data: {
                     ...(data.measurements && { measurements: data.measurements }),
+                    ...(data.measurement_unit && { measurementUnit: data.measurement_unit }),
                     ...(data.updated_by && { updatedBy: data.updated_by })
                 }
             });
@@ -1256,6 +1513,30 @@ async function factoryRoutes(fastify) {
                         data: { status: 'PENDING' }
                     });
                     console.log(`Updated receipt ${existingDraft.receiptId} status to PENDING`);
+                }
+                // Create history entry for draft update
+                if (data.updated_by && existingDraft.receiptId) {
+                    try {
+                        const user = await prisma.user.findUnique({
+                            where: { id: data.updated_by }
+                        });
+                        if (user) {
+                            const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
+                            await prisma.receiptHistory.create({
+                                data: {
+                                    receiptId: existingDraft.receiptId,
+                                    userId: data.updated_by,
+                                    userName: user.email || user.id,
+                                    action: 'DRAFT_UPDATED',
+                                    details: `Draft updated with ${measurementCount} measurements`,
+                                    timestamp: new Date()
+                                }
+                            });
+                        }
+                    }
+                    catch (historyError) {
+                        console.error('Error creating draft update history:', historyError);
+                    }
                 }
             }
             return draft;
@@ -1407,6 +1688,211 @@ async function factoryRoutes(fastify) {
         catch (error) {
             console.error('Error updating approval:', error);
             return reply.status(500).send({ error: 'Failed to update approval' });
+        }
+    });
+    // Complete Processing - Update stock and send notifications
+    fastify.post('/receipts/complete/:lotNumber', async (request, reply) => {
+        try {
+            const { lotNumber } = request.params;
+            const userId = request.user?.userId;
+            if (!userId) {
+                return reply.status(401).send({ error: 'Unauthorized' });
+            }
+            // 1. Get receipt with warehouse
+            const receipt = await prisma.woodReceipt.findUnique({
+                where: { lotNumber },
+                include: {
+                    woodType: true,
+                    warehouse: true
+                }
+            });
+            if (!receipt) {
+                return reply.status(404).send({ error: 'Receipt not found' });
+            }
+            // 2. Get draft measurements
+            const draft = await prisma.receiptDraft.findFirst({
+                where: { receiptId: lotNumber },
+                orderBy: { updatedAt: 'desc' }
+            });
+            if (!draft || !draft.measurements) {
+                return reply.status(400).send({ error: 'No measurements found for this receipt' });
+            }
+            // 3. Calculate total pieces and volume from measurements
+            const measurements = draft.measurements;
+            const totalPieces = measurements.reduce((sum, m) => sum + (parseInt(m.qty) || 1), 0);
+            const totalVolumeM3 = measurements.reduce((sum, m) => sum + (parseFloat(m.m3) || 0), 0);
+            console.log('📊 Receipt Completion Calculation:', {
+                lotNumber,
+                totalPieces,
+                totalVolumeM3,
+                measurementCount: measurements.length,
+                measurements: measurements.map(m => ({ qty: m.qty, m3: m.m3 }))
+            });
+            // Get measurement unit from draft (for fallback)
+            const measurementUnit = draft.measurementUnit || 'imperial';
+            // Group measurements by thickness, respecting isCustom flag
+            const stockByThickness = measurements.reduce((acc, m) => {
+                let thickness;
+                // Check if measurement has isCustom flag
+                if (m.isCustom === true) {
+                    // User marked as custom → Always "Custom"
+                    thickness = 'Custom';
+                }
+                else if (m.isCustom === false) {
+                    // User marked as standard → Use thickness value
+                    const thicknessValue = parseFloat(m.thickness);
+                    thickness = `${thicknessValue}"`;
+                }
+                else {
+                    // Legacy/fallback: No isCustom field, use auto-detection
+                    if (measurementUnit === 'metric') {
+                        thickness = 'Custom';
+                    }
+                    else {
+                        const thicknessValue = parseFloat(m.thickness);
+                        const STANDARD_SIZES = [1, 2, 3];
+                        thickness = STANDARD_SIZES.includes(thicknessValue)
+                            ? `${thicknessValue}"`
+                            : 'Custom';
+                    }
+                }
+                if (!acc[thickness]) {
+                    acc[thickness] = 0;
+                }
+                acc[thickness] += parseInt(m.qty) || 1;
+                return acc;
+            }, {});
+            // 4. Update warehouse stock if warehouse exists and stock control is enabled
+            if (receipt.warehouseId && receipt.warehouse?.stockControlEnabled) {
+                // Update stock for each thickness
+                for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+                    const qty = quantity; // Type cast from unknown to number
+                    await prisma.stock.upsert({
+                        where: {
+                            warehouseId_woodTypeId_thickness: {
+                                warehouseId: receipt.warehouseId,
+                                woodTypeId: receipt.woodTypeId,
+                                thickness: thickness
+                            }
+                        },
+                        update: {
+                            statusNotDried: { increment: qty }
+                        },
+                        create: {
+                            warehouseId: receipt.warehouseId,
+                            woodTypeId: receipt.woodTypeId,
+                            thickness: thickness,
+                            statusNotDried: qty,
+                            statusUnderDrying: 0,
+                            statusDried: 0,
+                            statusDamaged: 0
+                        }
+                    });
+                }
+            }
+            // 5. Save measurements to SleeperMeasurement table
+            const receiptRecord = await prisma.woodReceipt.findUnique({
+                where: { lotNumber }
+            });
+            if (receiptRecord) {
+                // Delete existing measurements for this receipt (if any)
+                await prisma.sleeperMeasurement.deleteMany({
+                    where: { receiptId: receiptRecord.id }
+                });
+                // Create new measurements
+                await prisma.sleeperMeasurement.createMany({
+                    data: measurements.map(m => ({
+                        receiptId: receiptRecord.id,
+                        thickness: parseFloat(m.thickness) || 0,
+                        width: parseFloat(m.width) || 0,
+                        length: parseFloat(m.length) || 0,
+                        qty: parseInt(m.qty) || 1,
+                        volumeM3: parseFloat(m.m3) || 0,
+                        isCustom: m.isCustom === true
+                    }))
+                });
+            }
+            // 6. Update receipt status to COMPLETED
+            const updatedReceipt = await prisma.woodReceipt.update({
+                where: { lotNumber },
+                data: {
+                    status: 'COMPLETED',
+                    actualPieces: totalPieces,
+                    actualVolumeM3: totalVolumeM3,
+                    measurementUnit: measurementUnit,
+                    receiptConfirmedAt: new Date()
+                }
+            });
+            // Create history entry for completion
+            const completingUser = await prisma.user.findUnique({
+                where: { id: userId }
+            });
+            if (completingUser && lotNumber) {
+                try {
+                    await prisma.receiptHistory.create({
+                        data: {
+                            receiptId: lotNumber,
+                            userId: userId,
+                            userName: completingUser.email || completingUser.id,
+                            action: 'COMPLETED',
+                            details: `Receipt completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³)`,
+                            timestamp: new Date()
+                        }
+                    });
+                }
+                catch (historyError) {
+                    console.error('Error creating completion history:', historyError);
+                }
+            }
+            // 7. Create notifications for subscribed users
+            const subscriptions = await prisma.notificationSubscription.findMany({
+                where: {
+                    eventType: 'RECEIPT_COMPLETED',
+                    inApp: true // Users who have in-app notifications enabled
+                }
+            });
+            // If no subscriptions exist, fallback to all admin users
+            let userIds;
+            if (subscriptions.length === 0) {
+                const adminUsers = await prisma.user.findMany({
+                    where: { role: 'ADMIN', isActive: true },
+                    select: { id: true }
+                });
+                userIds = adminUsers.map(u => u.id);
+            }
+            else {
+                userIds = subscriptions.map(s => s.userId);
+            }
+            // Build thickness breakdown for notification
+            const thicknessBreakdown = Object.entries(stockByThickness)
+                .map(([thickness, qty]) => `${thickness}: ${qty} pcs`)
+                .join(', ');
+            const warehouseInfo = receipt.warehouse
+                ? ` → ${receipt.warehouse.name}`
+                : '';
+            const notifications = userIds.map(userId => ({
+                userId,
+                type: 'RECEIPT_COMPLETED',
+                title: 'Wood Receipt Completed',
+                message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³). Breakdown: ${thicknessBreakdown}`,
+                linkUrl: `/dashboard/factory/receipt-processing?lot=${lotNumber}`,
+                isRead: false
+            }));
+            if (notifications.length > 0) {
+                await prisma.notification.createMany({
+                    data: notifications
+                });
+            }
+            return {
+                success: true,
+                receipt: updatedReceipt,
+                stockUpdated: !!receipt.warehouseId && receipt.warehouse?.stockControlEnabled,
+                notificationsSent: notifications.length
+            };
+        }
+        catch (error) {
+            console.error('Error completing receipt processing:', error);
+            return reply.status(500).send({ error: 'Failed to complete receipt processing' });
         }
     });
 }

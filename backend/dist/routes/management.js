@@ -3,12 +3,44 @@ import { authenticateToken, requireWarehouseManagement, requireStockAdjustment, 
 async function managementRoutes(fastify) {
     // SECURITY: Protect all management routes with authentication
     fastify.addHook('onRequest', authenticateToken);
+    // Generate next LOT number
+    fastify.get('/wood-receipts/next-lot', async (request, reply) => {
+        try {
+            // Get the latest LOT number
+            const latestReceipt = await prisma.woodReceipt.findFirst({
+                orderBy: { lotNumber: 'desc' },
+                select: { lotNumber: true }
+            });
+            let nextNumber = 1;
+            const currentYear = new Date().getFullYear();
+            if (latestReceipt && latestReceipt.lotNumber) {
+                // Extract number from LOT-YYYY-XXX format
+                const match = latestReceipt.lotNumber.match(/LOT-(\d{4})-(\d+)/);
+                if (match) {
+                    const year = parseInt(match[1]);
+                    const number = parseInt(match[2]);
+                    // If same year, increment; if new year, reset to 1
+                    if (year === currentYear) {
+                        nextNumber = number + 1;
+                    }
+                }
+            }
+            const nextLotNumber = `LOT-${currentYear}-${String(nextNumber).padStart(3, '0')}`;
+            return { lotNumber: nextLotNumber };
+        }
+        catch (error) {
+            console.error('Error generating next LOT number:', error);
+            return reply.status(500).send({ error: 'Failed to generate next LOT number' });
+        }
+    });
     // Get all wood receipts
     fastify.get('/wood-receipts', async (request, reply) => {
         try {
             const receipts = await prisma.woodReceipt.findMany({
                 include: {
-                    woodType: true
+                    woodType: true,
+                    warehouse: true,
+                    measurements: true // Include sleeper/plank measurements
                 },
                 orderBy: { createdAt: 'desc' }
             });
@@ -23,15 +55,37 @@ async function managementRoutes(fastify) {
     fastify.post('/wood-receipts', async (request, reply) => {
         try {
             const data = request.body;
-            if (!data.wood_type_id || !data.supplier || !data.receipt_date || !data.lot_number) {
-                return reply.status(400).send({ error: 'Missing required fields: wood_type_id, supplier, receipt_date, and lot_number are required' });
+            if (!data.wood_type_id || !data.supplier || !data.receipt_date) {
+                return reply.status(400).send({ error: 'Missing required fields: wood_type_id, supplier, and receipt_date are required' });
+            }
+            // Auto-generate LOT number if not provided
+            let lotNumber = data.lot_number;
+            if (!lotNumber) {
+                const latestReceipt = await prisma.woodReceipt.findFirst({
+                    orderBy: { lotNumber: 'desc' },
+                    select: { lotNumber: true }
+                });
+                let nextNumber = 1;
+                const currentYear = new Date().getFullYear();
+                if (latestReceipt && latestReceipt.lotNumber) {
+                    const match = latestReceipt.lotNumber.match(/LOT-(\d{4})-(\d+)/);
+                    if (match) {
+                        const year = parseInt(match[1]);
+                        const number = parseInt(match[2]);
+                        if (year === currentYear) {
+                            nextNumber = number + 1;
+                        }
+                    }
+                }
+                lotNumber = `LOT-${currentYear}-${String(nextNumber).padStart(3, '0')}`;
             }
             const receipt = await prisma.woodReceipt.create({
                 data: {
                     woodTypeId: data.wood_type_id,
+                    warehouseId: data.warehouse_id || null,
                     supplier: data.supplier,
                     receiptDate: new Date(data.receipt_date),
-                    lotNumber: data.lot_number,
+                    lotNumber: lotNumber,
                     purchaseOrder: data.purchase_order || null,
                     woodFormat: data.wood_format || 'SLEEPERS',
                     notes: data.notes || null,
@@ -40,7 +94,8 @@ async function managementRoutes(fastify) {
                     estimatedPieces: data.total_pieces || null
                 },
                 include: {
-                    woodType: true
+                    woodType: true,
+                    warehouse: true
                 }
             });
             return receipt;
@@ -55,13 +110,15 @@ async function managementRoutes(fastify) {
         try {
             const { id } = request.params;
             const data = request.body;
+            console.log('PUT /wood-receipts/:id - Received data:', JSON.stringify(data, null, 2));
             const receipt = await prisma.woodReceipt.update({
                 where: { id },
                 data: {
                     woodTypeId: data.wood_type_id,
+                    warehouseId: data.warehouse_id,
                     supplier: data.supplier,
                     receiptDate: data.receipt_date ? new Date(data.receipt_date) : undefined,
-                    lotNumber: data.lot_number,
+                    // LOT number is immutable - don't allow updates
                     purchaseOrder: data.purchase_order,
                     woodFormat: data.wood_format,
                     status: data.status,
@@ -71,9 +128,11 @@ async function managementRoutes(fastify) {
                     estimatedPieces: data.total_pieces
                 },
                 include: {
-                    woodType: true
+                    woodType: true,
+                    warehouse: true
                 }
             });
+            console.log('PUT /wood-receipts/:id - Update successful');
             return receipt;
         }
         catch (error) {
@@ -93,8 +152,7 @@ async function managementRoutes(fastify) {
                 updateData.supplier = data.supplier;
             if (data.receipt_date !== undefined)
                 updateData.receiptDate = new Date(data.receipt_date);
-            if (data.lot_number !== undefined)
-                updateData.lotNumber = data.lot_number;
+            // LOT number is immutable - ignore any attempts to update it
             if (data.purchase_order !== undefined)
                 updateData.purchaseOrder = data.purchase_order;
             if (data.wood_format !== undefined)
@@ -120,6 +178,45 @@ async function managementRoutes(fastify) {
                     woodType: true
                 }
             });
+            // If status changed to PENDING_APPROVAL, create notifications for admins
+            if (data.status === 'PENDING_APPROVAL') {
+                // Check for subscriptions to LOT_PENDING_APPROVAL event
+                const subscriptions = await prisma.notificationSubscription.findMany({
+                    where: {
+                        eventType: 'LOT_PENDING_APPROVAL',
+                        inApp: true
+                    }
+                });
+                // If no subscriptions exist, fallback to all admin users
+                let userIds;
+                if (subscriptions.length === 0) {
+                    const adminUsers = await prisma.user.findMany({
+                        where: {
+                            role: { in: ['ADMIN', 'SUPERVISOR'] },
+                            isActive: true
+                        },
+                        select: { id: true }
+                    });
+                    userIds = adminUsers.map(u => u.id);
+                }
+                else {
+                    userIds = subscriptions.map(s => s.userId);
+                }
+                const notifications = userIds.map(userId => ({
+                    userId,
+                    type: 'LOT_PENDING_APPROVAL',
+                    title: 'LOT Pending Approval',
+                    message: `LOT ${receipt.lotNumber} (${receipt.woodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
+                    linkUrl: `/dashboard/management/wood-receipt`,
+                    isRead: false
+                }));
+                if (notifications.length > 0) {
+                    await prisma.notification.createMany({
+                        data: notifications
+                    });
+                    console.log(`Created ${notifications.length} notification(s) for LOT ${receipt.lotNumber} pending approval`);
+                }
+            }
             return receipt;
         }
         catch (error) {
@@ -152,7 +249,8 @@ async function managementRoutes(fastify) {
             const woodReceipts = await prisma.woodReceipt.findMany({
                 where: { lotNumber },
                 include: {
-                    woodType: true
+                    woodType: true,
+                    measurements: true
                 },
                 orderBy: {
                     createdAt: 'asc'
@@ -173,6 +271,17 @@ async function managementRoutes(fastify) {
                     createdAt: 'asc'
                 }
             });
+            // Get receipt processing history for this LOT
+            const receiptHistory = await prisma.receiptHistory.findMany({
+                where: { receiptId: lotNumber },
+                orderBy: {
+                    timestamp: 'asc'
+                }
+            });
+            // Get LOT cost information
+            const lotCost = await prisma.lotCost.findUnique({
+                where: { lotNumber }
+            });
             // Enrich wood receipts with draft data
             const enrichedWoodReceipts = await Promise.all(woodReceipts.map(async (receipt) => {
                 let actualVolumeM3 = receipt.actualVolumeM3;
@@ -183,13 +292,31 @@ async function managementRoutes(fastify) {
                 const draft = drafts.find(d => d.receiptId === lotNumber);
                 if (draft && draft.measurements) {
                     const measurements = draft.measurements;
-                    actualPieces = measurements.length;
+                    // Calculate total pieces by summing all qty fields
+                    actualPieces = measurements.reduce((sum, m) => {
+                        return sum + (parseInt(m.qty) || 1);
+                    }, 0);
+                    // Calculate total volume
                     actualVolumeM3 = measurements.reduce((sum, m) => {
                         const thickness = parseFloat(m.thickness) || 0;
                         const width = parseFloat(m.width) || 0;
                         const length = parseFloat(m.length) || 0;
                         const qty = parseInt(m.qty) || 1;
-                        return sum + ((thickness / 100) * (width / 100) * (length / 100) * qty);
+                        // Detect unit system: if thickness and width are small (< 50), assume imperial (inches/feet)
+                        // Otherwise assume metric (cm)
+                        let volumeM3;
+                        if (thickness < 50 && width < 50) {
+                            // Imperial: thickness and width in inches, length in feet
+                            const thicknessM = thickness * 0.0254; // inch to meter
+                            const widthM = width * 0.0254; // inch to meter
+                            const lengthM = length * 0.3048; // feet to meter
+                            volumeM3 = thicknessM * widthM * lengthM * qty;
+                        }
+                        else {
+                            // Metric: all in cm
+                            volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+                        }
+                        return sum + volumeM3;
                     }, 0);
                     // Get the last user who worked on this receipt
                     if (draft.updatedBy) {
@@ -234,7 +361,9 @@ async function managementRoutes(fastify) {
                     updatedAt: receipt.updatedAt,
                     // Last user who worked on this receipt
                     lastWorkedBy: lastWorkedBy,
-                    lastWorkedAt: lastWorkedAt
+                    lastWorkedAt: lastWorkedAt,
+                    // Include the measurements for PDF generation
+                    measurements: draft?.measurements || null
                 };
             }));
             // TODO: Add other stages here when they're implemented
@@ -263,7 +392,30 @@ async function managementRoutes(fastify) {
                     drying: [],
                     qualityControl: [],
                     inventory: []
-                }
+                },
+                history: receiptHistory.map(h => ({
+                    id: h.id,
+                    userId: h.userId,
+                    userName: h.userName,
+                    action: h.action,
+                    details: h.details,
+                    timestamp: h.timestamp
+                })),
+                cost: lotCost ? {
+                    purchasePrice: lotCost.purchasePrice,
+                    purchasePriceType: lotCost.purchasePriceType,
+                    purchasePriceIncVat: lotCost.purchasePriceIncVat,
+                    transportPrice: lotCost.transportPrice,
+                    transportPriceType: lotCost.transportPriceType,
+                    transportPriceIncVat: lotCost.transportPriceIncVat,
+                    slicingExpenses: lotCost.slicingExpenses,
+                    slicingExpensesType: lotCost.slicingExpensesType,
+                    slicingExpensesIncVat: lotCost.slicingExpensesIncVat,
+                    otherExpenses: lotCost.otherExpenses,
+                    otherExpensesType: lotCost.otherExpensesType,
+                    otherExpensesIncVat: lotCost.otherExpensesIncVat,
+                    notes: lotCost.notes
+                } : null
             };
         }
         catch (error) {
@@ -271,33 +423,212 @@ async function managementRoutes(fastify) {
             return reply.status(500).send({ error: 'Failed to fetch LOT traceability' });
         }
     });
+    // Get LOT cost information
+    fastify.get('/lot-cost/:lotNumber', async (request, reply) => {
+        try {
+            const { lotNumber } = request.params;
+            const lotCost = await prisma.lotCost.findUnique({
+                where: { lotNumber }
+            });
+            return lotCost || {
+                lotNumber,
+                purchasePrice: null,
+                purchasePriceType: 'LUMPSUM',
+                transportPrice: null,
+                transportPriceType: 'LUMPSUM',
+                slicingExpenses: null,
+                slicingExpensesType: 'LUMPSUM',
+                otherExpenses: null,
+                otherExpensesType: 'LUMPSUM',
+                notes: null
+            };
+        }
+        catch (error) {
+            console.error('Error fetching LOT cost:', error);
+            return reply.status(500).send({ error: 'Failed to fetch LOT cost' });
+        }
+    });
+    // Update LOT cost information
+    fastify.put('/lot-cost/:lotNumber', async (request, reply) => {
+        try {
+            const { lotNumber } = request.params;
+            const data = request.body;
+            const lotCost = await prisma.lotCost.upsert({
+                where: { lotNumber },
+                update: data,
+                create: {
+                    lotNumber,
+                    ...data
+                }
+            });
+            return lotCost;
+        }
+        catch (error) {
+            console.error('Error updating LOT cost:', error);
+            return reply.status(500).send({ error: 'Failed to update LOT cost' });
+        }
+    });
+    // Get all approvals (LOT and factory operations)
+    fastify.get('/approvals', async (request, reply) => {
+        try {
+            // Get wood receipts pending approval (LOT approvals)
+            const lotApprovals = await prisma.woodReceipt.findMany({
+                where: {
+                    status: 'PENDING_APPROVAL'
+                },
+                include: {
+                    woodType: true,
+                    warehouse: true
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+            // Get factory operation approvals
+            const operationApprovals = await prisma.approval.findMany({
+                where: {
+                    status: 'pending'
+                },
+                include: {
+                    operation: {
+                        include: {
+                            woodType: true
+                        }
+                    }
+                },
+                orderBy: { createdAt: 'desc' }
+            });
+            // Transform LOT approvals to match the approval structure
+            const transformedLotApprovals = lotApprovals.map(receipt => ({
+                id: receipt.id,
+                type: 'LOT_APPROVAL',
+                module: 'WOOD_RECEIPT',
+                referenceId: receipt.id,
+                lotNumber: receipt.lotNumber,
+                woodType: receipt.woodType,
+                supplier: receipt.supplier,
+                receiptDate: receipt.receiptDate,
+                estimatedAmount: receipt.estimatedAmount,
+                estimatedVolumeM3: receipt.estimatedVolumeM3,
+                estimatedPieces: receipt.estimatedPieces,
+                actualVolumeM3: receipt.actualVolumeM3,
+                actualPieces: receipt.actualPieces,
+                woodFormat: receipt.woodFormat,
+                warehouse: receipt.warehouse,
+                status: 'pending',
+                createdAt: receipt.createdAt,
+                updatedAt: receipt.updatedAt
+            }));
+            // Transform operation approvals
+            const transformedOperationApprovals = operationApprovals.map(approval => ({
+                id: approval.id,
+                type: 'OPERATION_APPROVAL',
+                module: approval.operation.serialNumber.startsWith('WS-') ? 'WOOD_SLICER' : 'WOOD_CALCULATOR',
+                referenceId: approval.operationId,
+                operation: approval.operation,
+                approverRole: approval.approverRole,
+                status: approval.status,
+                createdAt: approval.createdAt,
+                updatedAt: approval.updatedAt
+            }));
+            return {
+                lotApprovals: transformedLotApprovals,
+                operationApprovals: transformedOperationApprovals,
+                all: [...transformedLotApprovals, ...transformedOperationApprovals]
+            };
+        }
+        catch (error) {
+            console.error('Error fetching approvals:', error);
+            return reply.status(500).send({ error: 'Failed to fetch approvals' });
+        }
+    });
     // Get pending approvals count
     fastify.get('/approvals/pending-count', async (request, reply) => {
         try {
-            // For now, return 0 since approval workflow is not fully implemented
-            // TODO: Implement proper approval workflow with approval_request table
-            return { count: 0 };
+            // Count wood receipts with status PENDING_APPROVAL (waiting for admin approval)
+            const lotCount = await prisma.woodReceipt.count({
+                where: {
+                    status: 'PENDING_APPROVAL'
+                }
+            });
+            // Count factory operation approvals
+            const operationCount = await prisma.approval.count({
+                where: {
+                    status: 'pending'
+                }
+            });
+            return { count: lotCount + operationCount, lotCount, operationCount };
         }
         catch (error) {
             console.error('Error fetching pending count:', error);
             return reply.status(500).send({ error: 'Failed to fetch pending count' });
         }
     });
-    // Approve a wood receipt (change status to CONFIRMED)
+    // Approve a wood receipt (change status to COMPLETED)
     fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
         try {
             const { id } = request.params;
+            // Get the receipt first to get lotNumber
+            const existingReceipt = await prisma.woodReceipt.findUnique({
+                where: { id },
+                include: { woodType: true }
+            });
+            if (!existingReceipt) {
+                return reply.status(404).send({ error: 'Receipt not found' });
+            }
+            // Get draft measurements
+            const draft = await prisma.receiptDraft.findFirst({
+                where: { receiptId: existingReceipt.lotNumber },
+                orderBy: { updatedAt: 'desc' }
+            });
+            // If draft has measurements, save them to SleeperMeasurement table
+            if (draft && draft.measurements) {
+                const measurements = draft.measurements;
+                // Delete existing measurements for this receipt (if any)
+                await prisma.sleeperMeasurement.deleteMany({
+                    where: { receiptId: id }
+                });
+                // Create new measurements
+                await prisma.sleeperMeasurement.createMany({
+                    data: measurements.map(m => ({
+                        receiptId: id,
+                        thickness: parseFloat(m.thickness) || 0,
+                        width: parseFloat(m.width) || 0,
+                        length: parseFloat(m.length) || 0,
+                        qty: parseInt(m.qty) || 1,
+                        volumeM3: parseFloat(m.m3) || 0,
+                        isCustom: m.isCustom === true
+                    }))
+                });
+            }
             const receipt = await prisma.woodReceipt.update({
                 where: { id },
                 data: {
-                    status: 'CONFIRMED',
+                    status: 'COMPLETED',
                     receiptConfirmedAt: new Date()
                 },
                 include: {
                     woodType: true
                 }
             });
-            console.log(`Wood Receipt ${receipt.lotNumber} approved and status set to CONFIRMED`);
+            // Create history entry for approval
+            const user = request.user;
+            if (user && existingReceipt.lotNumber) {
+                try {
+                    await prisma.receiptHistory.create({
+                        data: {
+                            receiptId: existingReceipt.lotNumber,
+                            userId: user.userId,
+                            userName: user.email || user.userId,
+                            action: 'APPROVED',
+                            details: `Receipt approved by admin and marked as COMPLETED`,
+                            timestamp: new Date()
+                        }
+                    });
+                }
+                catch (historyError) {
+                    console.error('Error creating approval history:', historyError);
+                }
+            }
+            console.log(`Wood Receipt ${receipt.lotNumber} approved by admin and status set to COMPLETED`);
             return receipt;
         }
         catch (error) {
@@ -330,6 +661,90 @@ async function managementRoutes(fastify) {
         catch (error) {
             console.error('Error rejecting wood receipt:', error);
             return reply.status(500).send({ error: 'Failed to reject wood receipt' });
+        }
+    });
+    // ==================== APPROVAL RULES ====================
+    // Get all approval rules
+    fastify.get('/approval-rules', async (request, reply) => {
+        try {
+            const { module } = request.query;
+            const whereClause = {};
+            if (module) {
+                whereClause.module = module;
+            }
+            const rules = await prisma.approvalRule.findMany({
+                where: whereClause,
+                orderBy: [
+                    { module: 'asc' },
+                    { conditionField: 'asc' }
+                ]
+            });
+            return rules;
+        }
+        catch (error) {
+            console.error('Error fetching approval rules:', error);
+            return reply.status(500).send({ error: 'Failed to fetch approval rules' });
+        }
+    });
+    // Create a new approval rule
+    fastify.post('/approval-rules', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+        try {
+            const data = request.body;
+            if (!data.module || !data.conditionField || !data.operator || data.threshold === undefined) {
+                return reply.status(400).send({
+                    error: 'Missing required fields: module, conditionField, operator, and threshold are required'
+                });
+            }
+            const rule = await prisma.approvalRule.create({
+                data: {
+                    module: data.module,
+                    conditionField: data.conditionField,
+                    operator: data.operator,
+                    threshold: parseFloat(data.threshold),
+                    isActive: data.isActive ?? true
+                }
+            });
+            return rule;
+        }
+        catch (error) {
+            console.error('Error creating approval rule:', error);
+            return reply.status(500).send({ error: 'Failed to create approval rule' });
+        }
+    });
+    // Update an approval rule
+    fastify.put('/approval-rules/:id', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const data = request.body;
+            const rule = await prisma.approvalRule.update({
+                where: { id },
+                data: {
+                    module: data.module,
+                    conditionField: data.conditionField,
+                    operator: data.operator,
+                    threshold: data.threshold !== undefined ? parseFloat(data.threshold) : undefined,
+                    isActive: data.isActive
+                }
+            });
+            return rule;
+        }
+        catch (error) {
+            console.error('Error updating approval rule:', error);
+            return reply.status(500).send({ error: 'Failed to update approval rule' });
+        }
+    });
+    // Delete an approval rule
+    fastify.delete('/approval-rules/:id', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            await prisma.approvalRule.delete({
+                where: { id }
+            });
+            return { success: true };
+        }
+        catch (error) {
+            console.error('Error deleting approval rule:', error);
+            return reply.status(500).send({ error: 'Failed to delete approval rule' });
         }
     });
     // ==================== WAREHOUSE MANAGEMENT ====================
@@ -806,7 +1221,17 @@ async function managementRoutes(fastify) {
                 });
             }
             // Get current quantity for the specified status
-            const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
+            // Map WoodStatus enum to stock field names
+            const statusFieldMap = {
+                'NOT_DRIED': 'statusNotDried',
+                'UNDER_DRYING': 'statusUnderDrying',
+                'DRIED': 'statusDried',
+                'DAMAGED': 'statusDamaged'
+            };
+            const statusField = statusFieldMap[data.woodStatus];
+            if (!statusField) {
+                return reply.status(400).send({ error: `Invalid wood status: ${data.woodStatus}` });
+            }
             const quantityBefore = stock[statusField];
             const quantityChange = data.quantityAfter - quantityBefore;
             // Update stock and create adjustment record in a transaction
@@ -876,6 +1301,121 @@ async function managementRoutes(fastify) {
         catch (error) {
             console.error('Error fetching adjustments:', error);
             return reply.status(500).send({ error: 'Failed to fetch adjustments' });
+        }
+    });
+    // ===== NOTIFICATION SETTINGS =====
+    // Get all active users (for user selection)
+    fastify.get('/notification-settings/users', async (request, reply) => {
+        try {
+            const users = await prisma.user.findMany({
+                where: { isActive: true },
+                select: {
+                    id: true,
+                    email: true,
+                    firstName: true,
+                    lastName: true,
+                    role: true
+                },
+                orderBy: [
+                    { firstName: 'asc' },
+                    { lastName: 'asc' },
+                    { email: 'asc' }
+                ]
+            });
+            return users;
+        }
+        catch (error) {
+            console.error('Error fetching users:', error);
+            return reply.status(500).send({ error: 'Failed to fetch users' });
+        }
+    });
+    // Get all notification event types (grouped by category)
+    fastify.get('/notification-settings/event-types', async (request, reply) => {
+        try {
+            const eventTypes = await prisma.notificationEventType.findMany({
+                where: { isActive: true },
+                orderBy: [
+                    { category: 'asc' },
+                    { name: 'asc' }
+                ]
+            });
+            // Group by category
+            const grouped = eventTypes.reduce((acc, event) => {
+                if (!acc[event.category]) {
+                    acc[event.category] = [];
+                }
+                acc[event.category].push(event);
+                return acc;
+            }, {});
+            return grouped;
+        }
+        catch (error) {
+            console.error('Error fetching event types:', error);
+            return reply.status(500).send({ error: 'Failed to fetch event types' });
+        }
+    });
+    // Get notification preferences for a specific user
+    fastify.get('/notification-settings/user/:userId', async (request, reply) => {
+        try {
+            const { userId } = request.params;
+            // Get all event types
+            const eventTypes = await prisma.notificationEventType.findMany({
+                where: { isActive: true }
+            });
+            // Get user's subscriptions
+            const subscriptions = await prisma.notificationSubscription.findMany({
+                where: { userId }
+            });
+            // Map event types with user's preferences
+            const preferences = eventTypes.map(event => {
+                const subscription = subscriptions.find(s => s.eventType === event.code);
+                return {
+                    eventType: event.code,
+                    eventName: event.name,
+                    eventDescription: event.description,
+                    category: event.category,
+                    inApp: subscription?.inApp ?? false,
+                    email: subscription?.email ?? false
+                };
+            });
+            return preferences;
+        }
+        catch (error) {
+            console.error('Error fetching user preferences:', error);
+            return reply.status(500).send({ error: 'Failed to fetch user preferences' });
+        }
+    });
+    // Update notification preferences for a user
+    fastify.post('/notification-settings/user/:userId', async (request, reply) => {
+        try {
+            const { userId } = request.params;
+            const { preferences } = request.body;
+            // Update or create subscriptions for each preference
+            for (const pref of preferences) {
+                await prisma.notificationSubscription.upsert({
+                    where: {
+                        userId_eventType: {
+                            userId,
+                            eventType: pref.eventType
+                        }
+                    },
+                    update: {
+                        inApp: pref.inApp,
+                        email: pref.email
+                    },
+                    create: {
+                        userId,
+                        eventType: pref.eventType,
+                        inApp: pref.inApp,
+                        email: pref.email
+                    }
+                });
+            }
+            return { success: true };
+        }
+        catch (error) {
+            console.error('Error updating notification preferences:', error);
+            return reply.status(500).send({ error: 'Failed to update notification preferences' });
         }
     });
 }

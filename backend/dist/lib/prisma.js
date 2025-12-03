@@ -6,7 +6,13 @@ const prisma = global.prisma || new PrismaClient({
             url: process.env.DATABASE_URL
         }
     },
-    errorFormat: 'pretty'
+    errorFormat: 'pretty',
+    // Increase connection timeout for Neon cold starts
+    __internal: {
+        engine: {
+            connectTimeout: 60000, // 60 seconds for cold starts
+        }
+    }
 });
 if (process.env.NODE_ENV !== 'production') {
     global.prisma = prisma;

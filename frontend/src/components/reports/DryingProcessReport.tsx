@@ -12,6 +12,15 @@ interface Reading {
   notes: string | null;
 }
 
+interface ElectricityRecharge {
+  id: string;
+  token: string;
+  kwhAmount: number;
+  totalPaid: number;
+  meterReadingAfter: number;
+  rechargeDate: string;
+}
+
 interface WoodType {
   id: string;
   name: string;
@@ -32,6 +41,7 @@ interface DryingProcess {
   notes: string | null;
   woodType: WoodType;
   readings: Reading[];
+  recharges?: ElectricityRecharge[];
 }
 
 interface DryingProcessReportProps {
@@ -568,6 +578,43 @@ export const DryingProcessReport: React.FC<DryingProcessReportProps> = ({
           </Text>
         )}
         </View>
+
+        {/* Luku Recharges Section */}
+        {process.recharges && process.recharges.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              Luku Recharges ({process.recharges.length} {process.recharges.length === 1 ? 'Recharge' : 'Recharges'})
+            </Text>
+            <View style={styles.table}>
+              <View style={styles.tableHeader}>
+                <Text style={[styles.tableCell, { width: '25%' }]}>Date & Time</Text>
+                <Text style={[styles.tableCell, { width: '20%' }]}>Token</Text>
+                <Text style={[styles.tableCell, { width: '15%' }]}>kWh Added</Text>
+                <Text style={[styles.tableCell, { width: '20%' }]}>Amount Paid</Text>
+                <Text style={[styles.tableCell, { width: '20%' }]}>Rate (TSH/kWh)</Text>
+              </View>
+              {process.recharges.map((recharge) => (
+                <View key={recharge.id} style={styles.tableRow}>
+                  <Text style={[styles.tableCell, { width: '25%' }]}>
+                    {new Date(recharge.rechargeDate).toLocaleDateString()} {new Date(recharge.rechargeDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                  <Text style={[styles.tableCell, { width: '20%' }]}>
+                    {recharge.token.substring(0, 10)}...
+                  </Text>
+                  <Text style={[styles.tableCell, { width: '15%' }]}>
+                    {recharge.kwhAmount.toLocaleString()}
+                  </Text>
+                  <Text style={[styles.tableCell, { width: '20%' }]}>
+                    {recharge.totalPaid.toLocaleString()} TSH
+                  </Text>
+                  <Text style={[styles.tableCell, { width: '20%' }]}>
+                    {(recharge.totalPaid / recharge.kwhAmount).toFixed(2)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Footer */}
         <View style={styles.footer}>

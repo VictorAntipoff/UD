@@ -20,6 +20,7 @@ import ApprovalsManagement from '../pages/management/ApprovalsManagement';
 import WoodReceipt from '../pages/management/WoodReceipt';
 import WoodDryingSettings from '../pages/management/WoodDryingSettings';
 import DryingCostReports from '../pages/management/DryingCostReports';
+import LukuRechargePage from '../pages/management/LukuRechargePage';
 import AssetList from '../pages/assets/AssetList';
 import AssetDetail from '../pages/assets/AssetDetail';
 import AssetForm from '../pages/assets/AssetForm';
@@ -110,6 +111,10 @@ export const routes: RouteObject[] = [
           {
             path: 'drying-cost-reports',
             element: <DryingCostReports />
+          },
+          {
+            path: 'luku-recharge',
+            element: <LukuRechargePage />
           }
         ]
       },

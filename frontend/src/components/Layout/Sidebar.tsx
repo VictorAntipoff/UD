@@ -37,6 +37,7 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
+import BoltIcon from '@mui/icons-material/Bolt';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -675,7 +676,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
           )}
 
           {/* ========== ADMINISTRATION SECTION ========== */}
-          {(hasPermission('approvals') || hasPermission('drying-settings') || hasPermission('user-settings') || hasPermission('admin-settings') || hasPermission('notification-settings')) && (
+          {(hasPermission('approvals') || hasPermission('drying-settings') || hasPermission('luku-recharge') || hasPermission('user-settings') || hasPermission('admin-settings') || hasPermission('notification-settings')) && (
             <>
               <ListItem button onClick={handleMenuClick(setAdministrationOpen, administrationOpen)} sx={sectionHeaderStyles}>
                 <ListItemIcon sx={{
@@ -729,6 +730,20 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                         <LocalFireDepartmentIcon />
                       </ListItemIcon>
                       <ListItemText primary="Drying Settings" />
+                    </ListItem>
+                  )}
+
+                  {hasPermission('luku-recharge') && (
+                    <ListItem
+                      button
+                      sx={submenuStyles}
+                      onClick={() => handleNavigate('/dashboard/management/luku-recharge')}
+                      selected={location.pathname === '/dashboard/management/luku-recharge'}
+                    >
+                      <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/luku-recharge' ? colors.primary : colors.grey.main }}>
+                        <BoltIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Luku Recharge" />
                     </ListItem>
                   )}
 

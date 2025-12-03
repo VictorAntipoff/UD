@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import { config } from 'dotenv';
 import { expand } from 'dotenv-expand';
 import { PrismaClient } from '@prisma/client';
@@ -92,6 +93,13 @@ const setupServer = async () => {
             }
         },
         credentials: true
+    });
+    // Register multipart for file uploads (globally available to all routes)
+    await app.register(multipart, {
+        limits: {
+            fileSize: 10 * 1024 * 1024, // 10MB max file size
+            files: 1 // Max 1 file per request
+        }
     });
     // Root route
     app.get('/', async (request, reply) => {
@@ -435,18 +443,56 @@ const setupServer = async () => {
     // Register health routes
     await app.register(healthRoutes, { prefix: '/api' });
 };
-// Start server
+// Start server with retry logic for Neon cold starts
 const startServer = async () => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 10000; // 10 seconds
+    // Try to connect to database with retries
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            console.log(`🔄 Connecting to database (attempt ${attempt}/${MAX_RETRIES})...`);
+            if (attempt === 1) {
+                console.log('⏳ Note: First connection may take 30-60 seconds on Neon free tier (cold start)');
+            }
+            await prismaClient.$connect();
+            console.log('✅ Database connected');
+            break; // Success, exit retry loop
+        }
+        catch (error) {
+            console.error(`❌ Connection attempt ${attempt} failed:`, error.message);
+            if (attempt < MAX_RETRIES) {
+                console.log(`⏳ Waiting ${RETRY_DELAY / 1000}s before retry...`);
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            }
+            else {
+                console.error('❌ Failed to connect to database after all retries');
+                console.error('💡 Troubleshooting:');
+                console.error('   1. Check if your Neon database is active at https://console.neon.tech');
+                console.error('   2. Verify DATABASE_URL in .env file');
+                console.error('   3. Check your internet connection');
+                await prismaClient.$disconnect();
+                process.exit(1);
+            }
+        }
+    }
+    // Setup server (register plugins) - only once
     try {
-        await prismaClient.$connect();
-        console.log('✅ Database connected');
         await setupServer();
+        console.log('✅ Server plugins registered');
+    }
+    catch (error) {
+        console.error('❌ Failed to setup server:', error.message);
+        await prismaClient.$disconnect();
+        process.exit(1);
+    }
+    // Start listening
+    try {
         await app.listen({ port: PORT, host: '0.0.0.0' });
         console.log(`🚀 Server running on port ${PORT}`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
     }
     catch (error) {
-        console.error('❌ Failed to start server:', error);
+        console.error('❌ Failed to start server:', error.message);
         await prismaClient.$disconnect();
         process.exit(1);
     }

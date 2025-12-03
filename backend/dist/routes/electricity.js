@@ -7,6 +7,14 @@ async function electricityRoutes(fastify) {
     fastify.get('/recharges', async (request, reply) => {
         try {
             const recharges = await prisma.electricityRecharge.findMany({
+                include: {
+                    dryingProcess: {
+                        select: {
+                            batchNumber: true,
+                            status: true
+                        }
+                    }
+                },
                 orderBy: {
                     rechargeDate: 'desc'
                 }
@@ -103,6 +111,21 @@ async function electricityRoutes(fastify) {
             return reply.status(500).send({ error: 'Failed to calculate electricity balance' });
         }
     });
+    // Get recharges for a specific drying process
+    fastify.get('/recharges/drying-process/:id', async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const recharges = await prisma.electricityRecharge.findMany({
+                where: { dryingProcessId: id },
+                orderBy: { rechargeDate: 'asc' }
+            });
+            return recharges;
+        }
+        catch (error) {
+            console.error('Error fetching recharges for drying process:', error);
+            return reply.status(500).send({ error: 'Failed to fetch recharges' });
+        }
+    });
     // Create a new electricity recharge
     fastify.post('/recharges', async (request, reply) => {
         try {
@@ -118,7 +141,9 @@ async function electricityRoutes(fastify) {
                     ewuraFee: body.ewuraFee,
                     reaFee: body.reaFee,
                     debtCollected: body.debtCollected,
-                    notes: body.notes
+                    notes: body.notes,
+                    dryingProcessId: body.dryingProcessId,
+                    meterReadingAfter: body.meterReadingAfter
                 }
             });
             return reply.status(201).send(recharge);
