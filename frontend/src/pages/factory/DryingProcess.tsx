@@ -534,17 +534,21 @@ export default function DryingProcess() {
       const totalMatch = smsText.match(/Jumla\s+([0-9]+(?:\.[0-9]+)?)/i);
       const totalPaid = totalMatch ? parseFloat(totalMatch[1]) : 0;
 
-      // Extract date: "22/10/2025 06:12" or "22/10/2025"
-      const dateMatch = smsText.match(/Tarehe\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/i);
-      let rechargeDate = new Date().toISOString();
+      // IMPORTANT: Use CURRENT time (when meter reading was taken) instead of SMS timestamp
+      // The SMS timestamp is when LUKU generated the token, NOT when user entered it
+      // Using SMS timestamp causes calculation errors when reading is taken before SMS time
+      const rechargeDate = new Date().toISOString();
 
+      // Extract SMS date for audit trail only (stored in notes)
+      const dateMatch = smsText.match(/Tarehe\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/i);
+      let smsTimestamp = '';
       if (dateMatch) {
-        const day = parseInt(dateMatch[1]);
-        const month = parseInt(dateMatch[2]) - 1;
-        const year = parseInt(dateMatch[3]);
-        const hour = dateMatch[4] ? parseInt(dateMatch[4]) : 0;
-        const minute = dateMatch[5] ? parseInt(dateMatch[5]) : 0;
-        rechargeDate = new Date(year, month, day, hour, minute).toISOString();
+        const day = String(dateMatch[1]).padStart(2, '0');
+        const month = String(dateMatch[2]).padStart(2, '0');
+        const year = dateMatch[3];
+        const hour = dateMatch[4] ? String(dateMatch[4]).padStart(2, '0') : '00';
+        const minute = dateMatch[5] ? String(dateMatch[5]).padStart(2, '0') : '00';
+        smsTimestamp = ` (SMS timestamp: ${day}/${month}/${year} ${hour}:${minute})`;
       }
 
       if (!kwhAmount || kwhAmount === 0) {
@@ -564,7 +568,7 @@ export default function DryingProcess() {
         ewuraFee,
         reaFee,
         meterReadingAfter: parseFloat(rechargeData.meterReadingAfter),
-        notes: 'Added during drying process'
+        notes: `Added during drying process${smsTimestamp}`
       });
 
       // Refresh data
@@ -3688,7 +3692,7 @@ export default function DryingProcess() {
         <DialogContent sx={{ pt: 3 }}>
           <Stack spacing={2.5}>
             <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
-              Paste the Luku SMS and enter the meter reading AFTER the recharge was applied.
+              <strong>Important:</strong> Paste the Luku SMS and enter the meter reading AFTER the recharge was applied. The recharge will be recorded with the CURRENT time (when you're entering it), not the SMS timestamp, to ensure accurate calculations.
             </Alert>
 
             <TextField

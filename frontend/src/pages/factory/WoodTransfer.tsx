@@ -503,12 +503,14 @@ const WoodTransfer: FC = () => {
 
         // Check if item changed
         if (
+          item.woodType.id !== originalItem.woodType.id ||
           item.quantity !== originalItem.quantity ||
           item.thickness !== originalItem.thickness ||
           item.woodStatus !== originalItem.woodStatus ||
           item.remarks !== originalItem.remarks
         ) {
           await api.put(`/transfers/${selectedTransfer.id}/items/${item.id}`, {
+            woodTypeId: item.woodType.id,
             quantity: item.quantity,
             thickness: item.thickness,
             woodStatus: item.woodStatus,
@@ -2034,9 +2036,25 @@ const WoodTransfer: FC = () => {
                               }}
                             >
                               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                                <Typography variant="body2" fontWeight="medium">
-                                  {item.woodType.name}
-                                </Typography>
+                                <TextField
+                                  select
+                                  label="Wood Type"
+                                  value={item.woodType.id}
+                                  onChange={(e) => {
+                                    const selectedWoodType = woodTypes.find(wt => wt.id === e.target.value);
+                                    if (selectedWoodType) {
+                                      handleEditItemChange(index, 'woodType', selectedWoodType);
+                                    }
+                                  }}
+                                  size="small"
+                                  sx={{ minWidth: 200 }}
+                                >
+                                  {woodTypes.map((wt) => (
+                                    <MenuItem key={wt.id} value={wt.id}>
+                                      {wt.name}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
                                 <Chip
                                   label={getWoodStatusLabel(item.woodStatus)}
                                   size="small"
