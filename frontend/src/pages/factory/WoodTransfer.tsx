@@ -496,26 +496,39 @@ const WoodTransfer: FC = () => {
       // Update transfer metadata (date, notes)
       await api.put(endpoint, editFormData);
 
-      // Update each item if it changed
+      // Update each item if it changed, or create new items
       for (const item of editItems) {
-        const originalItem = selectedTransfer.items.find(i => i.id === item.id);
-        if (!originalItem) continue;
+        const isNewItem = !item.id || item.id.startsWith('temp-');
 
-        // Check if item changed
-        if (
-          item.woodType.id !== originalItem.woodType.id ||
-          item.quantity !== originalItem.quantity ||
-          item.thickness !== originalItem.thickness ||
-          item.woodStatus !== originalItem.woodStatus ||
-          item.remarks !== originalItem.remarks
-        ) {
-          await api.put(`/transfers/${selectedTransfer.id}/items/${item.id}`, {
+        if (isNewItem) {
+          // Create new item
+          await api.post(`/transfers/${selectedTransfer.id}/items`, {
             woodTypeId: item.woodType.id,
             quantity: item.quantity,
             thickness: item.thickness,
             woodStatus: item.woodStatus,
             remarks: item.remarks
           });
+        } else {
+          const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+          if (!originalItem) continue;
+
+          // Check if item changed
+          if (
+            item.woodType.id !== originalItem.woodType.id ||
+            item.quantity !== originalItem.quantity ||
+            item.thickness !== originalItem.thickness ||
+            item.woodStatus !== originalItem.woodStatus ||
+            item.remarks !== originalItem.remarks
+          ) {
+            await api.put(`/transfers/${selectedTransfer.id}/items/${item.id}`, {
+              woodTypeId: item.woodType.id,
+              quantity: item.quantity,
+              thickness: item.thickness,
+              woodStatus: item.woodStatus,
+              remarks: item.remarks
+            });
+          }
         }
       }
 
@@ -2024,54 +2037,87 @@ const WoodTransfer: FC = () => {
                       <Stack spacing={2}>
                         {editItems.map((item, index) => {
                           const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+                          const isNewItem = !item.id || item.id.startsWith('temp-');
                           return (
                             <Paper
-                              key={item.id}
+                              key={item.id || `temp-${index}`}
                               elevation={0}
                               sx={{
                                 p: 2,
                                 border: '1px solid #e2e8f0',
                                 borderRadius: 2,
-                                bgcolor: '#f8fafc'
+                                bgcolor: isNewItem ? '#fffbeb' : '#f8fafc'
                               }}
                             >
                               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                                <TextField
-                                  select
-                                  label="Wood Type"
-                                  value={item.woodType.id}
-                                  onChange={(e) => {
-                                    const selectedWoodType = woodTypes.find(wt => wt.id === e.target.value);
-                                    if (selectedWoodType) {
-                                      handleEditItemChange(index, 'woodType', selectedWoodType);
-                                    }
-                                  }}
-                                  size="small"
-                                  sx={{ minWidth: 200 }}
-                                >
-                                  {woodTypes.map((wt) => (
-                                    <MenuItem key={wt.id} value={wt.id}>
-                                      {wt.name}
-                                    </MenuItem>
-                                  ))}
-                                </TextField>
-                                <Chip
-                                  label={getWoodStatusLabel(item.woodStatus)}
-                                  size="small"
-                                  sx={{ height: 20, fontSize: '0.7rem' }}
-                                />
+                                <Box display="flex" gap={2} alignItems="center" flex={1}>
+                                  <TextField
+                                    select
+                                    label="Wood Type"
+                                    value={item.woodType?.id || ''}
+                                    onChange={(e) => {
+                                      const selectedWoodType = woodTypes.find(wt => wt.id === e.target.value);
+                                      if (selectedWoodType) {
+                                        handleEditItemChange(index, 'woodType', selectedWoodType);
+                                      }
+                                    }}
+                                    size="small"
+                                    sx={{ minWidth: 200 }}
+                                    required
+                                  >
+                                    {woodTypes.map((wt) => (
+                                      <MenuItem key={wt.id} value={wt.id}>
+                                        {wt.name}
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
+                                  <TextField
+                                    select
+                                    label="Status"
+                                    value={item.woodStatus}
+                                    onChange={(e) => handleEditItemChange(index, 'woodStatus', e.target.value)}
+                                    size="small"
+                                    sx={{ minWidth: 150 }}
+                                  >
+                                    {woodStatuses.map((status) => (
+                                      <MenuItem key={status.value} value={status.value}>
+                                        {status.label}
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
+                                </Box>
+                                {isNewItem && (
+                                  <IconButton
+                                    onClick={() => {
+                                      const updatedItems = editItems.filter((_, i) => i !== index);
+                                      setEditItems(updatedItems);
+                                    }}
+                                    size="small"
+                                    color="error"
+                                  >
+                                    <DeleteIcon />
+                                  </IconButton>
+                                )}
                               </Box>
 
                               <Stack spacing={2}>
                                 <Box display="flex" gap={2}>
                                   <TextField
+                                    select={isNewItem}
                                     label="Thickness"
                                     value={item.thickness}
+                                    onChange={(e) => handleEditItemChange(index, 'thickness', e.target.value)}
                                     size="small"
                                     fullWidth
-                                    disabled
-                                    sx={{ bgcolor: '#f1f5f9' }}
-                                  />
+                                    disabled={!isNewItem}
+                                    sx={{ bgcolor: isNewItem ? undefined : '#f1f5f9' }}
+                                  >
+                                    {isNewItem && thicknessOptions.map((thickness) => (
+                                      <MenuItem key={thickness} value={thickness}>
+                                        {thickness}
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
 
                                   <TextField
                                     label="Quantity"
@@ -2082,17 +2128,21 @@ const WoodTransfer: FC = () => {
                                     size="small"
                                     inputProps={{ min: 1 }}
                                     helperText={
-                                      selectedTransfer.fromWarehouse.stockControlEnabled && originalItem
+                                      selectedTransfer.fromWarehouse.stockControlEnabled && originalItem && !isNewItem
                                         ? item.quantity > originalItem.quantity
                                           ? `Available to add: ${getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)} pcs`
                                           : `Original: ${originalItem.quantity} pcs`
+                                        : isNewItem && selectedTransfer.fromWarehouse.stockControlEnabled
+                                        ? `Available: ${getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)} pcs`
                                         : ''
                                     }
                                     error={Boolean(
-                                      selectedTransfer.fromWarehouse.stockControlEnabled &&
-                                      originalItem &&
-                                      item.quantity > originalItem.quantity &&
-                                      (item.quantity - originalItem.quantity) > getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)
+                                      selectedTransfer.fromWarehouse.stockControlEnabled && (
+                                        (originalItem && !isNewItem &&
+                                         item.quantity > originalItem.quantity &&
+                                         (item.quantity - originalItem.quantity) > getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)) ||
+                                        (isNewItem && item.quantity > getAvailableStock(item.woodType.id, item.thickness, item.woodStatus))
+                                      )
                                     )}
                                   />
                                 </Box>
@@ -2108,10 +2158,9 @@ const WoodTransfer: FC = () => {
                                   placeholder="Add remarks for this item..."
                                 />
 
-                                {/* Stock Availability Display - Only show if quantity is increasing */}
+                                {/* Stock Availability Display - Show for new items or when quantity is increasing */}
                                 {selectedTransfer.fromWarehouse.stockControlEnabled &&
-                                 originalItem &&
-                                 item.quantity > originalItem.quantity && (
+                                 (isNewItem || (originalItem && item.quantity > originalItem.quantity)) && (
                                   <Box sx={{ mt: 1 }}>
                                     {loadingStock ? (
                                       <Box display="flex" alignItems="center" gap={1}>
@@ -2132,7 +2181,7 @@ const WoodTransfer: FC = () => {
                                         );
                                       }
 
-                                      const additionalNeeded = item.quantity - originalItem.quantity;
+                                      const additionalNeeded = isNewItem ? item.quantity : (item.quantity - originalItem.quantity);
                                       const availableForStatus = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
 
                                       return (
@@ -2141,7 +2190,7 @@ const WoodTransfer: FC = () => {
                                             <Box display="flex" alignItems="center" gap={0.5}>
                                               <InventoryIcon sx={{ fontSize: 14, color: availableForStatus >= additionalNeeded ? '#16a34a' : '#dc2626' }} />
                                               <Typography variant="caption" fontWeight="bold" color={availableForStatus >= additionalNeeded ? '#16a34a' : '#dc2626'}>
-                                                Additional needed: {additionalNeeded} pcs
+                                                {isNewItem ? 'Required' : 'Additional needed'}: {additionalNeeded} pcs
                                               </Typography>
                                             </Box>
                                             <Typography variant="caption" fontWeight="bold" color={availableForStatus >= additionalNeeded ? '#16a34a' : '#dc2626'}>
@@ -2158,6 +2207,27 @@ const WoodTransfer: FC = () => {
                           );
                         })}
                       </Stack>
+
+                      {/* Add New Item Button */}
+                      <Button
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                          const newItem = {
+                            id: `temp-${Date.now()}`,
+                            woodType: woodTypes[0] || { id: '', name: '' },
+                            thickness: '1"',
+                            quantity: 1,
+                            woodStatus: 'NOT_DRIED' as const,
+                            remarks: null
+                          };
+                          setEditItems([...editItems, newItem]);
+                        }}
+                        variant="outlined"
+                        size="small"
+                        sx={{ mt: 2 }}
+                      >
+                        Add Another Wood Type
+                      </Button>
                     </Box>
                   </>
                 )}
@@ -2184,7 +2254,15 @@ const WoodTransfer: FC = () => {
                 selectedTransfer?.status === 'IN_TRANSIT' &&
                 selectedTransfer?.fromWarehouse.stockControlEnabled &&
                 editItems.some(item => {
+                  const isNewItem = !item.id || item.id.startsWith('temp-');
                   const originalItem = selectedTransfer.items.find(i => i.id === item.id);
+
+                  // For new items, check if quantity exceeds available stock
+                  if (isNewItem) {
+                    const availableStock = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
+                    return item.quantity > availableStock;
+                  }
+
                   if (!originalItem) return false;
 
                   // Check if quantity increased and exceeds available stock

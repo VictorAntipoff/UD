@@ -1187,6 +1187,168 @@ async function transferRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Add new item to existing transfer
+  fastify.post('/:id/items', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = request.body as any;
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      // SECURITY: Only ADMIN, FACTORY_MANAGER, or WAREHOUSE_MANAGER can add items
+      if (!['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(userRole)) {
+        return reply.status(403).send({
+          error: 'Access denied',
+          message: 'You do not have permission to add transfer items'
+        });
+      }
+
+      // Get current user info
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      // Get transfer details
+      const transfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: {
+          fromWarehouse: true,
+          toWarehouse: true
+        }
+      });
+
+      if (!transfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      // Can only add items to IN_TRANSIT transfers
+      if (transfer.status !== 'IN_TRANSIT') {
+        return reply.status(400).send({
+          error: 'Cannot add items',
+          message: 'Items can only be added to transfers that are IN_TRANSIT'
+        });
+      }
+
+      // Validate required fields
+      if (!data.woodTypeId || !data.thickness || !data.quantity || !data.woodStatus) {
+        return reply.status(400).send({ error: 'Missing required fields: woodTypeId, thickness, quantity, woodStatus' });
+      }
+
+      // Get wood type info
+      const woodType = await prisma.woodType.findUnique({
+        where: { id: data.woodTypeId }
+      });
+
+      if (!woodType) {
+        return reply.status(404).send({ error: 'Wood type not found' });
+      }
+
+      // Check stock availability if source warehouse has stock control
+      if (transfer.fromWarehouse.stockControlEnabled) {
+        const stock = await prisma.stock.findUnique({
+          where: {
+            warehouseId_woodTypeId_thickness: {
+              warehouseId: transfer.fromWarehouseId,
+              woodTypeId: data.woodTypeId,
+              thickness: data.thickness
+            }
+          }
+        });
+
+        if (!stock) {
+          return reply.status(400).send({
+            error: `Stock not found in source warehouse for ${woodType.name}`
+          });
+        }
+
+        const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}` as keyof typeof stock;
+        const availableQuantity = stock[statusField] as number;
+
+        if (availableQuantity < data.quantity) {
+          return reply.status(400).send({
+            error: `Insufficient stock. Available: ${availableQuantity}, Required: ${data.quantity}`
+          });
+        }
+      }
+
+      // Create item and adjust stock
+      const result = await prisma.$transaction(async (tx) => {
+        // Create the transfer item
+        const newItem = await tx.transferItem.create({
+          data: {
+            transferId: id,
+            woodTypeId: data.woodTypeId,
+            thickness: data.thickness,
+            quantity: data.quantity,
+            woodStatus: data.woodStatus,
+            remarks: data.remarks || null
+          },
+          include: {
+            woodType: true
+          }
+        });
+
+        // Adjust stock for IN_TRANSIT transfer
+        const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
+
+        // Deduct from source warehouse (if stock control enabled)
+        if (transfer.fromWarehouse.stockControlEnabled) {
+          await tx.stock.updateMany({
+            where: {
+              warehouseId: transfer.fromWarehouseId,
+              woodTypeId: data.woodTypeId,
+              thickness: data.thickness
+            },
+            data: {
+              [statusField]: { decrement: data.quantity },
+              statusInTransitOut: { increment: data.quantity }
+            }
+          });
+        }
+
+        // Add to destination warehouse in-transit (if stock control enabled)
+        if (transfer.toWarehouse.stockControlEnabled) {
+          await tx.stock.updateMany({
+            where: {
+              warehouseId: transfer.toWarehouseId,
+              woodTypeId: data.woodTypeId,
+              thickness: data.thickness
+            },
+            data: {
+              statusInTransitIn: { increment: data.quantity }
+            }
+          });
+        }
+
+        // Log the addition
+        const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+        await tx.transferHistory.create({
+          data: {
+            transferId: id,
+            transferNumber: transfer.transferNumber,
+            userId: currentUser.id,
+            userName,
+            userEmail: currentUser.email,
+            action: 'ITEM_ADDED',
+            details: `Added item: ${woodType.name} (${data.thickness}) - ${data.quantity} pcs`
+          }
+        });
+
+        return newItem;
+      });
+
+      return result;
+    } catch (error) {
+      console.error('Error adding transfer item:', error);
+      return reply.status(500).send({ error: 'Failed to add transfer item' });
+    }
+  });
+
   // Edit transfer items (only for non-completed transfers)
   fastify.put('/:id/items/:itemId', async (request, reply) => {
     try {
