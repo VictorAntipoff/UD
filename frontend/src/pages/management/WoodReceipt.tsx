@@ -806,7 +806,7 @@ const WoodReceipt = () => {
           lineColor: [226, 232, 240],
           lineWidth: 0.1
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, bottom: 25 },
         columnStyles: {
           0: { cellWidth: 22 },
           1: { cellWidth: 25 },
@@ -816,6 +816,9 @@ const WoodReceipt = () => {
           5: { cellWidth: 15 },
           6: { cellWidth: 17 },
           7: { cellWidth: 'auto' }
+        },
+        didDrawPage: function() {
+          currentPage = doc.getNumberOfPages();
         }
       });
 
@@ -888,7 +891,7 @@ const WoodReceipt = () => {
           lineColor: [226, 232, 240],
           lineWidth: 0.1
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, bottom: 25 },
         columnStyles: {
           0: { cellWidth: 12, halign: 'center' },
           1: { cellWidth: 25 },
@@ -896,6 +899,9 @@ const WoodReceipt = () => {
           3: { cellWidth: 25 },
           4: { cellWidth: 20, halign: 'center' },
           5: { cellWidth: 'auto', halign: 'right' }
+        },
+        didDrawPage: function() {
+          currentPage = doc.getNumberOfPages();
         }
       });
 
@@ -938,7 +944,10 @@ const WoodReceipt = () => {
           lineColor: [226, 232, 240],
           lineWidth: 0.1
         },
-        margin: { left: 14, right: 14 }
+        margin: { left: 14, right: 14, bottom: 25 },
+        didDrawPage: function() {
+          currentPage = doc.getNumberOfPages();
+        }
       });
 
       startY = (doc as any).lastAutoTable.finalY + 6;
@@ -980,7 +989,10 @@ const WoodReceipt = () => {
           lineColor: [226, 232, 240],
           lineWidth: 0.1
         },
-        margin: { left: 14, right: 14 }
+        margin: { left: 14, right: 14, bottom: 25 },
+        didDrawPage: function() {
+          currentPage = doc.getNumberOfPages();
+        }
       });
 
       startY = (doc as any).lastAutoTable.finalY + 6;
@@ -1023,12 +1035,15 @@ const WoodReceipt = () => {
           lineColor: [226, 232, 240],
           lineWidth: 0.1
         },
-        margin: { left: 14, right: 14 },
+        margin: { left: 14, right: 14, bottom: 25 },
         columnStyles: {
           0: { cellWidth: 35 },
           1: { cellWidth: 25 },
           2: { cellWidth: 30 },
           3: { cellWidth: 'auto' }
+        },
+        didDrawPage: function() {
+          currentPage = doc.getNumberOfPages();
         }
       });
 
@@ -1119,7 +1134,10 @@ const WoodReceipt = () => {
             lineColor: [226, 232, 240],
             lineWidth: 0.1
           },
-          margin: { left: 14, right: 14 }
+          margin: { left: 14, right: 14, bottom: 25 },
+          didDrawPage: function() {
+            currentPage = doc.getNumberOfPages();
+          }
         });
 
         startY = (doc as any).lastAutoTable.finalY + 6;
@@ -1147,6 +1165,9 @@ const WoodReceipt = () => {
 
       // Clean Summary boxes
       startY += 2;
+
+      // Check if we need a new page for summary boxes (need ~20mm)
+      startY = await checkPageBreak(20);
 
       // White boxes with clean borders
       doc.setFillColor(255, 255, 255);
@@ -1193,6 +1214,9 @@ const WoodReceipt = () => {
 
       // Price per m³ box - centered design
       if (totalM3 > 0) {
+        // Check if we need a new page for price box (need ~25mm)
+        startY = await checkPageBreak(25);
+
         const pricePerM3 = total / totalM3;
 
         // Light blue background box
@@ -1232,6 +1256,9 @@ const WoodReceipt = () => {
 
       // Notes section
       if (costData.notes) {
+        // Check if we need a new page for notes (estimate 15mm)
+        startY = await checkPageBreak(15);
+
         doc.setFontSize(7);
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(30, 41, 59);
