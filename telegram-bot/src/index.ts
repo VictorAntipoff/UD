@@ -69,6 +69,16 @@ bot.on('callback_query', async (ctx) => {
       return showSummaryHandler(ctx);
     }
 
+    if (data === 'menu_add_reading') {
+      await ctx.answerCbQuery();
+      return ctx.reply('📸 Please send a photo of the meter reading to add a new reading.');
+    }
+
+    if (data === 'menu_search') {
+      await ctx.answerCbQuery();
+      return ctx.reply('🔍 Please enter the batch number you want to search for:');
+    }
+
     if (data === 'filter_all') {
       return showAllProcessesHandler(ctx);
     }
