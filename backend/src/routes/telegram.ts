@@ -1,0 +1,349 @@
+import { FastifyPluginAsync } from 'fastify';
+import prisma from '../lib/prisma';
+import { format, formatDistance, differenceInHours } from 'date-fns';
+
+const telegramRoutes: FastifyPluginAsync = async (fastify) => {
+  /**
+   * GET /telegram/menu
+   * Get all active drying processes for Menu command
+   */
+  fastify.get('/menu', async (request, reply) => {
+    try {
+      const processes = await prisma.dryingProcess.findMany({
+        where: {
+          status: 'IN_PROGRESS'
+        },
+        include: {
+          woodType: true,
+          readings: {
+            orderBy: {
+              readingTime: 'desc'
+            },
+            take: 10
+          }
+        },
+        orderBy: {
+          startTime: 'desc'
+        }
+      });
+
+      // Calculate estimates for each process
+      const processesWithEstimates = processes.map(process => {
+        const latestReading = process.readings[0];
+        const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
+        const targetHumidity = 12; // Default target
+
+        // Calculate drying rate and estimate
+        const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+
+        // Get LOT number (from associated wood receipt if available)
+        // TODO: Link to actual LOT via wood receipt/slicing relationship
+        const lotNumber = null;
+
+        return {
+          id: process.id,
+          batchNumber: process.batchNumber,
+          woodType: process.woodType?.name || 'Unknown',
+          thickness: process.thickness ? `${process.thickness}"` : null,
+          currentHumidity: currentHumidity.toFixed(1),
+          targetHumidity,
+          estimatedDays: estimate.daysRemaining,
+          estimatedDate: estimate.completionDate,
+          lotNumber,
+          status: process.status
+        };
+      });
+
+      return processesWithEstimates;
+    } catch (error) {
+      console.error('Error fetching menu:', error);
+      return reply.status(500).send({ error: 'Failed to fetch menu' });
+    }
+  });
+
+  /**
+   * GET /telegram/batches/active
+   * Get list of active batches for selection
+   */
+  fastify.get('/batches/active', async (request, reply) => {
+    try {
+      const batches = await prisma.dryingProcess.findMany({
+        where: {
+          status: 'IN_PROGRESS'
+        },
+        include: {
+          woodType: true
+        },
+        orderBy: {
+          startTime: 'desc'
+        }
+      });
+
+      return batches.map(batch => ({
+        id: batch.id,
+        batchNumber: batch.batchNumber,
+        woodType: batch.woodType?.name || 'Unknown'
+      }));
+    } catch (error) {
+      console.error('Error fetching active batches:', error);
+      return reply.status(500).send({ error: 'Failed to fetch batches' });
+    }
+  });
+
+  /**
+   * GET /telegram/batch/:id/status
+   * Get detailed status for specific batch
+   */
+  fastify.get('/batch/:id/status', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      // Try to find by ID or batch number
+      const process = await prisma.dryingProcess.findFirst({
+        where: {
+          OR: [
+            { id },
+            { batchNumber: id }
+          ]
+        },
+        include: {
+          woodType: true,
+          readings: {
+            orderBy: {
+              readingTime: 'desc'
+            },
+            take: 20
+          }
+        }
+      });
+
+      if (!process) {
+        return reply.status(404).send({ error: 'Batch not found' });
+      }
+
+      const latestReading = process.readings[0];
+      const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
+      const targetHumidity = 12;
+
+      const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+
+      // Calculate total electricity used
+      const firstReading = process.readings[process.readings.length - 1];
+      const electricityUsed = latestReading && firstReading
+        ? latestReading.electricityMeter - (process.startingElectricityUnits || firstReading.electricityMeter)
+        : 0;
+
+      // Calculate total duration
+      const totalDuration = differenceInHours(new Date(), process.startTime) / 24;
+
+      return {
+        id: process.id,
+        batchNumber: process.batchNumber,
+        woodType: process.woodType?.name || 'Unknown',
+        thickness: process.thickness ? `${process.thickness}"` : null,
+        status: process.status,
+        currentHumidity: currentHumidity.toFixed(1),
+        targetHumidity,
+        startTime: process.startTime,
+        estimatedCompletion: estimate.completionDate,
+        daysRemaining: estimate.daysRemaining,
+        totalDuration: totalDuration.toFixed(1),
+        dryingRate: estimate.dryingRate,
+        electricityUsed: electricityUsed.toFixed(1),
+        recentReadings: process.readings.slice(0, 5).map(r => ({
+          humidity: r.humidity,
+          electricityMeter: r.electricityMeter,
+          readingTime: r.readingTime
+        })),
+        lotNumber: null // TODO: Link to actual LOT
+      };
+    } catch (error) {
+      console.error('Error fetching batch status:', error);
+      return reply.status(500).send({ error: 'Failed to fetch status' });
+    }
+  });
+
+  /**
+   * GET /telegram/batch/:id/estimate
+   * Get completion estimate for batch
+   */
+  fastify.get('/batch/:id/estimate', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      const process = await prisma.dryingProcess.findFirst({
+        where: {
+          OR: [
+            { id },
+            { batchNumber: id }
+          ]
+        },
+        include: {
+          readings: {
+            orderBy: {
+              readingTime: 'desc'
+            },
+            take: 10
+          }
+        }
+      });
+
+      if (!process) {
+        return reply.status(404).send({ error: 'Batch not found' });
+      }
+
+      const latestReading = process.readings[0];
+      const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
+      const targetHumidity = 12;
+
+      const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+
+      return estimate;
+    } catch (error) {
+      console.error('Error calculating estimate:', error);
+      return reply.status(500).send({ error: 'Failed to calculate estimate' });
+    }
+  });
+
+  /**
+   * POST /telegram/reading
+   * Create a new reading from telegram bot
+   */
+  fastify.post('/reading', async (request, reply) => {
+    try {
+      const data = request.body as {
+        batchId: string;
+        humidity?: number;
+        electricityMeter?: number;
+        lukuMeterImageUrl?: string;
+        humidityMeterImageUrl?: string;
+        photoTimestamp?: string;
+        ocrConfidence?: number;
+        notes?: string;
+      };
+
+      // Validate required fields
+      if (!data.batchId) {
+        return reply.status(400).send({ error: 'batchId is required' });
+      }
+
+      if (!data.humidity && !data.electricityMeter) {
+        return reply.status(400).send({ error: 'At least one reading (humidity or electricityMeter) is required' });
+      }
+
+      // Get process
+      const process = await prisma.dryingProcess.findFirst({
+        where: {
+          OR: [
+            { id: data.batchId },
+            { batchNumber: data.batchId }
+          ]
+        }
+      });
+
+      if (!process) {
+        return reply.status(404).send({ error: 'Batch not found' });
+      }
+
+      // Get latest reading to fill in missing values
+      const latestReading = await prisma.dryingReading.findFirst({
+        where: {
+          dryingProcessId: process.id
+        },
+        orderBy: {
+          readingTime: 'desc'
+        }
+      });
+
+      // Create reading
+      const reading = await prisma.dryingReading.create({
+        data: {
+          dryingProcessId: process.id,
+          humidity: data.humidity || latestReading?.humidity || process.startingHumidity || 0,
+          electricityMeter: data.electricityMeter || latestReading?.electricityMeter || process.startingElectricityUnits || 0,
+          lukuMeterImageUrl: data.lukuMeterImageUrl,
+          humidityMeterImageUrl: data.humidityMeterImageUrl,
+          photoTimestamp: data.photoTimestamp ? new Date(data.photoTimestamp) : null,
+          ocrConfidence: data.ocrConfidence,
+          source: 'TELEGRAM_BOT',
+          notes: data.notes || 'Added via Telegram bot',
+          createdByName: 'Telegram Bot',
+          readingTime: data.photoTimestamp ? new Date(data.photoTimestamp) : new Date()
+        }
+      });
+
+      return reading;
+    } catch (error) {
+      console.error('Error creating reading:', error);
+      return reply.status(500).send({ error: 'Failed to create reading' });
+    }
+  });
+};
+
+/**
+ * Calculate drying estimate based on readings
+ */
+function calculateDryingEstimate(readings: any[], currentHumidity: number, targetHumidity: number) {
+  if (readings.length < 2) {
+    return {
+      daysRemaining: null,
+      completionDate: null,
+      dryingRate: null,
+      confidence: 'low'
+    };
+  }
+
+  // Sort by time
+  const sortedReadings = [...readings].sort((a, b) =>
+    new Date(a.readingTime).getTime() - new Date(b.readingTime).getTime()
+  );
+
+  // Calculate drying rate from recent readings
+  let totalRate = 0;
+  let count = 0;
+
+  for (let i = 1; i < Math.min(sortedReadings.length, 10); i++) {
+    const timeDiff = differenceInHours(
+      new Date(sortedReadings[i].readingTime),
+      new Date(sortedReadings[i - 1].readingTime)
+    );
+
+    const humidityDiff = sortedReadings[i - 1].humidity - sortedReadings[i].humidity;
+
+    if (timeDiff > 0 && humidityDiff >= 0) {
+      totalRate += (humidityDiff / timeDiff) * 24; // Convert to % per day
+      count++;
+    }
+  }
+
+  const dryingRate = count > 0 ? totalRate / count : 0;
+
+  if (dryingRate <= 0) {
+    return {
+      daysRemaining: null,
+      completionDate: null,
+      dryingRate: 0,
+      confidence: 'low'
+    };
+  }
+
+  // Calculate days remaining
+  const humidityToGo = currentHumidity - targetHumidity;
+  const daysRemaining = humidityToGo / dryingRate;
+
+  // Calculate completion date
+  const completionDate = new Date();
+  completionDate.setDate(completionDate.getDate() + daysRemaining);
+
+  // Confidence based on number of readings
+  const confidence = count >= 5 ? 'high' : count >= 3 ? 'medium' : 'low';
+
+  return {
+    daysRemaining: parseFloat(daysRemaining.toFixed(1)),
+    completionDate: completionDate.toISOString(),
+    dryingRate: parseFloat(dryingRate.toFixed(2)),
+    confidence
+  };
+}
+
+export default telegramRoutes;

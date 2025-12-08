@@ -1,0 +1,30 @@
+{
+  "name": "ud-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for UD drying process monitoring",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": ["telegram", "bot", "ocr", "drying-process"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.1",
+    "tesseract.js": "^5.0.4",
+    "sharp": "^0.33.2",
+    "date-fns": "^3.3.1",
+    "exif-parser": "^0.1.12",
+    "cloudinary": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.16",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}

@@ -339,6 +339,13 @@ model DryingReading {
   humidity          Float          // Humidity percentage
   notes             String?
 
+  // Telegram bot integration fields
+  lukuMeterImageUrl    String?     // Photo of Luku/electricity meter
+  humidityMeterImageUrl String?    // Photo of humidity meter
+  photoTimestamp       DateTime?   // Timestamp extracted from photo EXIF data
+  ocrConfidence        Float?      // OCR accuracy score (0-100%)
+  source              String?      @default("MANUAL") // "MANUAL", "TELEGRAM_BOT", "WEB"
+
   // User tracking for audit trail
   createdById       String?        // User ID who created/saved the reading
   createdByName     String?        // User name for easy reference
@@ -354,6 +361,7 @@ model DryingReading {
   @@index([dryingProcessId])
   @@index([readingTime])
   @@index([createdById])
+  @@index([source])
 }
 
 model ReceiptDraft {
