@@ -49,6 +49,9 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           targetHumidity,
           estimatedDays: estimate.daysRemaining,
           estimatedDate: estimate.completionDate,
+          dryingRate: estimate.dryingRate,
+          lastReadingTime: latestReading?.readingTime || null,
+          location: process.location || 'Kiln',
           lotNumber,
           status: process.status
         };
