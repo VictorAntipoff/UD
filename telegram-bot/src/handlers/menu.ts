@@ -9,24 +9,24 @@ export async function menuHandler(ctx: Context) {
     const mainMenu = {
       inline_keyboard: [
         [
-          { text: '🔥 Drying Processes', callback_data: 'menu_processes' },
-          { text: '📊 Summary', callback_data: 'menu_summary' }
+          { text: 'Drying Processes', callback_data: 'menu_processes' },
+          { text: 'Summary', callback_data: 'menu_summary' }
         ],
         [
-          { text: '📸 Add Reading', callback_data: 'menu_add_reading' },
-          { text: '🔍 Search Batch', callback_data: 'menu_search' }
+          { text: 'Add Reading', callback_data: 'menu_add_reading' },
+          { text: 'Search Batch', callback_data: 'menu_search' }
         ]
       ]
     };
 
     const welcomeMessage =
-      '👋 *Welcome to UD System Bot\\!*\n\n' +
+      '*Welcome to UD System Bot*\n\n' +
       'Choose what you want to do:\n\n' +
-      '🔥 *Drying Processes* \\- View and manage kilns\n' +
-      '📊 *Summary* \\- Today overview and stats\n' +
-      '📸 *Add Reading* \\- Record new meter reading\n' +
-      '🔍 *Search Batch* \\- Find specific process\n\n' +
-      '💡 *Tip:* You can also send a photo directly to add a reading\\!';
+      '*Drying Processes* \\- View and manage kilns\n' +
+      '*Summary* \\- Today overview and stats\n' +
+      '*Add Reading* \\- Record new meter reading\n' +
+      '*Search Batch* \\- Find specific process\n\n' +
+      'Tip: You can also send a photo directly to add a reading';
 
     await ctx.reply(welcomeMessage, {
       parse_mode: 'MarkdownV2',
@@ -35,7 +35,7 @@ export async function menuHandler(ctx: Context) {
 
   } catch (error) {
     console.error('Error in menu handler:', error);
-    await ctx.reply('❌ Error loading menu. Please try again later.');
+    await ctx.reply('[ERROR] Error loading menu. Please try again later.');
   }
 }
 
@@ -43,14 +43,14 @@ export async function processesMenuHandler(ctx: any) {
   try {
     await ctx.answerCbQuery();
 
-    const loadingMsg = await ctx.reply('🔍 Loading drying processes...');
+    const loadingMsg = await ctx.reply('Loading drying processes...');
 
     const processes = await backendAPI.getActiveProcesses();
 
     await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
 
     if (!processes || processes.length === 0) {
-      await ctx.reply('📭 No active drying processes found.');
+      await ctx.reply('No active drying processes found.');
       return;
     }
 
@@ -58,20 +58,20 @@ export async function processesMenuHandler(ctx: any) {
     const filterMenu = {
       inline_keyboard: [
         [
-          { text: '🟢 Active Only', callback_data: 'filter_active' },
-          { text: '📋 All Processes', callback_data: 'filter_all' }
+          { text: '[OK] Active Only', callback_data: 'filter_active' },
+          { text: 'All Processes', callback_data: 'filter_all' }
         ],
         [
-          { text: '🔙 Back to Menu', callback_data: 'back_to_menu' }
+          { text: 'Back to Menu', callback_data: 'back_to_menu' }
         ]
       ]
     };
 
-    let message = '🔥 *Drying Process Management*\n\n';
-    message += `📊 Total processes: ${processes.length}\n`;
-    message += `🟢 Online: ${countOnlineProcesses(processes)}\n`;
-    message += `🟡 Warning: ${countWarningProcesses(processes)}\n`;
-    message += `🔴 Offline: ${countOfflineProcesses(processes)}\n\n`;
+    let message = '*Drying Process Management*\n\n';
+    message += `Total processes: ${processes.length}\n`;
+    message += `[OK] Online: ${countOnlineProcesses(processes)}\n`;
+    message += `[WARN] Warning: ${countWarningProcesses(processes)}\n`;
+    message += `[OFF] Offline: ${countOfflineProcesses(processes)}\n\n`;
     message += 'Select view:';
 
     await ctx.reply(message, {
@@ -81,7 +81,7 @@ export async function processesMenuHandler(ctx: any) {
 
   } catch (error) {
     console.error('Error in processes menu:', error);
-    await ctx.reply('❌ Error loading processes. Please try again.');
+    await ctx.reply('[ERROR] Error loading processes. Please try again.');
   }
 }
 
@@ -93,26 +93,25 @@ export async function showAllProcessesHandler(ctx: any) {
     const processes = await backendAPI.getActiveProcesses();
 
     if (!processes || processes.length === 0) {
-      await ctx.reply('📭 No active drying processes found.');
+      await ctx.reply('No active drying processes found.');
       return;
     }
 
     // Build detailed process list with online/offline status
-    let message = '🔥 *Active Drying Processes*\n\n';
+    let message = '*Active Drying Processes*\n\n';
 
     processes.forEach((process: any, index: number) => {
       const number = index + 1;
-      const emoji = getNumberEmoji(number);
       const status = getProcessStatus(process);
 
-      message += `${emoji} ${status.emoji} *${process.batchNumber}* \\- ${escapeMarkdown(process.woodType)} ${process.thickness || ''}\n`;
-      message += `   💧 ${process.currentHumidity}% → ${process.targetHumidity}% \\(Target\\)\n`;
-      message += `   ⏱️ Est: ${formatDuration(process.estimatedDays)} \\(${formatDate(process.estimatedDate)}\\)\n`;
-      message += `   📍 ${process.location || 'Unknown'}\n`;
+      message += `${number}\\. ${status.emoji} *${process.batchNumber}* \\- ${escapeMarkdown(process.woodType)} ${process.thickness || ''}\n`;
+      message += `   Humidity: ${process.currentHumidity}% → ${process.targetHumidity}% \\(Target\\)\n`;
+      message += `   Est: ${formatDuration(process.estimatedDays)} \\(${formatDate(process.estimatedDate)}\\)\n`;
+      message += `   Location: ${process.location || 'Unknown'}\n`;
       message += `   ${status.message}\n`;
 
       if (process.lotNumber) {
-        message += `   📦 LOT: ${escapeMarkdown(process.lotNumber)}\n`;
+        message += `   LOT: ${escapeMarkdown(process.lotNumber)}\n`;
       }
 
       message += '\n';
@@ -120,9 +119,9 @@ export async function showAllProcessesHandler(ctx: any) {
 
     message += `━━━━━━━━━━━━━━━━━━━━\n`;
     message += `Legend:\n`;
-    message += `🟢 Online \\(\\< 1 hour ago\\)\n`;
-    message += `🟡 Warning \\(1\\-6 hours ago\\)\n`;
-    message += `🔴 Offline \\(\\> 6 hours ago\\)\n`;
+    message += `\\[OK\\] Online \\(\\< 1 hour ago\\)\n`;
+    message += `\\[WARN\\] Warning \\(1\\-6 hours ago\\)\n`;
+    message += `\\[OFF\\] Offline \\(\\> 6 hours ago\\)\n`;
 
     // Create inline keyboard with action buttons
     const buttons = [];
@@ -131,12 +130,12 @@ export async function showAllProcessesHandler(ctx: any) {
     for (let i = 0; i < processes.length; i += 2) {
       const row = [];
       row.push({
-        text: `📊 Details ${i + 1}`,
+        text: `Details ${i + 1}`,
         callback_data: `details_${processes[i].id}`
       });
       if (i + 1 < processes.length) {
         row.push({
-          text: `📊 Details ${i + 2}`,
+          text: `Details ${i + 2}`,
           callback_data: `details_${processes[i + 1].id}`
         });
       }
@@ -145,8 +144,8 @@ export async function showAllProcessesHandler(ctx: any) {
 
     // Add action row
     buttons.push([
-      { text: '🔄 Refresh', callback_data: 'filter_all' },
-      { text: '🏠 Menu', callback_data: 'back_to_menu' }
+      { text: 'Refresh', callback_data: 'filter_all' },
+      { text: 'Menu', callback_data: 'back_to_menu' }
     ]);
 
     const keyboard = { inline_keyboard: buttons };
@@ -158,7 +157,7 @@ export async function showAllProcessesHandler(ctx: any) {
 
   } catch (error) {
     console.error('Error showing processes:', error);
-    await ctx.reply('❌ Error loading processes. Please try again.');
+    await ctx.reply('[ERROR] Error loading processes. Please try again.');
   }
 }
 
@@ -166,7 +165,7 @@ export async function showSummaryHandler(ctx: any) {
   try {
     await ctx.answerCbQuery();
 
-    const loadingMsg = await ctx.reply('📊 Loading summary...');
+    const loadingMsg = await ctx.reply('Loading summary...');
 
     const processes = await backendAPI.getActiveProcesses();
 
@@ -174,26 +173,26 @@ export async function showSummaryHandler(ctx: any) {
 
     const stats = calculateStats(processes);
 
-    let message = '📊 *UD System \\- Drying Summary*\n\n';
-    message += `📅 ${formatDate(new Date())}\n\n`;
+    let message = '*UD System \\- Drying Summary*\n\n';
+    message += `Date: ${formatDate(new Date())}\n\n`;
     message += `━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `🔥 *Active Processes:*\n`;
+    message += `*Active Processes:*\n`;
     message += `━━━━━━━━━━━━━━━━━━━━\n`;
     message += `• Total: ${stats.total} batch${stats.total !== 1 ? 'es' : ''}\n`;
-    message += `• On track: ${stats.onTrack} 🟢\n`;
-    message += `• Warning: ${stats.warning} 🟡\n`;
-    message += `• Offline: ${stats.offline} 🔴\n\n`;
+    message += `• On track: ${stats.onTrack} \\[OK\\]\n`;
+    message += `• Warning: ${stats.warning} \\[WARN\\]\n`;
+    message += `• Offline: ${stats.offline} \\[OFF\\]\n\n`;
 
     if (stats.total > 0) {
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `📈 *Performance:*\n`;
+      message += `*Performance:*\n`;
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
       message += `• Avg drying rate: ${stats.avgDryingRate.toFixed(1)}% per day\n`;
       message += `• Fastest: ${stats.fastestRate.toFixed(1)}% per day\n`;
       message += `• Slowest: ${stats.slowestRate.toFixed(1)}% per day\n\n`;
 
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `⏱️ *Completion Schedule:*\n`;
+      message += `*Completion Schedule:*\n`;
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
       message += `• Next 24h: ${stats.completingToday} batch${stats.completingToday !== 1 ? 'es' : ''}\n`;
       message += `• This week: ${stats.completingWeek} batch${stats.completingWeek !== 1 ? 'es' : ''}\n`;
@@ -202,11 +201,11 @@ export async function showSummaryHandler(ctx: any) {
     const keyboard = {
       inline_keyboard: [
         [
-          { text: '📋 View All', callback_data: 'filter_all' },
-          { text: '🔄 Refresh', callback_data: 'menu_summary' }
+          { text: 'View All', callback_data: 'filter_all' },
+          { text: 'Refresh', callback_data: 'menu_summary' }
         ],
         [
-          { text: '🏠 Menu', callback_data: 'back_to_menu' }
+          { text: 'Menu', callback_data: 'back_to_menu' }
         ]
       ]
     };
@@ -218,7 +217,7 @@ export async function showSummaryHandler(ctx: any) {
 
   } catch (error) {
     console.error('Error showing summary:', error);
-    await ctx.reply('❌ Error loading summary. Please try again.');
+    await ctx.reply('[ERROR] Error loading summary. Please try again.');
   }
 }
 
@@ -226,8 +225,8 @@ export async function showSummaryHandler(ctx: any) {
 function getProcessStatus(process: any): { emoji: string; message: string } {
   if (!process.lastReadingTime) {
     return {
-      emoji: '🔴',
-      message: '❌ No readings yet'
+      emoji: '\\[OFF\\]',
+      message: 'No readings yet'
     };
   }
 
@@ -235,18 +234,18 @@ function getProcessStatus(process: any): { emoji: string; message: string } {
 
   if (hoursSinceReading < 1) {
     return {
-      emoji: '🟢',
-      message: `🕐 Last reading: ${Math.round(hoursSinceReading * 60)} mins ago`
+      emoji: '\\[OK\\]',
+      message: `Last reading: ${Math.round(hoursSinceReading * 60)} mins ago`
     };
   } else if (hoursSinceReading < 6) {
     return {
-      emoji: '🟡',
-      message: `⚠️ Last reading: ${hoursSinceReading.toFixed(0)} hours ago`
+      emoji: '\\[WARN\\]',
+      message: `Last reading: ${hoursSinceReading.toFixed(0)} hours ago`
     };
   } else {
     return {
-      emoji: '🔴',
-      message: `❌ OFFLINE \\- No data for ${hoursSinceReading.toFixed(0)} hours\\!`
+      emoji: '\\[OFF\\]',
+      message: `OFFLINE \\- No data for ${hoursSinceReading.toFixed(0)} hours\\!`
     };
   }
 }
@@ -321,11 +320,3 @@ function escapeMarkdown(text: string): string {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!]/g, '\\$&');
 }
 
-// Helper: Get number emoji
-function getNumberEmoji(num: number): string {
-  const emojis: { [key: number]: string } = {
-    1: '1️⃣', 2: '2️⃣', 3: '3️⃣', 4: '4️⃣', 5: '5️⃣',
-    6: '6️⃣', 7: '7️⃣', 8: '8️⃣', 9: '9️⃣', 10: '🔟'
-  };
-  return emojis[num] || `${num}.`;
-}
