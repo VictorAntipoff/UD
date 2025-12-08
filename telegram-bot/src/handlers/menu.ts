@@ -59,7 +59,11 @@ export async function processesMenuHandler(ctx: any) {
 
     processes.forEach((process: any, index: number) => {
       message += `*${index + 1}\\. ${escapeMarkdown(process.batchNumber)}*\n`;
-      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}\n`;
+      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}`;
+      if (process.pieceCount) {
+        message += ` \\- ${process.pieceCount} pcs`;
+      }
+      message += `\n`;
       message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh\n`;
       message += `Used: ${process.electricityUsed} kWh \\($${process.electricityCost}\\)\n`;
@@ -186,7 +190,11 @@ export async function showSummaryHandler(ctx: any) {
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
       message += `*${index + 1}\\. ${escapeMarkdown(process.batchNumber)}*\n`;
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}\n`;
+      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}`;
+      if (process.pieceCount) {
+        message += ` \\- ${process.pieceCount} pcs`;
+      }
+      message += `\n`;
       message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}% \\(target\\)\n`;
       message += `Electricity: ${process.currentElectricity} kWh \\(current\\)\n`;
       message += `Total Used: ${process.electricityUsed} kWh\n`;

@@ -27,24 +27,27 @@ export interface HumidityReading {
  */
 async function preprocessImage(imageBuffer: Buffer): Promise<Buffer> {
   try {
-    // Enhance image for OCR:
+    // Enhance image for OCR (optimized for LCD/LED displays):
     // - Convert to grayscale
-    // - Increase contrast
+    // - Increase contrast significantly
+    // - Apply threshold for better digit clarity
     // - Sharpen
-    // - Resize if too small (min 300px width)
+    // - Resize if needed
     const image = sharp(imageBuffer);
     const metadata = await image.metadata();
 
     let processedImage = image
       .grayscale()
       .normalize() // Auto-adjust contrast
-      .sharpen();
+      .linear(1.5, -(128 * 0.5)) // Increase contrast more aggressively
+      .sharpen({ sigma: 2 }); // More aggressive sharpening
 
     // Resize if too small (improves OCR accuracy)
-    if (metadata.width && metadata.width < 300) {
-      processedImage = processedImage.resize(300, null, {
+    const targetWidth = metadata.width && metadata.width < 800 ? 800 : metadata.width;
+    if (metadata.width && metadata.width < 800) {
+      processedImage = processedImage.resize(targetWidth, null, {
         fit: 'inside',
-        withoutEnlargement: false
+        kernel: 'lanczos3'
       });
     }
 

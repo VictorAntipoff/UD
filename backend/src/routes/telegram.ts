@@ -15,6 +15,11 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         },
         include: {
           woodType: true,
+          items: {
+            include: {
+              woodType: true
+            }
+          },
           readings: {
             orderBy: {
               readingTime: 'desc'
@@ -47,11 +52,29 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         // TODO: Link to actual LOT via wood receipt/slicing relationship
         const lotNumber = null;
 
+        // Build wood type description from items (new multi-wood support) or fallback to old single woodType
+        let woodTypeDesc = 'Unknown';
+        let thicknessDesc = null;
+        let pieceCountDesc = null;
+
+        if (process.items && process.items.length > 0) {
+          // New multi-wood format
+          woodTypeDesc = process.items.map((item: any) => item.woodType?.name || 'Unknown').join(', ');
+          thicknessDesc = process.items.map((item: any) => item.thickness).join(', ');
+          pieceCountDesc = process.items.reduce((sum: number, item: any) => sum + item.pieceCount, 0);
+        } else if (process.woodType) {
+          // Old single-wood format
+          woodTypeDesc = process.woodType.name;
+          thicknessDesc = process.thickness ? `${process.thickness}"` : null;
+          pieceCountDesc = process.pieceCount;
+        }
+
         return {
           id: process.id,
           batchNumber: process.batchNumber,
-          woodType: process.woodType?.name || 'Unknown',
-          thickness: process.thickness ? `${process.thickness}"` : null,
+          woodType: woodTypeDesc,
+          thickness: thicknessDesc,
+          pieceCount: pieceCountDesc,
           currentHumidity: currentHumidity.toFixed(1),
           targetHumidity,
           currentElectricity: currentElectricity.toFixed(2),
