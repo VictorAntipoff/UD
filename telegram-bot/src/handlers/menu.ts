@@ -171,32 +171,27 @@ export async function showSummaryHandler(ctx: any) {
 
     await ctx.telegram.deleteMessage(ctx.chat.id, loadingMsg.message_id);
 
-    const stats = calculateStats(processes);
+    if (!processes || processes.length === 0) {
+      await ctx.reply('No active drying processes found\\.');
+      return;
+    }
 
     let message = '*UD System \\- Drying Summary*\n\n';
     message += `Date: ${formatDate(new Date())}\n\n`;
-    message += `━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `*Active Processes:*\n`;
-    message += `━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `• Total: ${stats.total} batch${stats.total !== 1 ? 'es' : ''}\n`;
-    message += `• On track: ${stats.onTrack} \\[OK\\]\n`;
-    message += `• Warning: ${stats.warning} \\[WARN\\]\n`;
-    message += `• Offline: ${stats.offline} \\[OFF\\]\n\n`;
 
-    if (stats.total > 0) {
+    // Show each process with key details
+    processes.forEach((process: any, index: number) => {
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `*Performance:*\n`;
+      message += `*${index + 1}\\. ${escapeMarkdown(process.batchNumber)}*\n`;
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `• Avg drying rate: ${stats.avgDryingRate.toFixed(1)}% per day\n`;
-      message += `• Fastest: ${stats.fastestRate.toFixed(1)}% per day\n`;
-      message += `• Slowest: ${stats.slowestRate.toFixed(1)}% per day\n\n`;
-
-      message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `*Completion Schedule:*\n`;
-      message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `• Next 24h: ${stats.completingToday} batch${stats.completingToday !== 1 ? 'es' : ''}\n`;
-      message += `• This week: ${stats.completingWeek} batch${stats.completingWeek !== 1 ? 'es' : ''}\n`;
-    }
+      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}\n`;
+      message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}% \\(target\\)\n`;
+      message += `Electricity: ${process.currentElectricity} kWh \\(current\\)\n`;
+      message += `Total Used: ${process.electricityUsed} kWh\n`;
+      message += `Cost: $${process.electricityCost}\n`;
+      message += `Est\\. Complete: ${formatDuration(process.estimatedDays)}\n`;
+      message += `\n`;
+    });
 
     const keyboard = {
       inline_keyboard: [

@@ -30,11 +30,18 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       // Calculate estimates for each process
       const processesWithEstimates = processes.map((process: any) => {
         const latestReading = process.readings[0];
+        const firstReading = process.readings[process.readings.length - 1];
         const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
         const targetHumidity = 12; // Default target
 
         // Calculate drying rate and estimate
         const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+
+        // Calculate electricity usage
+        const currentElectricity = latestReading?.electricityMeter || 0;
+        const startElectricity = firstReading?.electricityMeter || process.startingElectricityMeter || 0;
+        const electricityUsed = startElectricity - currentElectricity; // kWh consumed
+        const electricityCost = electricityUsed * 0.12; // Assuming $0.12 per kWh
 
         // Get LOT number (from associated wood receipt if available)
         // TODO: Link to actual LOT via wood receipt/slicing relationship
@@ -47,6 +54,9 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           thickness: process.thickness ? `${process.thickness}"` : null,
           currentHumidity: currentHumidity.toFixed(1),
           targetHumidity,
+          currentElectricity: currentElectricity.toFixed(2),
+          electricityUsed: Math.abs(electricityUsed).toFixed(2),
+          electricityCost: Math.abs(electricityCost).toFixed(2),
           estimatedDays: estimate.daysRemaining,
           estimatedDate: estimate.completionDate,
           dryingRate: estimate.dryingRate,
