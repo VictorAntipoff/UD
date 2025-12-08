@@ -20,7 +20,8 @@ export const TimezoneProvider: React.FC<{ children: ReactNode }> = ({ children }
         console.log('Timezone loaded:', response.data.value);
       }
     } catch (error) {
-      console.error('Error fetching timezone:', error);
+      // Silently use default timezone if endpoint doesn't exist
+      // Default timezone is 'Africa/Dar_es_Salaam'
     }
   };
 
