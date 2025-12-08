@@ -188,12 +188,24 @@ async function extractTimestamp(imageBuffer: Buffer, ocrText: string): Promise<D
     /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/   // 06-01-2025 14:30
   ];
 
-  for (const pattern of datePatterns) {
+  for (let i = 0; i < datePatterns.length; i++) {
+    const pattern = datePatterns[i];
     const match = ocrText.match(pattern);
     if (match) {
       try {
-        const dateStr = match[0];
-        const date = new Date(dateStr);
+        let date: Date;
+
+        // Pattern index 1 is DD/MM/YYYY format (12/07/2025 16:02)
+        if (i === 1) {
+          const [, day, month, year, hour, minute] = match;
+          // Construct date as YYYY-MM-DD HH:MM for proper parsing
+          date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+        } else {
+          // Other patterns can be parsed directly
+          const dateStr = match[0];
+          date = new Date(dateStr);
+        }
+
         if (!isNaN(date.getTime())) {
           return date;
         }
