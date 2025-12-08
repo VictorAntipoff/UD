@@ -38,19 +38,19 @@ export async function photoHandler(ctx: Context) {
       : null;
 
     if (!photo) {
-      await ctx.reply('❌ No photo found in message.');
+      await ctx.reply('[ERROR] No photo found in message.');
       return;
     }
 
     // Store photo file ID for later
     userState[userId] = { photoFileId: photo.file_id };
 
-    await ctx.reply('📸 Photo received! What type of meter is this?', {
+    await ctx.reply('Photo received! What type of meter is this?', {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🔋 Luku Meter (kWh)', callback_data: `meter_type_luku_${photo.file_id}` },
-            { text: '💧 Humidity Meter (%)', callback_data: `meter_type_humidity_${photo.file_id}` }
+            { text: 'Luku Meter (kWh)', callback_data: `meter_type_luku_${photo.file_id}` },
+            { text: 'Humidity Meter (%)', callback_data: `meter_type_humidity_${photo.file_id}` }
           ]
         ]
       }
@@ -58,7 +58,7 @@ export async function photoHandler(ctx: Context) {
 
   } catch (error) {
     console.error('Error in photo handler:', error);
-    await ctx.reply('❌ Error processing photo. Please try again.');
+    await ctx.reply('[ERROR] Error processing photo. Please try again.');
   }
 }
 
@@ -96,7 +96,7 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
     await ctx.answerCbQuery();
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); // Remove buttons
 
-    const processingMsg = await ctx.reply(`🔍 Processing ${meterType === 'luku' ? 'Luku' : 'Humidity'} meter photo...\n⏳ This may take 10-20 seconds...`);
+    const processingMsg = await ctx.reply(`Processing ${meterType === 'luku' ? 'Luku' : 'Humidity'} meter photo...\nThis may take 10-20 seconds...`);
 
     // Download photo
     const file = await ctx.telegram.getFile(fileId);
@@ -135,10 +135,10 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
         await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
 
         await ctx.reply(
-          `✅ *OCR Complete\\!*\n\n` +
-          `🔋 *Luku Meter Reading:* ${result.value} kWh\n` +
-          `📊 *Confidence:* ${confidenceText} \\(${result.confidence.toFixed(1)}%\\)\n\n` +
-          `${isGoodReading ? '✓ Reading looks good\\!' : '⚠️ Low confidence \\- please verify'}`,
+          `[SUCCESS] *OCR Complete\\!*\n\n` +
+          `*Luku Meter Reading:* ${result.value} kWh\n` +
+          `*Confidence:* ${confidenceText} \\(${result.confidence.toFixed(1)}%\\)\n\n` +
+          `${isGoodReading ? 'Reading looks good\\!' : '[WARNING] Low confidence \\- please verify'}`,
           { parse_mode: 'MarkdownV2' }
         );
 
@@ -149,9 +149,9 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: '✅ Yes, Continue', callback_data: `confirm_reading_${userId}` },
-                  { text: '✏️ Edit Value', callback_data: `edit_reading_${userId}` },
-                  { text: '❌ Cancel', callback_data: `cancel_reading_${userId}` }
+                  { text: 'Yes, Continue', callback_data: `confirm_reading_${userId}` },
+                  { text: 'Edit Value', callback_data: `edit_reading_${userId}` },
+                  { text: 'Cancel', callback_data: `cancel_reading_${userId}` }
                 ]
               ]
             }
@@ -175,17 +175,17 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
         const confidenceText = formatConfidence(result.confidence);
         const isGoodReading = isConfidenceAcceptable(result.confidence);
         const timestampText = result.timestamp
-          ? `\n📅 *Timestamp:* ${result.timestamp.toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}`
+          ? `\n*Timestamp:* ${result.timestamp.toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}`
           : '';
 
         await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
 
         await ctx.reply(
-          `✅ *OCR Complete\\!*\n\n` +
-          `💧 *Humidity Reading:* ${result.humidity}%\n` +
-          `📊 *Confidence:* ${confidenceText} \\(${result.confidence.toFixed(1)}%\\)` +
+          `[SUCCESS] *OCR Complete\\!*\n\n` +
+          `*Humidity Reading:* ${result.humidity}%\n` +
+          `*Confidence:* ${confidenceText} \\(${result.confidence.toFixed(1)}%\\)` +
           timestampText.replace(/[-.()]/g, '\\$&') + `\n\n` +
-          `${isGoodReading ? '✓ Reading looks good\\!' : '⚠️ Low confidence \\- please verify'}`,
+          `${isGoodReading ? 'Reading looks good\\!' : '[WARNING] Low confidence \\- please verify'}`,
           { parse_mode: 'MarkdownV2' }
         );
 
@@ -196,9 +196,9 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: '✅ Yes, Continue', callback_data: `confirm_reading_${userId}` },
-                  { text: '✏️ Edit Value', callback_data: `edit_reading_${userId}` },
-                  { text: '❌ Cancel', callback_data: `cancel_reading_${userId}` }
+                  { text: 'Yes, Continue', callback_data: `confirm_reading_${userId}` },
+                  { text: 'Edit Value', callback_data: `edit_reading_${userId}` },
+                  { text: 'Cancel', callback_data: `cancel_reading_${userId}` }
                 ]
               ]
             }
@@ -211,9 +211,9 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
       await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
 
       await ctx.reply(
-        `❌ *OCR Failed*\n\n` +
+        `[ERROR] *OCR Failed*\n\n` +
         `${error.message || 'Could not extract reading from photo'}\n\n` +
-        `💡 *Tips for better results:*\n` +
+        `*Tips for better results:*\n` +
         `• Ensure good lighting\n` +
         `• Keep camera steady\n` +
         `• Focus on the display clearly\n` +
@@ -223,7 +223,7 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
           parse_mode: 'MarkdownV2',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '✏️ Enter Manually', callback_data: `manual_entry_${meterType}_${userId}` }]
+              [{ text: 'Enter Manually', callback_data: `manual_entry_${meterType}_${userId}` }]
             ]
           }
         }
@@ -232,7 +232,7 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
 
   } catch (error) {
     console.error('Error handling meter type selection:', error);
-    await ctx.reply('❌ Error processing meter selection. Please try again.');
+    await ctx.reply('[ERROR] Error processing meter selection. Please try again.');
   }
 }
 
@@ -246,7 +246,7 @@ export async function handleReadingConfirmation(ctx: any, userId: number) {
 
     const state = userState[userId];
     if (!state || !state.ocrValue || !state.meterType) {
-      await ctx.reply('❌ Session expired. Please upload photo again.');
+      await ctx.reply('[ERROR] Session expired. Please upload photo again.');
       return;
     }
 
@@ -254,7 +254,7 @@ export async function handleReadingConfirmation(ctx: any, userId: number) {
     const batches = await backendAPI.getActiveBatches();
 
     if (!batches || batches.length === 0) {
-      await ctx.reply('❌ No active batches found. Please create a drying process first.');
+      await ctx.reply('[ERROR] No active batches found. Please create a drying process first.');
       delete userState[userId];
       return;
     }
@@ -268,7 +268,7 @@ export async function handleReadingConfirmation(ctx: any, userId: number) {
     };
 
     await ctx.reply(
-      `📦 *Select which batch this reading is for:*`,
+      `*Select which batch this reading is for:*`,
       {
         parse_mode: 'MarkdownV2',
         reply_markup: keyboard
@@ -277,7 +277,7 @@ export async function handleReadingConfirmation(ctx: any, userId: number) {
 
   } catch (error) {
     console.error('Error handling confirmation:', error);
-    await ctx.reply('❌ Error confirming reading. Please try again.');
+    await ctx.reply('[ERROR] Error confirming reading. Please try again.');
   }
 }
 
@@ -290,7 +290,7 @@ export async function handleManualEntry(ctx: any, meterType: string, userId: num
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
 
     await ctx.reply(
-      `📝 Please enter the ${meterType === 'luku' ? 'kWh' : 'humidity %'} reading:\n\n` +
+      `Please enter the ${meterType === 'luku' ? 'kWh' : 'humidity %'} reading:\n\n` +
       `Example: ${meterType === 'luku' ? '1234.5' : '15.5'}`
     );
 
@@ -302,7 +302,7 @@ export async function handleManualEntry(ctx: any, meterType: string, userId: num
 
   } catch (error) {
     console.error('Error handling manual entry:', error);
-    await ctx.reply('❌ Error. Please try again.');
+    await ctx.reply('[ERROR] Error. Please try again.');
   }
 }
 
@@ -316,11 +316,11 @@ export async function handleBatchSelection(ctx: any, batchId: string, userId: nu
 
     const state = userState[userId];
     if (!state || !state.ocrValue || !state.meterType) {
-      await ctx.reply('❌ Session expired. Please upload photo again.');
+      await ctx.reply('[ERROR] Session expired. Please upload photo again.');
       return;
     }
 
-    await ctx.reply('💾 Saving reading to database...');
+    await ctx.reply('Saving reading to database...');
 
     // Prepare reading data
     const readingData: any = {
@@ -350,10 +350,10 @@ export async function handleBatchSelection(ctx: any, batchId: string, userId: nu
       const reading = await backendAPI.createReading(readingData);
 
       await ctx.reply(
-        `✅ *Reading saved successfully\\!*\n\n` +
-        `${state.meterType === 'luku' ? '🔋' : '💧'} *Value:* ${state.ocrValue}${state.meterType === 'luku' ? ' kWh' : '%'}\n` +
-        `📊 *Confidence:* ${state.ocrConfidence?.toFixed(1)}%\n` +
-        `⏰ *Time:* ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}\n\n` +
+        `[SUCCESS] *Reading saved successfully\\!*\n\n` +
+        `*Value:* ${state.ocrValue}${state.meterType === 'luku' ? ' kWh' : '%'}\n` +
+        `*Confidence:* ${state.ocrConfidence?.toFixed(1)}%\n` +
+        `*Time:* ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}\n\n` +
         `Send another photo or type *Menu* to see all processes\\.`,
         { parse_mode: 'MarkdownV2' }
       );
@@ -363,12 +363,12 @@ export async function handleBatchSelection(ctx: any, batchId: string, userId: nu
 
     } catch (error: any) {
       console.error('Error saving reading:', error);
-      await ctx.reply(`❌ Failed to save reading: ${error.message || 'Unknown error'}`);
+      await ctx.reply(`[ERROR] Failed to save reading: ${error.message || 'Unknown error'}`);
     }
 
   } catch (error) {
     console.error('Error handling batch selection:', error);
-    await ctx.reply('❌ Error selecting batch. Please try again.');
+    await ctx.reply('[ERROR] Error selecting batch. Please try again.');
   }
 }
 
@@ -382,12 +382,12 @@ export async function handleReadingEdit(ctx: any, userId: number) {
 
     const state = userState[userId];
     if (!state || !state.meterType) {
-      await ctx.reply('❌ Session expired. Please upload photo again.');
+      await ctx.reply('[ERROR] Session expired. Please upload photo again.');
       return;
     }
 
     await ctx.reply(
-      `✏️ Please enter the correct ${state.meterType === 'luku' ? 'kWh' : 'humidity %'} reading:\n\n` +
+      `Please enter the correct ${state.meterType === 'luku' ? 'kWh' : 'humidity %'} reading:\n\n` +
       `Example: ${state.meterType === 'luku' ? '1234.5' : '15.5'}`
     );
 
@@ -395,7 +395,7 @@ export async function handleReadingEdit(ctx: any, userId: number) {
 
   } catch (error) {
     console.error('Error handling edit:', error);
-    await ctx.reply('❌ Error. Please try again.');
+    await ctx.reply('[ERROR] Error. Please try again.');
   }
 }
 
@@ -409,7 +409,7 @@ export async function handleReadingCancel(ctx: any, userId: number) {
 
     delete userState[userId];
 
-    await ctx.reply('❌ Reading cancelled. Send a new photo to try again.');
+    await ctx.reply('[CANCELLED] Reading cancelled. Send a new photo to try again.');
 
   } catch (error) {
     console.error('Error handling cancel:', error);
@@ -433,18 +433,18 @@ export async function handleManualTextInput(ctx: any, text: string) {
     const value = parseFloat(text.replace(',', '.'));
 
     if (isNaN(value)) {
-      await ctx.reply('❌ Invalid number. Please enter a valid reading (e.g., 15.5)');
+      await ctx.reply('[ERROR] Invalid number. Please enter a valid reading (e.g., 15.5)');
       return;
     }
 
     // Validate range
     if (state.meterType === 'humidity' && (value < 0 || value > 100)) {
-      await ctx.reply('❌ Humidity must be between 0-100%');
+      await ctx.reply('[ERROR] Humidity must be between 0-100%');
       return;
     }
 
     if (state.meterType === 'luku' && (value < 0 || value > 999999)) {
-      await ctx.reply('❌ Invalid kWh reading. Must be between 0-999999');
+      await ctx.reply('[ERROR] Invalid kWh reading. Must be between 0-999999');
       return;
     }
 
@@ -452,13 +452,13 @@ export async function handleManualTextInput(ctx: any, text: string) {
     state.ocrValue = value;
     state.ocrConfidence = 100; // Manual entry is 100% accurate
 
-    await ctx.reply(`✅ Got it: ${value}${state.meterType === 'luku' ? ' kWh' : '%'}`);
+    await ctx.reply(`Got it: ${value}${state.meterType === 'luku' ? ' kWh' : '%'}`);
 
     // Get batches for selection
     const batches = await backendAPI.getActiveBatches();
 
     if (!batches || batches.length === 0) {
-      await ctx.reply('❌ No active batches found.');
+      await ctx.reply('[ERROR] No active batches found.');
       delete userState[userId];
       return;
     }
@@ -470,10 +470,10 @@ export async function handleManualTextInput(ctx: any, text: string) {
       }])
     };
 
-    await ctx.reply('📦 Select which batch:', { reply_markup: keyboard });
+    await ctx.reply('Select which batch:', { reply_markup: keyboard });
 
   } catch (error) {
     console.error('Error handling manual input:', error);
-    await ctx.reply('❌ Error processing input. Please try again.');
+    await ctx.reply('[ERROR] Error processing input. Please try again.');
   }
 }
