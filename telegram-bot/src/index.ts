@@ -89,12 +89,12 @@ bot.on('callback_query', async (ctx) => {
       return menuHandler(ctx);
     }
 
-    // Meter type selection: meter_type_luku_FILEID or meter_type_humidity_FILEID
+    // Meter type selection: meter_type_luku_USERID or meter_type_humidity_USERID
     if (data.startsWith('meter_type_')) {
       const parts = data.split('_');
       const meterType = parts[2] as 'luku' | 'humidity';
-      const fileId = parts.slice(3).join('_');
-      return handleMeterTypeSelection(ctx, meterType, fileId);
+      const userId = parseInt(parts[3]);
+      return handleMeterTypeSelection(ctx, meterType, userId);
     }
 
     // Reading confirmation: confirm_reading_USERID

@@ -49,8 +49,8 @@ export async function photoHandler(ctx: Context) {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: 'Luku Meter (kWh)', callback_data: `meter_type_luku_${photo.file_id}` },
-            { text: 'Humidity Meter (%)', callback_data: `meter_type_humidity_${photo.file_id}` }
+            { text: 'Luku Meter (kWh)', callback_data: `meter_type_luku_${userId}` },
+            { text: 'Humidity Meter (%)', callback_data: `meter_type_humidity_${userId}` }
           ]
         ]
       }
@@ -91,12 +91,21 @@ async function uploadToCloudinary(buffer: Buffer, meterType: string): Promise<st
 /**
  * Handler for meter type selection (called from button callback)
  */
-export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'humidity', fileId: string) {
+export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'humidity', userId: number) {
   try {
     await ctx.answerCbQuery();
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); // Remove buttons
 
     const processingMsg = await ctx.reply(`Processing ${meterType === 'luku' ? 'Luku' : 'Humidity'} meter photo...\nThis may take 10-20 seconds...`);
+
+    // Get file ID from user state
+    const state = userState[userId];
+    if (!state || !state.photoFileId) {
+      await ctx.reply('[ERROR] Photo not found. Please send the photo again.');
+      return;
+    }
+
+    const fileId = state.photoFileId;
 
     // Download photo
     const file = await ctx.telegram.getFile(fileId);
@@ -107,10 +116,6 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
     const buffer = Buffer.from(await response.arrayBuffer());
 
     // Store buffer in user state
-    const userId = ctx.from?.id;
-    if (!userId) return;
-
-    userState[userId] = userState[userId] || { photoFileId: fileId };
     userState[userId].photoBuffer = buffer;
     userState[userId].meterType = meterType;
 
