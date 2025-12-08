@@ -1,7 +1,12 @@
 import { Telegraf, Context } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { CONFIG } from './config';
-import { menuHandler } from './handlers/menu';
+import {
+  menuHandler,
+  processesMenuHandler,
+  showAllProcessesHandler,
+  showSummaryHandler
+} from './handlers/menu';
 import {
   photoHandler,
   handleMeterTypeSelection,
@@ -54,6 +59,25 @@ bot.on('callback_query', async (ctx) => {
     const data = ctx.callbackQuery && 'data' in ctx.callbackQuery ? ctx.callbackQuery.data : '';
 
     if (!data) return;
+
+    // Main menu handlers
+    if (data === 'menu_processes') {
+      return processesMenuHandler(ctx);
+    }
+
+    if (data === 'menu_summary') {
+      return showSummaryHandler(ctx);
+    }
+
+    if (data === 'filter_all') {
+      return showAllProcessesHandler(ctx);
+    }
+
+    if (data === 'back_to_menu') {
+      await ctx.answerCbQuery();
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      return menuHandler(ctx);
+    }
 
     // Meter type selection: meter_type_luku_FILEID or meter_type_humidity_FILEID
     if (data.startsWith('meter_type_')) {
