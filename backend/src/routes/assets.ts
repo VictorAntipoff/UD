@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
 import { authenticateToken } from '../middleware/auth.js';

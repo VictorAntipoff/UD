@@ -396,6 +396,7 @@ const setupServer = async () => {
     const websiteRoutes = (await import('./routes/website.js')).default;
     const notificationRoutes = (await import('./routes/notifications.js')).default;
     const crmRoutes = (await import('./routes/crm.js')).default;
+    const telegramRoutes = (await import('./routes/telegram.js')).default;
     await app.register(authRoutes, { prefix: '/api/auth' });
     await app.register(projectRoutes, { prefix: '/api/projects' });
     await app.register(factoryRoutes, { prefix: '/api/factory' });
@@ -408,6 +409,7 @@ const setupServer = async () => {
     await app.register(websiteRoutes, { prefix: '/api/website' });
     await app.register(notificationRoutes, { prefix: '/api/notifications' });
     await app.register(crmRoutes);
+    await app.register(telegramRoutes, { prefix: '/api/telegram' });
     // Register static file serving for public files
     await app.register(fastifyStatic, {
         root: path.join(__dirname, '../public'),

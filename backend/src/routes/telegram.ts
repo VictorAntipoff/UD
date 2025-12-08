@@ -1,5 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
-import prisma from '../lib/prisma';
+import { prisma } from '../lib/prisma.js';
 import { format, formatDistance, differenceInHours } from 'date-fns';
 
 const telegramRoutes: FastifyPluginAsync = async (fastify) => {
@@ -28,7 +28,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       });
 
       // Calculate estimates for each process
-      const processesWithEstimates = processes.map(process => {
+      const processesWithEstimates = processes.map((process: any) => {
         const latestReading = process.readings[0];
         const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
         const targetHumidity = 12; // Default target
@@ -79,7 +79,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         }
       });
 
-      return batches.map(batch => ({
+      return batches.map((batch: any) => ({
         id: batch.id,
         batchNumber: batch.batchNumber,
         woodType: batch.woodType?.name || 'Unknown'
@@ -150,7 +150,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         totalDuration: totalDuration.toFixed(1),
         dryingRate: estimate.dryingRate,
         electricityUsed: electricityUsed.toFixed(1),
-        recentReadings: process.readings.slice(0, 5).map(r => ({
+        recentReadings: process.readings.slice(0, 5).map((r: any) => ({
           humidity: r.humidity,
           electricityMeter: r.electricityMeter,
           readingTime: r.readingTime
