@@ -216,16 +216,15 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
       await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
 
       await ctx.reply(
-        `[ERROR] *OCR Failed*\n\n` +
+        `[ERROR] OCR Failed\n\n` +
         `${error.message || 'Could not extract reading from photo'}\n\n` +
-        `*Tips for better results:*\n` +
+        `Tips for better results:\n` +
         `• Ensure good lighting\n` +
         `• Keep camera steady\n` +
         `• Focus on the display clearly\n` +
         `• Avoid glare and shadows\n\n` +
-        `You can try again with a new photo, or enter the value manually\\.`,
+        `You can try again with a new photo, or enter the value manually.`,
         {
-          parse_mode: 'MarkdownV2',
           reply_markup: {
             inline_keyboard: [
               [{ text: 'Enter Manually', callback_data: `manual_entry_${meterType}_${userId}` }]

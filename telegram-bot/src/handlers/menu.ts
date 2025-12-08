@@ -54,29 +54,31 @@ export async function processesMenuHandler(ctx: any) {
       return;
     }
 
-    // Show process filter options
-    const filterMenu = {
+    // Show each process with key details
+    let message = '*Active Drying Processes*\n\n';
+
+    processes.forEach((process: any, index: number) => {
+      message += `*${index + 1}\\. ${escapeMarkdown(process.batchNumber)}*\n`;
+      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}\n`;
+      message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}%\n`;
+      message += `Electricity: ${process.currentElectricity} kWh\n`;
+      message += `Used: ${process.electricityUsed} kWh \\($${process.electricityCost}\\)\n`;
+      message += `Est\\. Days: ${process.estimatedDays || 'N/A'}\n`;
+      message += `\n`;
+    });
+
+    const keyboard = {
       inline_keyboard: [
         [
-          { text: '[OK] Active Only', callback_data: 'filter_active' },
-          { text: 'All Processes', callback_data: 'filter_all' }
-        ],
-        [
-          { text: 'Back to Menu', callback_data: 'back_to_menu' }
+          { text: 'Refresh', callback_data: 'menu_processes' },
+          { text: 'Menu', callback_data: 'back_to_menu' }
         ]
       ]
     };
 
-    let message = '*Drying Process Management*\n\n';
-    message += `Total processes: ${processes.length}\n`;
-    message += `[OK] Online: ${countOnlineProcesses(processes)}\n`;
-    message += `[WARN] Warning: ${countWarningProcesses(processes)}\n`;
-    message += `[OFF] Offline: ${countOfflineProcesses(processes)}\n\n`;
-    message += 'Select view:';
-
     await ctx.reply(message, {
       parse_mode: 'MarkdownV2',
-      reply_markup: filterMenu
+      reply_markup: keyboard
     });
 
   } catch (error) {
