@@ -23,7 +23,7 @@ export async function menuHandler(ctx: Context) {
       '👋 *Welcome to UD System Bot\\!*\n\n' +
       'Choose what you want to do:\n\n' +
       '🔥 *Drying Processes* \\- View and manage kilns\n' +
-      '📊 *Summary* \\- Today\\'s overview and stats\n' +
+      '📊 *Summary* \\- Today overview and stats\n' +
       '📸 *Add Reading* \\- Record new meter reading\n' +
       '🔍 *Search Batch* \\- Find specific process\n\n' +
       '💡 *Tip:* You can also send a photo directly to add a reading\\!';
