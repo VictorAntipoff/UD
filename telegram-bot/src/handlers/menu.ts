@@ -1,6 +1,6 @@
 import { Context } from 'telegraf';
 import { backendAPI } from '../api/backend';
-import { formatDate, formatDuration } from '../utils/formatters';
+import { formatDate, formatCompletionDate, formatDuration } from '../utils/formatters';
 import { differenceInHours } from 'date-fns';
 
 export async function menuHandler(ctx: Context) {
@@ -70,7 +70,7 @@ export async function processesMenuHandler(ctx: any) {
 
       // Show completion estimation like DRY page
       if (process.estimatedDate) {
-        message += `Estimation: ${formatDate(process.estimatedDate)}\n`;
+        message += `Estimation: ${formatCompletionDate(process.estimatedDate)}\n`;
       } else {
         message += `Estimation: N/A\n`;
       }
@@ -206,7 +206,7 @@ export async function showSummaryHandler(ctx: any) {
 
       // Show completion estimation like DRY page
       if (process.estimatedDate) {
-        message += `Estimation: ${formatDate(process.estimatedDate)}\n`;
+        message += `Estimation: ${formatCompletionDate(process.estimatedDate)}\n`;
       } else {
         message += `Estimation: N/A\n`;
       }

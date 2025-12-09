@@ -1,9 +1,21 @@
 import { format, formatDistanceToNow, add } from 'date-fns';
 
 /**
- * Format date to readable string
+ * Format date to readable string (short format)
  */
 export function formatDate(date: string | Date): string {
+  if (!date) return 'N/A';
+  try {
+    return format(new Date(date), 'MMM d, h:mm a');
+  } catch (error) {
+    return 'Invalid date';
+  }
+}
+
+/**
+ * Format completion estimation date (full format)
+ */
+export function formatCompletionDate(date: string | Date): string {
   if (!date) return 'N/A';
   try {
     return format(new Date(date), 'MMM d, yyyy \'at\' h:mm a');
