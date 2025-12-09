@@ -39,7 +39,6 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       // Calculate estimates for each process
       const processesWithEstimates = processes.map((process: any) => {
         const latestReading = process.readings[process.readings.length - 1];
-        const firstReading = process.readings[0];
         const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
         const targetHumidity = 12; // Default target
 
