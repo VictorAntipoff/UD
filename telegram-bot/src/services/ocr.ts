@@ -66,10 +66,10 @@ async function preprocessImage(imageBuffer: Buffer): Promise<Buffer> {
 async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
   let worker;
   try {
-    // Aggressive preprocessing for LCD displays
-    const processedBuffer = await preprocessImageForLCD(imageBuffer);
+    // Basic preprocessing only
+    const processedBuffer = await preprocessImage(imageBuffer);
 
-    // Create worker and configure for LCD displays
+    // Create worker with basic config
     worker = await Tesseract.createWorker('eng', undefined, {
       logger: (info) => {
         if (info.status === 'recognizing text') {
@@ -78,14 +78,7 @@ async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
       }
     });
 
-    // Set Tesseract parameters optimized for LED/LCD displays
-    await worker.setParameters({
-      tessedit_char_whitelist: '0123456789.:%/',
-      tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
-      preserve_interword_spaces: '0'
-    });
-
-    // Perform OCR
+    // Perform OCR without restrictive whitelist
     const result = await worker.recognize(processedBuffer);
 
     console.log('OCR Raw Result:', result.data.text);
