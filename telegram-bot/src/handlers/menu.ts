@@ -20,16 +20,15 @@ export async function menuHandler(ctx: Context) {
     };
 
     const welcomeMessage =
-      '*Welcome to UD System Bot*\n\n' +
+      '🏭 Welcome to UD System Bot\n\n' +
       'Choose what you want to do:\n\n' +
-      '*Drying Processes* \\- View and manage kilns\n' +
-      '*Summary* \\- Today overview and stats\n' +
-      '*Add Reading* \\- Record new meter reading\n' +
-      '*Search Batch* \\- Find specific process\n\n' +
+      '• Drying Processes - View and manage kilns\n' +
+      '• Summary - Today overview and stats\n' +
+      '• Add Reading - Record new meter reading\n' +
+      '• Search Batch - Find specific process\n\n' +
       'Tip: You can also send a photo directly to add a reading';
 
     await ctx.reply(welcomeMessage, {
-      parse_mode: 'MarkdownV2',
       reply_markup: mainMenu
     });
 
@@ -55,19 +54,20 @@ export async function processesMenuHandler(ctx: any) {
     }
 
     // Show each process with key details
-    let message = '*Active Drying Processes*\n\n';
+    let message = '🔥 Active Drying Processes\n\n';
 
     processes.forEach((process: any, index: number) => {
-      message += `*${index + 1}\\. ${escapeMarkdown(process.batchNumber)}*\n`;
-      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}`;
+      message += `━━━━━━━━━━━━━━━━━━━━\n`;
+      message += `${index + 1}. ${process.batchNumber}\n`;
+      message += `Wood: ${process.woodType}${process.thickness ? ' ' + process.thickness : ''}`;
       if (process.pieceCount) {
-        message += ` \\- ${process.pieceCount} pcs`;
+        message += ` - ${process.pieceCount} pcs`;
       }
       message += `\n`;
       message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh\n`;
-      message += `Used: ${process.electricityUsed} kWh \\($${process.electricityCost}\\)\n`;
-      message += `Est\\. Days: ${process.estimatedDays || 'N/A'}\n`;
+      message += `Used: ${process.electricityUsed} kWh ($${process.electricityCost})\n`;
+      message += `Est. Days: ${process.estimatedDays || 'N/A'}\n`;
       message += `\n`;
     });
 
@@ -81,7 +81,6 @@ export async function processesMenuHandler(ctx: any) {
     };
 
     await ctx.reply(message, {
-      parse_mode: 'MarkdownV2',
       reply_markup: keyboard
     });
 
@@ -182,24 +181,24 @@ export async function showSummaryHandler(ctx: any) {
       return;
     }
 
-    let message = '*UD System \\- Drying Summary*\n\n';
+    let message = '📊 UD System - Drying Summary\n\n';
     message += `Date: ${formatDate(new Date())}\n\n`;
 
     // Show each process with key details
     processes.forEach((process: any, index: number) => {
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `*${index + 1}\\. ${escapeMarkdown(process.batchNumber)}*\n`;
+      message += `${index + 1}. ${process.batchNumber}\n`;
       message += `━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `Wood: ${escapeMarkdown(process.woodType)}${process.thickness ? ' ' + escapeMarkdown(process.thickness) : ''}`;
+      message += `Wood: ${process.woodType}${process.thickness ? ' ' + process.thickness : ''}`;
       if (process.pieceCount) {
-        message += ` \\- ${process.pieceCount} pcs`;
+        message += ` - ${process.pieceCount} pcs`;
       }
       message += `\n`;
-      message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}% \\(target\\)\n`;
-      message += `Electricity: ${process.currentElectricity} kWh \\(current\\)\n`;
+      message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}% (target)\n`;
+      message += `Electricity: ${process.currentElectricity} kWh (current)\n`;
       message += `Total Used: ${process.electricityUsed} kWh\n`;
       message += `Cost: $${process.electricityCost}\n`;
-      message += `Est\\. Complete: ${formatDuration(process.estimatedDays)}\n`;
+      message += `Est. Complete: ${formatDuration(process.estimatedDays)}\n`;
       message += `\n`;
     });
 
@@ -216,7 +215,6 @@ export async function showSummaryHandler(ctx: any) {
     };
 
     await ctx.reply(message, {
-      parse_mode: 'MarkdownV2',
       reply_markup: keyboard
     });
 
