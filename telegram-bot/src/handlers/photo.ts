@@ -223,6 +223,100 @@ async function uploadToCloudinary(buffer: Buffer, meterType: string): Promise<st
 }
 
 /**
+ * Handler for meter type selection
+ */
+export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'humidity', userId: number) {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+    const state = userState[userId];
+    if (!state || !state.lukuPhotoFileId) {
+      await ctx.reply('[ERROR] Photo expired. Please send the photo again.');
+      return;
+    }
+
+    const processingMsg = await ctx.reply(`Processing ${meterType === 'luku' ? 'Electricity' : 'Humidity'} meter...`);
+
+    // Download photo
+    const file = await ctx.telegram.getFile(state.lukuPhotoFileId);
+    const fileUrl = `https://api.telegram.org/file/bot${CONFIG.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+    const response = await fetch(fileUrl);
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    try {
+      if (meterType === 'luku') {
+        // Process as Luku meter
+        const result = await processLukuMeter(buffer);
+        const imageUrl = await uploadToCloudinary(buffer, 'luku');
+
+        userState[userId] = {
+          lukuPhotoFileId: state.lukuPhotoFileId,
+          lukuBuffer: buffer,
+          lukuUrl: imageUrl,
+          lukuValue: result.value,
+          ocrConfidence: result.confidence,
+          rawOcrText: result.rawText,
+          waitingForSecondPhoto: true
+        };
+
+        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
+
+        await ctx.reply(
+          `✅ Electricity extracted: ${result.value} kWh\n\n` +
+          `📸 Now send photo 2/2 (Humidity meter with date/time)`
+        );
+
+      } else {
+        // Process as Humidity meter
+        const result = await processHumidityMeter(buffer);
+        const imageUrl = await uploadToCloudinary(buffer, 'humidity');
+
+        userState[userId] = {
+          humidityPhotoFileId: state.lukuPhotoFileId,
+          humidityBuffer: buffer,
+          humidityUrl: imageUrl,
+          humidityValue: result.humidity,
+          timestamp: result.timestamp,
+          ocrConfidence: result.confidence,
+          rawOcrText: result.rawText,
+          waitingForSecondPhoto: true
+        };
+
+        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
+
+        await ctx.reply(
+          `✅ Humidity extracted: ${result.humidity}%\n` +
+          `📅 Date/Time: ${result.timestamp ? result.timestamp.toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' }) : 'Not detected'}\n\n` +
+          `📸 Now send photo 2/2 (Electricity meter)`
+        );
+      }
+
+    } catch (error: any) {
+      console.error('OCR Error:', error);
+      await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
+
+      await ctx.reply(
+        `❌ Failed to extract reading\n\n` +
+        `Error: ${error.message}\n\n` +
+        `Please send a clearer photo or enter manually.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: 'Enter Manually', callback_data: `manual_entry_${meterType}_${userId}` }]
+            ]
+          }
+        }
+      );
+    }
+
+  } catch (error) {
+    console.error('Error handling meter type selection:', error);
+    await ctx.reply('[ERROR] Error processing selection. Please try again.');
+  }
+}
+
+/**
  * Handler for confirming both readings
  */
 export async function handleBothReadingsConfirmation(ctx: any, userId: number) {

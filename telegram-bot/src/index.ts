@@ -9,6 +9,7 @@ import {
 } from './handlers/menu';
 import {
   photoHandler,
+  handleMeterTypeSelection,
   handleBothReadingsConfirmation,
   handleEditLuku,
   handleEditHumidity,
@@ -86,6 +87,14 @@ bot.on('callback_query', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
       return menuHandler(ctx);
+    }
+
+    // Meter type selection: meter_type_luku_USERID or meter_type_humidity_USERID
+    if (data.startsWith('meter_type_')) {
+      const parts = data.split('_');
+      const meterType = parts[2] as 'luku' | 'humidity';
+      const userId = parseInt(parts[3]);
+      return handleMeterTypeSelection(ctx, meterType, userId);
     }
 
     // Confirm both readings: confirm_both_USERID
