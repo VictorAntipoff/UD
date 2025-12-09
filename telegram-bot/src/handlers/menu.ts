@@ -64,7 +64,7 @@ export async function processesMenuHandler(ctx: any) {
         message += ` - ${process.pieceCount} pcs`;
       }
       message += `\n`;
-      message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}%\n`;
+      message += `Humidity: ${process.currentHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh\n`;
       message += `Used: ${process.electricityUsed} kWh ($${process.electricityCost})\n`;
       message += `Est. Days: ${process.estimatedDays || 'N/A'}\n`;
@@ -194,7 +194,7 @@ export async function showSummaryHandler(ctx: any) {
         message += ` - ${process.pieceCount} pcs`;
       }
       message += `\n`;
-      message += `Humidity: ${process.currentHumidity}% → ${process.targetHumidity}% (target)\n`;
+      message += `Humidity: ${process.currentHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh (current)\n`;
       message += `Total Used: ${process.electricityUsed} kWh\n`;
       message += `Cost: $${process.electricityCost}\n`;

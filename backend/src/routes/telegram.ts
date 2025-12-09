@@ -22,9 +22,13 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           },
           readings: {
             orderBy: {
-              readingTime: 'desc'
-            },
-            take: 10
+              readingTime: 'asc'
+            }
+          },
+          recharges: {
+            orderBy: {
+              rechargeDate: 'asc'
+            }
           }
         },
         orderBy: {
@@ -34,18 +38,45 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Calculate estimates for each process
       const processesWithEstimates = processes.map((process: any) => {
-        const latestReading = process.readings[0];
-        const firstReading = process.readings[process.readings.length - 1];
+        const latestReading = process.readings[process.readings.length - 1];
+        const firstReading = process.readings[0];
         const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
         const targetHumidity = 12; // Default target
 
         // Calculate drying rate and estimate
         const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
 
-        // Calculate electricity usage
+        // Calculate electricity usage (with recharge support)
+        let totalElectricityUsed = 0;
         const currentElectricity = latestReading?.electricityMeter || 0;
-        const startElectricity = firstReading?.electricityMeter || process.startingElectricityMeter || 0;
-        const electricityUsed = startElectricity - currentElectricity; // kWh consumed
+
+        // Loop through readings and calculate consumption
+        for (let i = 1; i < process.readings.length; i++) {
+          const currentReading = process.readings[i];
+          const prevReading = process.readings[i - 1].electricityMeter;
+          const currentTime = new Date(currentReading.readingTime);
+          const prevTime = new Date(process.readings[i - 1].readingTime);
+
+          // Find recharges between prev and current reading
+          const rechargesBetween = process.recharges.filter((r: any) =>
+            new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
+          );
+
+          if (rechargesBetween.length > 0) {
+            // Recharge occurred - use formula: prevReading + recharged - currentReading
+            const totalRecharged = rechargesBetween.reduce((sum: number, r: any) => sum + r.kwhAmount, 0);
+            const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+            totalElectricityUsed += Math.max(0, consumed);
+          } else {
+            // Normal consumption (prepaid meter counting down)
+            const consumed = prevReading - currentReading.electricityMeter;
+            if (consumed > 0) {
+              totalElectricityUsed += consumed;
+            }
+          }
+        }
+
+        const electricityUsed = totalElectricityUsed;
         const electricityCost = electricityUsed * 0.12; // Assuming $0.12 per kWh
 
         // Get LOT number (from associated wood receipt if available)
