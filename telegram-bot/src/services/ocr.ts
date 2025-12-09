@@ -252,11 +252,13 @@ async function extractTimestamp(imageBuffer: Buffer, ocrText: string): Promise<D
   }
 
   // Fallback: try to extract date/time from OCR text
-  // Common formats: "2025-01-06 14:30", "06/01/2025 14:30", "Jan 6, 2025"
+  // Common formats: MM/DD/YYYY HH:MM (US format)
+  console.log('🔍 Looking for date/time in OCR text:', ocrText);
+
   const datePatterns = [
-    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/,  // 2025-01-06 14:30
-    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/, // 06/01/2025 14:30
-    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/   // 06-01-2025 14:30
+    /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/,  // 2025-01-06 14:30 (ISO)
+    /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/, // 12/09/2025 14:30 (MM/DD/YYYY)
+    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/   // 12-09-2025 14:30
   ];
 
   for (let i = 0; i < datePatterns.length; i++) {
@@ -266,25 +268,36 @@ async function extractTimestamp(imageBuffer: Buffer, ocrText: string): Promise<D
       try {
         let date: Date;
 
-        // Pattern index 1 is DD/MM/YYYY format (12/07/2025 16:02)
+        // Pattern index 1 is MM/DD/YYYY format (12/09/2025 16:02)
         if (i === 1) {
-          const [, day, month, year, hour, minute] = match;
+          const [, month, day, year, hour, minute] = match;
+          console.log('✅ Found MM/DD/YYYY date:', `${month}/${day}/${year} ${hour}:${minute}`);
           // Construct date as YYYY-MM-DD HH:MM for proper parsing
+          date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+        } else if (i === 2) {
+          // Pattern 2 is MM-DD-YYYY
+          const [, month, day, year, hour, minute] = match;
+          console.log('✅ Found MM-DD-YYYY date:', `${month}-${day}-${year} ${hour}:${minute}`);
           date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
         } else {
           // Other patterns can be parsed directly
           const dateStr = match[0];
+          console.log('✅ Found date (direct parse):', dateStr);
           date = new Date(dateStr);
         }
 
         if (!isNaN(date.getTime())) {
+          console.log('✅ Successfully parsed date:', date.toISOString());
           return date;
         }
       } catch (error) {
+        console.log('❌ Failed to parse date pattern', i);
         continue;
       }
     }
   }
+
+  console.log('❌ No date/time found in OCR text');
 
   return null;
 }
