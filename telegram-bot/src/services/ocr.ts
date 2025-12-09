@@ -259,17 +259,45 @@ export async function processLukuMeter(imageBuffer: Buffer): Promise<MeterReadin
  */
 export async function processHumidityMeter(imageBuffer: Buffer): Promise<HumidityReading> {
   const ocrResult = await extractTextFromImage(imageBuffer);
-  const humidity = extractHumidityPercentage(ocrResult.text);
+
+  // Log OCR result for debugging
+  console.log('=== HUMIDITY OCR DEBUG ===');
+  console.log('Raw OCR text:', ocrResult.text);
+  console.log('OCR confidence:', ocrResult.confidence);
+
+  let humidity = extractHumidityPercentage(ocrResult.text);
+
+  // If no humidity with % found, try to extract any decimal number between 0-100
+  if (humidity === null) {
+    console.log('No % found, trying to extract any number between 0-100');
+    const allNumbers = ocrResult.text.match(/\d+\.?\d*/g);
+    console.log('All numbers found:', allNumbers);
+
+    if (allNumbers) {
+      for (const num of allNumbers) {
+        const value = parseFloat(num);
+        if (value >= 0 && value <= 100) {
+          console.log('Found valid humidity candidate:', value);
+          humidity = value;
+          break;
+        }
+      }
+    }
+  }
+
   const timestamp = await extractTimestamp(imageBuffer, ocrResult.text);
 
   if (humidity === null) {
-    throw new Error('Could not extract humidity reading from image. Please try again with a clearer photo showing the percentage.');
+    throw new Error(`Could not extract humidity reading.\n\nOCR found: "${ocrResult.text.substring(0, 100)}"\n\nPlease try again with a clearer photo.`);
   }
 
   // Validate humidity is in reasonable range
   if (humidity < 0 || humidity > 100) {
     throw new Error(`Invalid humidity reading: ${humidity}%. Expected value between 0-100%.`);
   }
+
+  console.log('Final humidity extracted:', humidity);
+  console.log('Timestamp extracted:', timestamp);
 
   // Check if reading is below OCR confidence threshold
   if (ocrResult.confidence < CONFIG.OCR_CONFIDENCE_THRESHOLD) {
