@@ -51,11 +51,21 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         const currentElectricity = latestReading?.electricityMeter || 0;
 
         // Loop through readings and calculate consumption
-        for (let i = 1; i < process.readings.length; i++) {
+        for (let i = 0; i < process.readings.length; i++) {
           const currentReading = process.readings[i];
-          const prevReading = process.readings[i - 1].electricityMeter;
           const currentTime = new Date(currentReading.readingTime);
-          const prevTime = new Date(process.readings[i - 1].readingTime);
+
+          let prevReading: number;
+          let prevTime: Date;
+
+          if (i === 0) {
+            // First reading: use starting electricity meter as previous
+            prevReading = process.startingElectricityUnits || process.startingElectricityMeter || currentReading.electricityMeter;
+            prevTime = new Date(process.startTime);
+          } else {
+            prevReading = process.readings[i - 1].electricityMeter;
+            prevTime = new Date(process.readings[i - 1].readingTime);
+          }
 
           // Find recharges between prev and current reading
           const rechargesBetween = process.recharges.filter((r: any) =>
@@ -77,7 +87,6 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         const electricityUsed = totalElectricityUsed;
-        const electricityCost = electricityUsed * 0.12; // Assuming $0.12 per kWh
 
         // Get LOT number (from associated wood receipt if available)
         // TODO: Link to actual LOT via wood receipt/slicing relationship
@@ -110,7 +119,6 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           targetHumidity,
           currentElectricity: currentElectricity.toFixed(2),
           electricityUsed: Math.abs(electricityUsed).toFixed(2),
-          electricityCost: Math.abs(electricityCost).toFixed(2),
           estimatedDays: estimate.daysRemaining,
           estimatedDate: estimate.completionDate,
           dryingRate: estimate.dryingRate,

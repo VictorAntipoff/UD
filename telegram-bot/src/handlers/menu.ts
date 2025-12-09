@@ -66,8 +66,8 @@ export async function processesMenuHandler(ctx: any) {
       message += `\n`;
       message += `Humidity: ${process.currentHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh\n`;
-      message += `Used: ${process.electricityUsed} kWh ($${process.electricityCost})\n`;
-      message += `Est. Days: ${process.estimatedDays || 'N/A'}\n`;
+      message += `Used: ${process.electricityUsed} kWh\n`;
+      message += `Est. Completion: ${formatDuration(process.estimatedDays)}\n`;
       message += `\n`;
     });
 
@@ -197,8 +197,7 @@ export async function showSummaryHandler(ctx: any) {
       message += `Humidity: ${process.currentHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh (current)\n`;
       message += `Total Used: ${process.electricityUsed} kWh\n`;
-      message += `Cost: $${process.electricityCost}\n`;
-      message += `Est. Complete: ${formatDuration(process.estimatedDays)}\n`;
+      message += `Est. Completion: ${formatDuration(process.estimatedDays)}\n`;
       message += `\n`;
     });
 
