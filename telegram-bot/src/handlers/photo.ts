@@ -26,6 +26,7 @@ interface UserPhotoState {
   ocrConfidence?: number;
   rawOcrText?: string;
   waitingForSecondPhoto?: boolean;
+  firstMeterType?: 'luku' | 'humidity'; // Track which meter was processed first
   waitingForManualLuku?: boolean;
   waitingForManualHumidity?: boolean;
   waitingForManualTimestamp?: boolean;
@@ -79,39 +80,59 @@ export async function photoHandler(ctx: Context) {
       // Second photo received
       await ctx.reply('📸 Photo 2/2 received!\n\nProcessing...');
 
-      // Download and store first photo
+      // Download second photo
       const file = await ctx.telegram.getFile(photo.file_id);
       const fileUrl = `https://api.telegram.org/file/bot${CONFIG.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
       const response = await fetch(fileUrl);
       const buffer = Buffer.from(await response.arrayBuffer());
 
-      // Process as Luku meter
+      // Determine which meter to process based on what was first
+      const secondMeterType = state.firstMeterType === 'luku' ? 'humidity' : 'luku';
+
       try {
-        const lukuResult = await processLukuMeter(buffer);
-        const lukuUrl = await uploadToCloudinary(buffer, 'luku');
+        if (secondMeterType === 'luku') {
+          // Process as Luku meter (humidity was first)
+          const lukuResult = await processLukuMeter(buffer);
+          const lukuUrl = await uploadToCloudinary(buffer, 'luku');
 
-        userState[userId] = {
-          lukuPhotoFileId: photo.file_id,
-          lukuBuffer: buffer,
-          lukuUrl: lukuUrl,
-          lukuValue: lukuResult.value,
-          ocrConfidence: lukuResult.confidence,
-          rawOcrText: lukuResult.rawText,
-          waitingForSecondPhoto: true
-        };
+          state.lukuPhotoFileId = photo.file_id;
+          state.lukuBuffer = buffer;
+          state.lukuUrl = lukuUrl;
+          state.lukuValue = lukuResult.value;
+          state.waitingForSecondPhoto = false;
 
-        await ctx.reply(
-          `✅ Luku meter processed: ${lukuResult.value} kWh\n\n` +
-          `📸 Please send photo 2/2 (Humidity meter with date/time)`
-        );
+          // Show confirmation with both readings
+          await showConfirmation(ctx, userId, state);
+
+        } else {
+          // Process as Humidity meter (luku was first)
+          const humidityResult = await processHumidityMeter(buffer);
+          const humidityUrl = await uploadToCloudinary(buffer, 'humidity');
+
+          state.humidityPhotoFileId = photo.file_id;
+          state.humidityBuffer = buffer;
+          state.humidityUrl = humidityUrl;
+          state.humidityValue = humidityResult.humidity;
+          state.timestamp = humidityResult.timestamp;
+          state.waitingForSecondPhoto = false;
+
+          // Show confirmation with both readings
+          await showConfirmation(ctx, userId, state);
+        }
 
       } catch (error: any) {
         await ctx.reply(
-          `❌ Failed to process Luku meter\n\n` +
+          `❌ Failed to extract ${secondMeterType === 'luku' ? 'Electricity' : 'Humidity'} reading\n\n` +
           `Error: ${error.message}\n\n` +
-          `Please send a clearer photo of the Luku meter.`
+          `Please send a clearer photo or enter manually.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Enter Manually', callback_data: `manual_entry_${secondMeterType}_${userId}` }]
+              ]
+            }
+          }
         );
-        delete userState[userId];
       }
 
     } else {
@@ -260,7 +281,8 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
           lukuValue: result.value,
           ocrConfidence: result.confidence,
           rawOcrText: result.rawText,
-          waitingForSecondPhoto: true
+          waitingForSecondPhoto: true,
+          firstMeterType: 'luku' // Store that luku was first
         };
 
         await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
@@ -283,7 +305,8 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
           timestamp: result.timestamp,
           ocrConfidence: result.confidence,
           rawOcrText: result.rawText,
-          waitingForSecondPhoto: true
+          waitingForSecondPhoto: true,
+          firstMeterType: 'humidity' // Store that humidity was first
         };
 
         await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
