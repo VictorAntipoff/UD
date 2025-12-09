@@ -50,8 +50,31 @@ export async function photoHandler(ctx: Context) {
     const state = userState[userId] || {};
 
     if (!state.waitingForSecondPhoto) {
-      // First photo - automatically process both Luku and Humidity
-      await ctx.reply('📸 Photo 1/2 received!\n\nProcessing Luku meter (kWh)...');
+      // First photo - ask user what type
+      userState[userId] = { lukuPhotoFileId: photo.file_id };
+
+      await ctx.reply('📸 Photo received! What meter is this?', {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '⚡ Electricity (kWh)', callback_data: `meter_type_luku_${userId}` },
+              { text: '💧 Humidity (%)', callback_data: `meter_type_humidity_${userId}` }
+            ]
+          ]
+        }
+      });
+      return;
+    }
+
+    // waitingForSecondPhoto means they selected meter type for first photo
+    if (!state.lukuValue && !state.humidityValue) {
+      // Still waiting for first photo to be processed via callback
+      return;
+    }
+
+    if (state.waitingForSecondPhoto) {
+      // Second photo received
+      await ctx.reply('📸 Photo 2/2 received!\n\nProcessing...');
 
       // Download and store first photo
       const file = await ctx.telegram.getFile(photo.file_id);
