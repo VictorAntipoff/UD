@@ -18,6 +18,13 @@ import {
   handleManualTextInput,
   handleManualEntry
 } from './handlers/photo';
+import {
+  addReadingHandler,
+  handleReadingBatchSelection,
+  handleReadingTextInput,
+  handleSaveReading,
+  handleCancelNewReading
+} from './handlers/addReading';
 import { statusHandler } from './handlers/status';
 import { startHandler, helpHandler } from './handlers/commands';
 
@@ -71,8 +78,7 @@ bot.on('callback_query', async (ctx) => {
     }
 
     if (data === 'menu_add_reading') {
-      await ctx.answerCbQuery();
-      return ctx.reply('📸 Please send a photo of the meter reading to add a new reading.');
+      return addReadingHandler(ctx);
     }
 
     if (data === 'menu_search') {
@@ -138,6 +144,24 @@ bot.on('callback_query', async (ctx) => {
       return handleManualEntry(ctx, meterType, userId);
     }
 
+    // Add reading batch selection: add_reading_batch_BATCHID
+    if (data.startsWith('add_reading_batch_')) {
+      const batchId = data.split('_')[3];
+      return handleReadingBatchSelection(ctx, batchId);
+    }
+
+    // Save reading: save_reading_USERID
+    if (data.startsWith('save_reading_')) {
+      const userId = parseInt(data.split('_')[2]);
+      return handleSaveReading(ctx, userId);
+    }
+
+    // Cancel new reading: cancel_new_reading_USERID
+    if (data.startsWith('cancel_new_reading_')) {
+      const userId = parseInt(data.split('_')[3]);
+      return handleCancelNewReading(ctx, userId);
+    }
+
     // Unknown callback
     await ctx.answerCbQuery('❌ Unknown action');
 
@@ -157,7 +181,16 @@ bot.on(message('text'), async (ctx) => {
   }
 
   // Check if user is in a manual input flow
-  // If text is a number, it might be a manual reading entry
+  // First check if in new text-only reading flow
+  const userId = ctx.from?.id;
+  if (userId) {
+    const { userReadingState } = await import('./handlers/addReading');
+    if (userReadingState[userId]) {
+      return handleReadingTextInput(ctx, ctx.message.text);
+    }
+  }
+
+  // If text is a number, it might be a manual reading entry (photo flow)
   if (/^\d+([.,]\d+)?$/.test(text)) {
     return handleManualTextInput(ctx, text);
   }

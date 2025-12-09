@@ -5,28 +5,23 @@ import { differenceInHours } from 'date-fns';
 
 export async function menuHandler(ctx: Context) {
   try {
-    // Show main menu with options
+    // Simplified main menu - only essential options
     const mainMenu = {
       inline_keyboard: [
         [
-          { text: 'Drying Processes', callback_data: 'menu_processes' },
-          { text: 'Summary', callback_data: 'menu_summary' }
+          { text: '📊 Drying Processes', callback_data: 'menu_processes' }
         ],
         [
-          { text: 'Add Reading', callback_data: 'menu_add_reading' },
-          { text: 'Search Batch', callback_data: 'menu_search' }
+          { text: '➕ Add Reading', callback_data: 'menu_add_reading' }
         ]
       ]
     };
 
     const welcomeMessage =
-      '🏭 Welcome to UD System Bot\n\n' +
-      'Choose what you want to do:\n\n' +
-      '• Drying Processes - View and manage kilns\n' +
-      '• Summary - Today overview and stats\n' +
-      '• Add Reading - Record new meter reading\n' +
-      '• Search Batch - Find specific process\n\n' +
-      'Tip: You can also send a photo directly to add a reading';
+      '🏭 UD System Bot\n\n' +
+      'Choose an option:\n\n' +
+      '📊 Drying Processes - View all active processes\n' +
+      '➕ Add Reading - Add new meter reading';
 
     await ctx.reply(welcomeMessage, {
       reply_markup: mainMenu

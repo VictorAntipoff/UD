@@ -9,22 +9,21 @@ export async function startHandler(ctx: Context) {
 I'm the *UD System Bot* \\- your drying process monitoring assistant\\.
 
 I can help you:
-• 📸 Upload meter photos \\(I'll extract readings automatically\\)
 • 📊 Monitor active drying processes
+• ➕ Add meter readings
 • ⏱️ Get completion time estimates
-• 📈 Track humidity and electricity readings
+• 📈 Track humidity and electricity
 
 *Quick Start:*
-1\\. Send "Menu" or /menu to see all active batches
-2\\. Send a photo of your humidity or Luku meter
-3\\. Use /status \\[batch\\] for detailed info
+1\\. Type /menu to see the main menu
+2\\. Click "Add Reading" to record new readings
+3\\. View "Drying Processes" to see active batches
 
 *Commands:*
-/menu \\- Show all active drying processes
-/status \\[batch\\] \\- Get detailed status
+/menu \\- Show main menu
 /help \\- Show this help message
 
-Let's get started\\! Try sending "Menu" now\\.
+Let's get started\\! Try /menu now\\.
 `;
 
   await ctx.reply(message, { parse_mode: 'MarkdownV2' });
@@ -35,26 +34,25 @@ export async function helpHandler(ctx: Context) {
 📖 *Help \\- Available Commands*
 
 *Main Commands:*
-• *Menu* or /menu \\- Show all active drying processes with estimates
-• /list \\- Same as Menu \\(alias\\)
-• /status \\[batch\\] \\- Get detailed status for a specific batch
-  Example: \`/status UD\\-DRY\\-00012\`
+• /menu \\- Show main menu
+• /help \\- Show this help message
 
-*Photo Upload:*
-Just send a photo of your meter and I'll:
-1\\. Extract the reading using OCR
-2\\. Ask you which batch it belongs to
-3\\. Save it automatically
+*Main Menu Options:*
+• 📊 *Drying Processes* \\- View all active batches with estimates
+• ➕ *Add Reading* \\- Record new meter readings
 
-*Interactive Features:*
-• Click "📊 Details" buttons in Menu to see full batch info
-• Click batch names when uploading photos for quick selection
-• Click "🔄 Refresh" to update status info
+*Adding a Reading:*
+1\\. Click "Add Reading" from the menu
+2\\. Select the batch
+3\\. Enter Electricity reading \\(kWh\\)
+4\\. Enter Humidity reading \\(%\\)
+5\\. Enter Date and Time \\(MM/DD/YYYY HH:MM\\)
+6\\. Confirm and save
 
-*Tips:*
-• 📸 Take clear, well\\-lit photos for best OCR accuracy
-• 🕐 Photos are automatically timestamped
-• 💡 Both humidity and electricity readings are supported
+*Examples:*
+• Electricity: 1174\\.66
+• Humidity: 30\\.9
+• Date/Time: 12/09/2025 16:02
 
 Need help? Contact your system administrator\\.
 `;
