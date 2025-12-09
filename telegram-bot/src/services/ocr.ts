@@ -259,7 +259,9 @@ async function extractTimestamp(imageBuffer: Buffer, ocrText: string): Promise<D
   const datePatterns = [
     /(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/,  // 2025-01-06 14:30 (ISO)
     /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})/, // 12/09/2025 14:30 (MM/DD/YYYY)
-    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/   // 12-09-2025 14:30
+    /(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2})/,   // 12-09-2025 14:30
+    /(\d{2})\/(\d{2})\/(\d{2})\s+(\d{2}):(\d{2})/, // 12/09/25 14:30 (MM/DD/YY)
+    /(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/ // 1/9/2025 2:30 (flexible)
   ];
 
   for (let i = 0; i < datePatterns.length; i++) {
@@ -269,17 +271,23 @@ async function extractTimestamp(imageBuffer: Buffer, ocrText: string): Promise<D
       try {
         let date: Date;
 
-        // Pattern index 1 is MM/DD/YYYY format (12/09/2025 16:02)
-        if (i === 1) {
+        // Patterns 1, 2, 4 are MM/DD/YYYY or MM/DD/YY format
+        if (i === 1 || i === 4) {
           const [, month, day, year, hour, minute] = match;
-          console.log('✅ Found MM/DD/YYYY date:', `${month}/${day}/${year} ${hour}:${minute}`);
-          // Construct date as YYYY-MM-DD HH:MM for proper parsing
-          date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+          const fullYear = year.length === 2 ? `20${year}` : year;
+          console.log('✅ Found MM/DD/YYYY date:', `${month}/${day}/${fullYear} ${hour}:${minute}`);
+          date = new Date(`${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute}:00`);
         } else if (i === 2) {
           // Pattern 2 is MM-DD-YYYY
           const [, month, day, year, hour, minute] = match;
           console.log('✅ Found MM-DD-YYYY date:', `${month}-${day}-${year} ${hour}:${minute}`);
           date = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+        } else if (i === 3) {
+          // Pattern 3 is MM/DD/YY (2-digit year)
+          const [, month, day, year, hour, minute] = match;
+          const fullYear = `20${year}`;
+          console.log('✅ Found MM/DD/YY date:', `${month}/${day}/${fullYear} ${hour}:${minute}`);
+          date = new Date(`${fullYear}-${month}-${day}T${hour}:${minute}:00`);
         } else {
           // Other patterns can be parsed directly
           const dateStr = match[0];
@@ -300,7 +308,9 @@ async function extractTimestamp(imageBuffer: Buffer, ocrText: string): Promise<D
 
   console.log('❌ No date/time found in OCR text');
 
-  return null;
+  // Final fallback: use current time
+  console.log('📸 Using current time as fallback');
+  return new Date();
 }
 
 /**
