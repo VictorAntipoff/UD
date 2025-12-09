@@ -92,6 +92,7 @@ async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
 
 /**
  * Extract numeric value from OCR text
+ * Prioritizes numbers with decimal points (more likely to be meter readings)
  * Handles various formats:
  * - "12.5" → 12.5
  * - "12,5" → 12.5
@@ -99,37 +100,47 @@ async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
  * - "Value: 12.5" → 12.5
  */
 function extractNumericValue(text: string): number | null {
-  // Remove common prefixes/suffixes
-  const cleaned = text
-    .replace(/[a-zA-Z:%\s]/g, ' ') // Remove letters, %, spaces
-    .replace(/,/g, '.') // Replace comma with dot for decimals
-    .trim();
+  // Look for numbers with decimal points first (e.g., 1658.97)
+  const decimalPattern = /\d+[.,]\d+/g;
+  const decimalMatches = text.match(decimalPattern);
 
-  // Find all numbers in the text
-  const numbers = cleaned.match(/\d+\.?\d*/g);
+  if (decimalMatches && decimalMatches.length > 0) {
+    // Take the first decimal number found (usually the main reading)
+    const value = parseFloat(decimalMatches[0].replace(',', '.'));
+    if (!isNaN(value)) {
+      return value;
+    }
+  }
 
-  if (!numbers || numbers.length === 0) {
+  // Fallback: look for any numbers
+  const allNumbers = text.match(/\d+/g);
+
+  if (!allNumbers || allNumbers.length === 0) {
     return null;
   }
 
-  // If multiple numbers, try to find the most likely reading
-  // Usually the largest number is the meter reading
-  const values = numbers.map(n => parseFloat(n)).filter(n => !isNaN(n));
+  // Take the first number found (usually at the top of the display)
+  const value = parseFloat(allNumbers[0]);
 
-  if (values.length === 0) {
-    return null;
-  }
-
-  // Return the largest value (usually the main reading)
-  return Math.max(...values);
+  return isNaN(value) ? null : value;
 }
 
 /**
  * Extract humidity percentage from text
- * Looks for patterns like: "15.5%", "15.5 %", "Humidity: 15.5"
+ * Prioritizes decimal numbers with % symbol
+ * Looks for patterns like: "34.3%", "15.5 %", "Humidity: 15.5"
  */
 function extractHumidityPercentage(text: string): number | null {
-  // Look for number followed by % or "percent"
+  // Look for decimal number followed by % (e.g., 34.3%)
+  const decimalPercentMatch = text.match(/(\d+\.\d+)\s*%/);
+  if (decimalPercentMatch) {
+    const value = parseFloat(decimalPercentMatch[1]);
+    if (value >= 0 && value <= 100) {
+      return value;
+    }
+  }
+
+  // Look for any number followed by % or "percent"
   const percentMatch = text.match(/(\d+\.?\d*)\s*%/);
   if (percentMatch) {
     const value = parseFloat(percentMatch[1]);
