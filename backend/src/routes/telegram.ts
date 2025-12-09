@@ -404,8 +404,9 @@ function calculateDryingEstimate(readings: any[], currentHumidity: number, targe
   const humidityToGo = currentHumidity - targetHumidity;
   const daysRemaining = humidityToGo / dryingRate;
 
-  // Calculate completion date
-  const completionDate = new Date();
+  // Calculate completion date from LAST READING time (not current time)
+  const lastReading = sortedReadings[sortedReadings.length - 1];
+  const completionDate = new Date(lastReading.readingTime);
   completionDate.setDate(completionDate.getDate() + daysRemaining);
 
   // Confidence based on number of readings
