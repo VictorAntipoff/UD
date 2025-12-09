@@ -61,24 +61,32 @@ async function preprocessImage(imageBuffer: Buffer): Promise<Buffer> {
 
 /**
  * Extract text from image using Tesseract OCR
+ * Optimized for LCD/LED 7-segment displays
  */
 async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
   try {
-    // Preprocess image
-    const processedBuffer = await preprocessImage(imageBuffer);
+    // Aggressive preprocessing for LCD displays
+    const processedBuffer = await preprocessImageForLCD(imageBuffer);
 
-    // Perform OCR
+    // Perform OCR with LCD-optimized settings
     const result = await Tesseract.recognize(
       processedBuffer,
-      'eng', // English language
+      'eng',
       {
         logger: (info) => {
           if (info.status === 'recognizing text') {
             console.log(`OCR Progress: ${Math.round(info.progress * 100)}%`);
           }
-        }
+        },
+        // Tesseract config optimized for LED/LCD displays
+        tessedit_char_whitelist: '0123456789.:%',
+        tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
+        preserve_interword_spaces: '0'
       }
     );
+
+    console.log('OCR Raw Result:', result.data.text);
+    console.log('OCR Confidence:', result.data.confidence);
 
     return {
       text: result.data.text,
@@ -87,6 +95,36 @@ async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
   } catch (error) {
     console.error('Error extracting text from image:', error);
     throw new Error('Failed to extract text from image');
+  }
+}
+
+/**
+ * Aggressive preprocessing specifically for LCD/LED displays
+ */
+async function preprocessImageForLCD(imageBuffer: Buffer): Promise<Buffer> {
+  try {
+    const image = sharp(imageBuffer);
+    const metadata = await image.metadata();
+
+    // Multi-stage processing for LCD displays
+    let processed = image
+      .greyscale()
+      // Stage 1: Increase contrast dramatically
+      .linear(2.0, -(128 * 1.0))
+      // Stage 2: Apply threshold to get pure black/white
+      .threshold(128)
+      // Stage 3: Sharpen edges
+      .sharpen({ sigma: 3 })
+      // Stage 4: Scale up for better recognition
+      .resize(metadata.width && metadata.width < 1200 ? 1200 : metadata.width, null, {
+        kernel: 'lanczos3',
+        fit: 'inside'
+      });
+
+    return await processed.toBuffer();
+  } catch (error) {
+    console.error('Error preprocessing LCD image:', error);
+    return imageBuffer;
   }
 }
 
