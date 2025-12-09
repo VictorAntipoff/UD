@@ -81,7 +81,7 @@ async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
     // Set Tesseract parameters optimized for LED/LCD displays
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789.:%/',
-      tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT.toString(),
+      tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
       preserve_interword_spaces: '0'
     });
 
