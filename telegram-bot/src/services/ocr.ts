@@ -165,23 +165,49 @@ function extractNumericValue(text: string): number | null {
 
 /**
  * Extract humidity percentage from text
- * Prioritizes decimal numbers with % symbol
- * Looks for patterns like: "34.3%", "15.5 %", "Humidity: 15.5"
+ * Handles OCR errors where decimals are missed (309 → 30.9)
+ * Looks for patterns like: "34.3%", "15.5 %", "309%" (missed decimal)
  */
 function extractHumidityPercentage(text: string): number | null {
+  console.log('🔍 Extracting humidity from OCR text:', text);
+
   // Look for decimal number followed by % (e.g., 34.3%)
   const decimalPercentMatch = text.match(/(\d+\.\d+)\s*%/);
   if (decimalPercentMatch) {
     const value = parseFloat(decimalPercentMatch[1]);
+    console.log('✅ Found decimal with %:', value);
     if (value >= 0 && value <= 100) {
       return value;
     }
   }
 
-  // Look for any number followed by % or "percent"
+  // Look for 3-digit numbers with % (OCR often misses decimal: 309% → 30.9%)
+  const threeDigitMatch = text.match(/(\d{3})\s*%/);
+  if (threeDigitMatch) {
+    const digits = threeDigitMatch[1];
+    // Insert decimal point: 309 → 30.9
+    const value = parseFloat(digits[0] + digits[1] + '.' + digits[2]);
+    console.log('✅ Found 3-digit with % (inserting decimal):', digits, '→', value);
+    if (value >= 10 && value <= 100) {
+      return value;
+    }
+  }
+
+  // Look for 2-digit numbers with % (e.g., 34%)
+  const twoDigitMatch = text.match(/(\d{2})\s*%/);
+  if (twoDigitMatch) {
+    const value = parseFloat(twoDigitMatch[1]);
+    console.log('✅ Found 2-digit with %:', value);
+    if (value >= 10 && value <= 100) {
+      return value;
+    }
+  }
+
+  // Look for any number followed by %
   const percentMatch = text.match(/(\d+\.?\d*)\s*%/);
   if (percentMatch) {
     const value = parseFloat(percentMatch[1]);
+    console.log('Found number with %:', value);
     if (value >= 0 && value <= 100) {
       return value;
     }
@@ -191,17 +217,13 @@ function extractHumidityPercentage(text: string): number | null {
   const humidityMatch = text.match(/humidity[:\s]+(\d+\.?\d*)/i);
   if (humidityMatch) {
     const value = parseFloat(humidityMatch[1]);
+    console.log('Found with humidity keyword:', value);
     if (value >= 0 && value <= 100) {
       return value;
     }
   }
 
-  // Fallback: extract any number between 0-100
-  const value = extractNumericValue(text);
-  if (value !== null && value >= 0 && value <= 100) {
-    return value;
-  }
-
+  console.log('❌ No humidity value found');
   return null;
 }
 
