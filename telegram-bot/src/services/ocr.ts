@@ -64,35 +64,43 @@ async function preprocessImage(imageBuffer: Buffer): Promise<Buffer> {
  * Optimized for LCD/LED 7-segment displays
  */
 async function extractTextFromImage(imageBuffer: Buffer): Promise<OCRResult> {
+  let worker;
   try {
     // Aggressive preprocessing for LCD displays
     const processedBuffer = await preprocessImageForLCD(imageBuffer);
 
-    // Perform OCR with LCD-optimized settings
-    const result = await Tesseract.recognize(
-      processedBuffer,
-      'eng',
-      {
-        logger: (info) => {
-          if (info.status === 'recognizing text') {
-            console.log(`OCR Progress: ${Math.round(info.progress * 100)}%`);
-          }
-        },
-        // Tesseract config optimized for LED/LCD displays
-        tessedit_char_whitelist: '0123456789.:%',
-        tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
-        preserve_interword_spaces: '0'
+    // Create worker and configure for LCD displays
+    worker = await Tesseract.createWorker('eng', undefined, {
+      logger: (info) => {
+        if (info.status === 'recognizing text') {
+          console.log(`OCR Progress: ${Math.round(info.progress * 100)}%`);
+        }
       }
-    );
+    });
+
+    // Set Tesseract parameters optimized for LED/LCD displays
+    await worker.setParameters({
+      tessedit_char_whitelist: '0123456789.:%/',
+      tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT.toString(),
+      preserve_interword_spaces: '0'
+    });
+
+    // Perform OCR
+    const result = await worker.recognize(processedBuffer);
 
     console.log('OCR Raw Result:', result.data.text);
     console.log('OCR Confidence:', result.data.confidence);
+
+    await worker.terminate();
 
     return {
       text: result.data.text,
       confidence: result.data.confidence
     };
   } catch (error) {
+    if (worker) {
+      await worker.terminate();
+    }
     console.error('Error extracting text from image:', error);
     throw new Error('Failed to extract text from image');
   }
