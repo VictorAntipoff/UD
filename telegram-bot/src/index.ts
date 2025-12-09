@@ -15,7 +15,8 @@ import {
   handleEditHumidity,
   handleReadingCancel,
   handleBatchSelection,
-  handleManualTextInput
+  handleManualTextInput,
+  handleManualEntry
 } from './handlers/photo';
 import { statusHandler } from './handlers/status';
 import { startHandler, helpHandler } from './handlers/commands';
@@ -127,6 +128,14 @@ bot.on('callback_query', async (ctx) => {
       const batchId = parts[2];
       const userId = parseInt(parts[3]);
       return handleBatchSelection(ctx, batchId, userId);
+    }
+
+    // Manual entry: manual_entry_luku_USERID or manual_entry_humidity_USERID or manual_entry_both_USERID
+    if (data.startsWith('manual_entry_')) {
+      const parts = data.split('_');
+      const meterType = parts[2]; // luku, humidity, or both
+      const userId = parseInt(parts[3]);
+      return handleManualEntry(ctx, meterType, userId);
     }
 
     // Unknown callback

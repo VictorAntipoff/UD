@@ -26,6 +26,9 @@ interface UserPhotoState {
   ocrConfidence?: number;
   rawOcrText?: string;
   waitingForSecondPhoto?: boolean;
+  waitingForManualLuku?: boolean;
+  waitingForManualHumidity?: boolean;
+  waitingForManualTimestamp?: boolean;
 }
 
 const userState: { [userId: number]: UserPhotoState } = {};
@@ -510,6 +513,66 @@ export async function handleManualTextInput(ctx: any, text: string) {
       return;
     }
 
+    // Check if manual entry for Luku
+    if (state.waitingForManualLuku) {
+      if (value < 0 || value > 999999) {
+        await ctx.reply('[ERROR] Invalid kWh reading. Must be between 0-999999');
+        return;
+      }
+      state.lukuValue = value;
+      delete state.waitingForManualLuku;
+      await ctx.reply(`✅ Electricity: ${value} kWh\n\n📸 Now send photo 2/2 (Humidity meter)`);
+      state.waitingForSecondPhoto = true;
+      return;
+    }
+
+    // Check if manual entry for Humidity
+    if (state.waitingForManualHumidity) {
+      if (value < 0 || value > 100) {
+        await ctx.reply('[ERROR] Humidity must be between 0-100%');
+        return;
+      }
+      state.humidityValue = value;
+      delete state.waitingForManualHumidity;
+
+      // If we don't have a timestamp, ask for it
+      if (!state.timestamp) {
+        state.waitingForManualTimestamp = true;
+        await ctx.reply('📅 Please enter the date and time from the meter:\n\nExample: 12/09/2025 16:02');
+        return;
+      }
+
+      // Show confirmation
+      await showConfirmation(ctx, userId, state);
+      return;
+    }
+
+    // Check if manual timestamp entry
+    if (state.waitingForManualTimestamp) {
+      // Try to parse the date
+      const dateMatch = text.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+      if (!dateMatch) {
+        await ctx.reply('[ERROR] Invalid date format. Please use: MM/DD/YYYY HH:MM\n\nExample: 12/09/2025 16:02');
+        return;
+      }
+
+      const [, month, day, year, hour, minute] = dateMatch;
+      const timestamp = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute}:00`);
+
+      if (isNaN(timestamp.getTime())) {
+        await ctx.reply('[ERROR] Invalid date. Please try again.');
+        return;
+      }
+
+      state.timestamp = timestamp;
+      delete state.waitingForManualTimestamp;
+      await ctx.reply(`✅ Date/Time: ${timestamp.toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}`);
+
+      // Show confirmation
+      await showConfirmation(ctx, userId, state);
+      return;
+    }
+
     // Check what we're editing
     if (state.editingLuku) {
       if (value < 0 || value > 999999) {
@@ -580,6 +643,46 @@ async function showConfirmation(ctx: any, userId: number, state: any) {
       ]
     }
   });
+}
+
+/**
+ * Handle manual entry button clicks
+ */
+export async function handleManualEntry(ctx: any, meterType: string, userId: number) {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+    const state = userState[userId];
+    if (!state) {
+      await ctx.reply('Session expired. Please start over by sending photos.');
+      return;
+    }
+
+    if (meterType === 'luku') {
+      state.waitingForManualLuku = true;
+      await ctx.reply(
+        '⚡ Please enter the electricity reading (in kWh):\n\nExample: 1174.66',
+        { reply_markup: { force_reply: true } }
+      );
+    } else if (meterType === 'humidity') {
+      state.waitingForManualHumidity = true;
+      await ctx.reply(
+        '💧 Please enter the humidity percentage:\n\nExample: 30.9',
+        { reply_markup: { force_reply: true } }
+      );
+    } else if (meterType === 'both') {
+      // Both meters failed - ask for electricity first
+      state.waitingForManualLuku = true;
+      await ctx.reply(
+        '⚡ Please enter the electricity reading (in kWh):\n\nExample: 1174.66',
+        { reply_markup: { force_reply: true } }
+      );
+    }
+  } catch (error) {
+    console.error('Error handling manual entry:', error);
+    await ctx.reply('[ERROR] Error setting up manual entry. Please try again.');
+  }
 }
 
 // Export state for external access if needed
