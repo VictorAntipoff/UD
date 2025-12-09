@@ -641,16 +641,15 @@ async function showConfirmation(ctx: any, userId: number, state: any) {
     : 'Not detected';
 
   const confirmationMessage =
-    `📊 *Reading Extracted\\!*\n\n` +
+    `📊 Reading Extracted!\n\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `⚡ *Electricity:* ${state.lukuValue} kWh\n` +
-    `💧 *Humidity:* ${state.humidityValue}%\n` +
-    `📅 *Date/Time:* ${timestampText.replace(/[-.()]/g, '\\$&')}\n` +
+    `⚡ Electricity: ${state.lukuValue} kWh\n` +
+    `💧 Humidity: ${state.humidityValue}%\n` +
+    `📅 Date/Time: ${timestampText}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
     `Is this information correct?`;
 
   await ctx.reply(confirmationMessage, {
-    parse_mode: 'MarkdownV2',
     reply_markup: {
       inline_keyboard: [
         [
