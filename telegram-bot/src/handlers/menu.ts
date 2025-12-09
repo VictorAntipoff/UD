@@ -67,7 +67,13 @@ export async function processesMenuHandler(ctx: any) {
       message += `Humidity: ${process.currentHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh\n`;
       message += `Used: ${process.electricityUsed} kWh\n`;
-      message += `Est. Completion: ${formatDuration(process.estimatedDays)}\n`;
+
+      // Show completion estimation like DRY page
+      if (process.estimatedDate) {
+        message += `Estimation: ${formatDate(process.estimatedDate)}\n`;
+      } else {
+        message += `Estimation: N/A\n`;
+      }
       message += `\n`;
     });
 
@@ -197,7 +203,13 @@ export async function showSummaryHandler(ctx: any) {
       message += `Humidity: ${process.currentHumidity}%\n`;
       message += `Electricity: ${process.currentElectricity} kWh (current)\n`;
       message += `Total Used: ${process.electricityUsed} kWh\n`;
-      message += `Est. Completion: ${formatDuration(process.estimatedDays)}\n`;
+
+      // Show completion estimation like DRY page
+      if (process.estimatedDate) {
+        message += `Estimation: ${formatDate(process.estimatedDate)}\n`;
+      } else {
+        message += `Estimation: N/A\n`;
+      }
       message += `\n`;
     });
 

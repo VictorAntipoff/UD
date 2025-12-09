@@ -6,7 +6,7 @@ import { format, formatDistanceToNow, add } from 'date-fns';
 export function formatDate(date: string | Date): string {
   if (!date) return 'N/A';
   try {
-    return format(new Date(date), 'MMM d, h:mm a');
+    return format(new Date(date), 'MMM d, yyyy \'at\' h:mm a');
   } catch (error) {
     return 'Invalid date';
   }
