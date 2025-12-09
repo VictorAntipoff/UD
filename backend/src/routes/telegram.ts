@@ -46,11 +46,11 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         // Calculate drying rate and estimate
         const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
 
-        // Calculate electricity usage (with recharge support)
+        // Calculate electricity usage (with recharge support) - SAME AS factory.ts
         let totalElectricityUsed = 0;
         const currentElectricity = latestReading?.electricityMeter || 0;
+        const firstReading = process.readings[0]?.electricityMeter;
 
-        // Loop through readings and calculate consumption
         for (let i = 0; i < process.readings.length; i++) {
           const currentReading = process.readings[i];
           const currentTime = new Date(currentReading.readingTime);
@@ -59,8 +59,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           let prevTime: Date;
 
           if (i === 0) {
-            // First reading: use starting electricity meter as previous
-            prevReading = process.startingElectricityUnits || process.startingElectricityMeter || currentReading.electricityMeter;
+            prevReading = process.startingElectricityUnits || firstReading;
             prevTime = new Date(process.startTime);
           } else {
             prevReading = process.readings[i - 1].electricityMeter;
