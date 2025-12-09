@@ -9,12 +9,11 @@ import {
 } from './handlers/menu';
 import {
   photoHandler,
-  handleMeterTypeSelection,
-  handleReadingConfirmation,
-  handleReadingEdit,
+  handleBothReadingsConfirmation,
+  handleEditLuku,
+  handleEditHumidity,
   handleReadingCancel,
   handleBatchSelection,
-  handleManualEntry,
   handleManualTextInput
 } from './handlers/photo';
 import { statusHandler } from './handlers/status';
@@ -89,24 +88,22 @@ bot.on('callback_query', async (ctx) => {
       return menuHandler(ctx);
     }
 
-    // Meter type selection: meter_type_luku_USERID or meter_type_humidity_USERID
-    if (data.startsWith('meter_type_')) {
-      const parts = data.split('_');
-      const meterType = parts[2] as 'luku' | 'humidity';
-      const userId = parseInt(parts[3]);
-      return handleMeterTypeSelection(ctx, meterType, userId);
+    // Confirm both readings: confirm_both_USERID
+    if (data.startsWith('confirm_both_')) {
+      const userId = parseInt(data.split('_')[2]);
+      return handleBothReadingsConfirmation(ctx, userId);
     }
 
-    // Reading confirmation: confirm_reading_USERID
-    if (data.startsWith('confirm_reading_')) {
+    // Edit Luku: edit_luku_USERID
+    if (data.startsWith('edit_luku_')) {
       const userId = parseInt(data.split('_')[2]);
-      return handleReadingConfirmation(ctx, userId);
+      return handleEditLuku(ctx, userId);
     }
 
-    // Reading edit: edit_reading_USERID
-    if (data.startsWith('edit_reading_')) {
+    // Edit Humidity: edit_humidity_USERID
+    if (data.startsWith('edit_humidity_')) {
       const userId = parseInt(data.split('_')[2]);
-      return handleReadingEdit(ctx, userId);
+      return handleEditHumidity(ctx, userId);
     }
 
     // Reading cancel: cancel_reading_USERID
@@ -121,14 +118,6 @@ bot.on('callback_query', async (ctx) => {
       const batchId = parts[2];
       const userId = parseInt(parts[3]);
       return handleBatchSelection(ctx, batchId, userId);
-    }
-
-    // Manual entry: manual_entry_METERTYPE_USERID
-    if (data.startsWith('manual_entry_')) {
-      const parts = data.split('_');
-      const meterType = parts[2];
-      const userId = parseInt(parts[3]);
-      return handleManualEntry(ctx, meterType, userId);
     }
 
     // Unknown callback

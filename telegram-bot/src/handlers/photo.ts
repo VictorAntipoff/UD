@@ -14,14 +14,18 @@ cloudinary.config({
 
 // Store user state for photo upload flow
 interface UserPhotoState {
-  photoFileId: string;
-  photoBuffer?: Buffer;
-  photoUrl?: string;
-  meterType?: 'luku' | 'humidity';
-  ocrValue?: number;
-  ocrConfidence?: number;
+  lukuPhotoFileId?: string;
+  humidityPhotoFileId?: string;
+  lukuBuffer?: Buffer;
+  humidityBuffer?: Buffer;
+  lukuUrl?: string;
+  humidityUrl?: string;
+  lukuValue?: number;
+  humidityValue?: number;
   timestamp?: Date;
+  ocrConfidence?: number;
   rawOcrText?: string;
+  waitingForSecondPhoto?: boolean;
 }
 
 const userState: { [userId: number]: UserPhotoState } = {};
@@ -42,19 +46,126 @@ export async function photoHandler(ctx: Context) {
       return;
     }
 
-    // Store photo file ID for later
-    userState[userId] = { photoFileId: photo.file_id };
+    // Check if this is the first or second photo
+    const state = userState[userId] || {};
 
-    await ctx.reply('Photo received! What type of meter is this?', {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: 'Luku Meter (kWh)', callback_data: `meter_type_luku_${userId}` },
-            { text: 'Humidity Meter (%)', callback_data: `meter_type_humidity_${userId}` }
-          ]
-        ]
+    if (!state.waitingForSecondPhoto) {
+      // First photo - automatically process both Luku and Humidity
+      await ctx.reply('📸 Photo 1/2 received!\n\nProcessing Luku meter (kWh)...');
+
+      // Download and store first photo
+      const file = await ctx.telegram.getFile(photo.file_id);
+      const fileUrl = `https://api.telegram.org/file/bot${CONFIG.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const response = await fetch(fileUrl);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      // Process as Luku meter
+      try {
+        const lukuResult = await processLukuMeter(buffer);
+        const lukuUrl = await uploadToCloudinary(buffer, 'luku');
+
+        userState[userId] = {
+          lukuPhotoFileId: photo.file_id,
+          lukuBuffer: buffer,
+          lukuUrl: lukuUrl,
+          lukuValue: lukuResult.value,
+          ocrConfidence: lukuResult.confidence,
+          rawOcrText: lukuResult.rawText,
+          waitingForSecondPhoto: true
+        };
+
+        await ctx.reply(
+          `✅ Luku meter processed: ${lukuResult.value} kWh\n\n` +
+          `📸 Please send photo 2/2 (Humidity meter with date/time)`
+        );
+
+      } catch (error: any) {
+        await ctx.reply(
+          `❌ Failed to process Luku meter\n\n` +
+          `Error: ${error.message}\n\n` +
+          `Please send a clearer photo of the Luku meter.`
+        );
+        delete userState[userId];
       }
-    });
+
+    } else {
+      // Second photo - process humidity and show confirmation
+      await ctx.reply('📸 Photo 2/2 received!\n\nProcessing Humidity meter...');
+
+      // Download second photo
+      const file = await ctx.telegram.getFile(photo.file_id);
+      const fileUrl = `https://api.telegram.org/file/bot${CONFIG.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
+      const response = await fetch(fileUrl);
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      try {
+        const humidityResult = await processHumidityMeter(buffer);
+        const humidityUrl = await uploadToCloudinary(buffer, 'humidity');
+
+        // Update state with humidity data
+        state.humidityPhotoFileId = photo.file_id;
+        state.humidityBuffer = buffer;
+        state.humidityUrl = humidityUrl;
+        state.humidityValue = humidityResult.humidity;
+        state.timestamp = humidityResult.timestamp;
+        state.waitingForSecondPhoto = false;
+
+        // Show confirmation with all extracted data
+        const timestampText = humidityResult.timestamp
+          ? humidityResult.timestamp.toLocaleString('en-US', {
+              timeZone: 'Africa/Dar_es_Salaam',
+              dateStyle: 'medium',
+              timeStyle: 'short'
+            })
+          : 'Not detected';
+
+        const confirmationMessage =
+          `📊 *Reading Extracted\\!*\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `⚡ *Electricity:* ${state.lukuValue} kWh\n` +
+          `💧 *Humidity:* ${humidityResult.humidity}%\n` +
+          `📅 *Date/Time:* ${timestampText.replace(/[-.()]/g, '\\$&')}\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `Is this information correct?`;
+
+        await ctx.reply(confirmationMessage, {
+          parse_mode: 'MarkdownV2',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ Confirm & Save', callback_data: `confirm_both_${userId}` }
+              ],
+              [
+                { text: '✏️ Edit Electricity', callback_data: `edit_luku_${userId}` },
+                { text: '✏️ Edit Humidity', callback_data: `edit_humidity_${userId}` }
+              ],
+              [
+                { text: '❌ Cancel', callback_data: `cancel_reading_${userId}` }
+              ]
+            ]
+          }
+        });
+
+      } catch (error: any) {
+        await ctx.reply(
+          `❌ Failed to process Humidity meter\n\n` +
+          `Error: ${error.message}\n\n` +
+          `Tips:\n` +
+          `• Ensure good lighting\n` +
+          `• Focus on the display clearly\n` +
+          `• Capture date/time in the photo\n\n` +
+          `You can try again or enter values manually.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: 'Try Again', callback_data: `retry_humidity_${userId}` }],
+                [{ text: 'Enter Manually', callback_data: `manual_entry_both_${userId}` }]
+              ]
+            }
+          }
+        );
+      }
+    }
 
   } catch (error) {
     console.error('Error in photo handler:', error);
@@ -89,168 +200,16 @@ async function uploadToCloudinary(buffer: Buffer, meterType: string): Promise<st
 }
 
 /**
- * Handler for meter type selection (called from button callback)
+ * Handler for confirming both readings
  */
-export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'humidity', userId: number) {
-  try {
-    await ctx.answerCbQuery();
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }); // Remove buttons
-
-    const processingMsg = await ctx.reply(`Processing ${meterType === 'luku' ? 'Luku' : 'Humidity'} meter photo...\nThis may take 10-20 seconds...`);
-
-    // Get file ID from user state
-    const state = userState[userId];
-    if (!state || !state.photoFileId) {
-      await ctx.reply('[ERROR] Photo not found. Please send the photo again.');
-      return;
-    }
-
-    const fileId = state.photoFileId;
-
-    // Download photo
-    const file = await ctx.telegram.getFile(fileId);
-    const fileUrl = `https://api.telegram.org/file/bot${CONFIG.TELEGRAM_BOT_TOKEN}/${file.file_path}`;
-
-    // Download image buffer
-    const response = await fetch(fileUrl);
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    // Store buffer in user state
-    userState[userId].photoBuffer = buffer;
-    userState[userId].meterType = meterType;
-
-    try {
-      // Process image with OCR
-      if (meterType === 'luku') {
-        // Process Luku meter
-        const result = await processLukuMeter(buffer);
-
-        userState[userId].ocrValue = result.value;
-        userState[userId].ocrConfidence = result.confidence;
-        userState[userId].rawOcrText = result.rawText;
-
-        // Upload to Cloudinary
-        const imageUrl = await uploadToCloudinary(buffer, 'luku');
-        userState[userId].photoUrl = imageUrl;
-
-        // Show results
-        const confidenceText = formatConfidence(result.confidence);
-        const isGoodReading = isConfidenceAcceptable(result.confidence);
-
-        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
-
-        await ctx.reply(
-          `[SUCCESS] *OCR Complete\\!*\n\n` +
-          `*Luku Meter Reading:* ${result.value} kWh\n` +
-          `*Confidence:* ${confidenceText} \\(${result.confidence.toFixed(1)}%\\)\n\n` +
-          `${isGoodReading ? 'Reading looks good\\!' : '[WARNING] Low confidence \\- please verify'}`,
-          { parse_mode: 'MarkdownV2' }
-        );
-
-        // Ask for confirmation
-        await ctx.reply(
-          'Is this reading correct?',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: 'Yes, Continue', callback_data: `confirm_reading_${userId}` },
-                  { text: 'Edit Value', callback_data: `edit_reading_${userId}` },
-                  { text: 'Cancel', callback_data: `cancel_reading_${userId}` }
-                ]
-              ]
-            }
-          }
-        );
-
-      } else {
-        // Process Humidity meter
-        const result = await processHumidityMeter(buffer);
-
-        userState[userId].ocrValue = result.humidity;
-        userState[userId].ocrConfidence = result.confidence;
-        userState[userId].timestamp = result.timestamp;
-        userState[userId].rawOcrText = result.rawText;
-
-        // Upload to Cloudinary
-        const imageUrl = await uploadToCloudinary(buffer, 'humidity');
-        userState[userId].photoUrl = imageUrl;
-
-        // Show results
-        const confidenceText = formatConfidence(result.confidence);
-        const isGoodReading = isConfidenceAcceptable(result.confidence);
-        const timestampText = result.timestamp
-          ? `\n*Timestamp:* ${result.timestamp.toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}`
-          : '';
-
-        await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
-
-        await ctx.reply(
-          `[SUCCESS] *OCR Complete\\!*\n\n` +
-          `*Humidity Reading:* ${result.humidity}%\n` +
-          `*Confidence:* ${confidenceText} \\(${result.confidence.toFixed(1)}%\\)` +
-          timestampText.replace(/[-.()]/g, '\\$&') + `\n\n` +
-          `${isGoodReading ? 'Reading looks good\\!' : '[WARNING] Low confidence \\- please verify'}`,
-          { parse_mode: 'MarkdownV2' }
-        );
-
-        // Ask for confirmation
-        await ctx.reply(
-          'Is this reading correct?',
-          {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: 'Yes, Continue', callback_data: `confirm_reading_${userId}` },
-                  { text: 'Edit Value', callback_data: `edit_reading_${userId}` },
-                  { text: 'Cancel', callback_data: `cancel_reading_${userId}` }
-                ]
-              ]
-            }
-          }
-        );
-      }
-
-    } catch (error: any) {
-      console.error('OCR Error:', error);
-      await ctx.telegram.deleteMessage(ctx.chat.id, processingMsg.message_id);
-
-      await ctx.reply(
-        `[ERROR] OCR Failed\n\n` +
-        `${error.message || 'Could not extract reading from photo'}\n\n` +
-        `Tips for better results:\n` +
-        `• Ensure good lighting\n` +
-        `• Keep camera steady\n` +
-        `• Focus on the display clearly\n` +
-        `• Avoid glare and shadows\n\n` +
-        `You can try again with a new photo, or enter the value manually.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: 'Enter Manually', callback_data: `manual_entry_${meterType}_${userId}` }]
-            ]
-          }
-        }
-      );
-    }
-
-  } catch (error) {
-    console.error('Error handling meter type selection:', error);
-    await ctx.reply('[ERROR] Error processing meter selection. Please try again.');
-  }
-}
-
-/**
- * Handler for reading confirmation
- */
-export async function handleReadingConfirmation(ctx: any, userId: number) {
+export async function handleBothReadingsConfirmation(ctx: any, userId: number) {
   try {
     await ctx.answerCbQuery();
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
 
     const state = userState[userId];
-    if (!state || !state.ocrValue || !state.meterType) {
-      await ctx.reply('[ERROR] Session expired. Please upload photo again.');
+    if (!state || !state.lukuValue || !state.humidityValue) {
+      await ctx.reply('[ERROR] Session expired. Please upload photos again.');
       return;
     }
 
@@ -272,11 +231,8 @@ export async function handleReadingConfirmation(ctx: any, userId: number) {
     };
 
     await ctx.reply(
-      `*Select which batch this reading is for:*`,
-      {
-        parse_mode: 'MarkdownV2',
-        reply_markup: keyboard
-      }
+      'Select which batch this reading is for:',
+      { reply_markup: keyboard }
     );
 
   } catch (error) {
@@ -286,32 +242,7 @@ export async function handleReadingConfirmation(ctx: any, userId: number) {
 }
 
 /**
- * Handler for manual reading entry
- */
-export async function handleManualEntry(ctx: any, meterType: string, userId: number) {
-  try {
-    await ctx.answerCbQuery();
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-
-    await ctx.reply(
-      `Please enter the ${meterType === 'luku' ? 'kWh' : 'humidity %'} reading:\n\n` +
-      `Example: ${meterType === 'luku' ? '1234.5' : '15.5'}`
-    );
-
-    // Store state for text input handler
-    if (!userState[userId]) {
-      userState[userId] = { photoFileId: '', meterType: meterType as 'luku' | 'humidity' };
-    }
-    userState[userId].meterType = meterType as 'luku' | 'humidity';
-
-  } catch (error) {
-    console.error('Error handling manual entry:', error);
-    await ctx.reply('[ERROR] Error. Please try again.');
-  }
-}
-
-/**
- * Handler for batch selection
+ * Handler for batch selection with both readings
  */
 export async function handleBatchSelection(ctx: any, batchId: string, userId: number) {
   try {
@@ -319,25 +250,21 @@ export async function handleBatchSelection(ctx: any, batchId: string, userId: nu
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
 
     const state = userState[userId];
-    if (!state || !state.ocrValue || !state.meterType) {
-      await ctx.reply('[ERROR] Session expired. Please upload photo again.');
+    if (!state) {
+      await ctx.reply('[ERROR] Session expired. Please upload photos again.');
       return;
     }
 
-    await ctx.reply('Saving reading to database...');
+    await ctx.reply('💾 Saving reading to database...');
 
-    // Prepare reading data
+    // Prepare reading data with both values
     const readingData: any = {
-      batchId: batchId
+      batchId: batchId,
+      electricityMeter: state.lukuValue,
+      humidity: state.humidityValue,
+      lukuMeterImageUrl: state.lukuUrl,
+      humidityMeterImageUrl: state.humidityUrl
     };
-
-    if (state.meterType === 'luku') {
-      readingData.electricityMeter = state.ocrValue;
-      readingData.lukuMeterImageUrl = state.photoUrl;
-    } else {
-      readingData.humidity = state.ocrValue;
-      readingData.humidityMeterImageUrl = state.photoUrl;
-    }
 
     if (state.timestamp) {
       readingData.photoTimestamp = state.timestamp.toISOString();
@@ -347,18 +274,22 @@ export async function handleBatchSelection(ctx: any, batchId: string, userId: nu
       readingData.ocrConfidence = state.ocrConfidence;
     }
 
-    readingData.notes = `OCR extracted from Telegram bot\nRaw text: ${state.rawOcrText}`;
+    readingData.notes = `OCR extracted from Telegram bot (both meters)\nRaw text: ${state.rawOcrText}`;
 
     // Save to backend
     try {
       const reading = await backendAPI.createReading(readingData);
 
+      const timestampText = state.timestamp
+        ? state.timestamp.toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })
+        : 'Current time';
+
       await ctx.reply(
-        `[SUCCESS] *Reading saved successfully\\!*\n\n` +
-        `*Value:* ${state.ocrValue}${state.meterType === 'luku' ? ' kWh' : '%'}\n` +
-        `*Confidence:* ${state.ocrConfidence?.toFixed(1)}%\n` +
-        `*Time:* ${new Date().toLocaleString('en-US', { timeZone: 'Africa/Dar_es_Salaam' })}\n\n` +
-        `Send another photo or type *Menu* to see all processes\\.`,
+        `✅ *Reading saved successfully\\!*\n\n` +
+        `⚡ *Electricity:* ${state.lukuValue} kWh\n` +
+        `💧 *Humidity:* ${state.humidityValue}%\n` +
+        `📅 *Time:* ${timestampText.replace(/[-.()]/g, '\\$&')}\n\n` +
+        `Send more photos or type /menu to see all processes\\.`,
         { parse_mode: 'MarkdownV2' }
       );
 
@@ -377,29 +308,50 @@ export async function handleBatchSelection(ctx: any, batchId: string, userId: nu
 }
 
 /**
- * Handler for reading edit
+ * Handler for editing Luku value
  */
-export async function handleReadingEdit(ctx: any, userId: number) {
+export async function handleEditLuku(ctx: any, userId: number) {
   try {
     await ctx.answerCbQuery();
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
 
-    const state = userState[userId];
-    if (!state || !state.meterType) {
-      await ctx.reply('[ERROR] Session expired. Please upload photo again.');
-      return;
-    }
-
     await ctx.reply(
-      `Please enter the correct ${state.meterType === 'luku' ? 'kWh' : 'humidity %'} reading:\n\n` +
-      `Example: ${state.meterType === 'luku' ? '1234.5' : '15.5'}`
+      'Please enter the correct Electricity reading (kWh):\n\n' +
+      'Example: 1658.97'
     );
 
-    // Keep state for text input handler
+    // Mark that we're waiting for luku edit
+    if (userState[userId]) {
+      userState[userId].waitingForSecondPhoto = false;
+      (userState[userId] as any).editingLuku = true;
+    }
 
   } catch (error) {
-    console.error('Error handling edit:', error);
-    await ctx.reply('[ERROR] Error. Please try again.');
+    console.error('Error handling luku edit:', error);
+  }
+}
+
+/**
+ * Handler for editing Humidity value
+ */
+export async function handleEditHumidity(ctx: any, userId: number) {
+  try {
+    await ctx.answerCbQuery();
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+
+    await ctx.reply(
+      'Please enter the correct Humidity reading (%):\n\n' +
+      'Example: 34.3'
+    );
+
+    // Mark that we're waiting for humidity edit
+    if (userState[userId]) {
+      userState[userId].waitingForSecondPhoto = false;
+      (userState[userId] as any).editingHumidity = true;
+    }
+
+  } catch (error) {
+    console.error('Error handling humidity edit:', error);
   }
 }
 
@@ -413,7 +365,7 @@ export async function handleReadingCancel(ctx: any, userId: number) {
 
     delete userState[userId];
 
-    await ctx.reply('[CANCELLED] Reading cancelled. Send a new photo to try again.');
+    await ctx.reply('❌ Reading cancelled. Send new photos to try again.');
 
   } catch (error) {
     console.error('Error handling cancel:', error);
@@ -428,8 +380,8 @@ export async function handleManualTextInput(ctx: any, text: string) {
     const userId = ctx.from?.id;
     if (!userId) return;
 
-    const state = userState[userId];
-    if (!state || !state.meterType) {
+    const state = userState[userId] as any;
+    if (!state) {
       return; // Not in a reading flow
     }
 
@@ -441,43 +393,77 @@ export async function handleManualTextInput(ctx: any, text: string) {
       return;
     }
 
-    // Validate range
-    if (state.meterType === 'humidity' && (value < 0 || value > 100)) {
-      await ctx.reply('[ERROR] Humidity must be between 0-100%');
-      return;
+    // Check what we're editing
+    if (state.editingLuku) {
+      if (value < 0 || value > 999999) {
+        await ctx.reply('[ERROR] Invalid kWh reading. Must be between 0-999999');
+        return;
+      }
+      state.lukuValue = value;
+      delete state.editingLuku;
+      await ctx.reply(`✅ Electricity updated to: ${value} kWh`);
+
+      // Show confirmation again
+      await showConfirmation(ctx, userId, state);
+
+    } else if (state.editingHumidity) {
+      if (value < 0 || value > 100) {
+        await ctx.reply('[ERROR] Humidity must be between 0-100%');
+        return;
+      }
+      state.humidityValue = value;
+      delete state.editingHumidity;
+      await ctx.reply(`✅ Humidity updated to: ${value}%`);
+
+      // Show confirmation again
+      await showConfirmation(ctx, userId, state);
     }
-
-    if (state.meterType === 'luku' && (value < 0 || value > 999999)) {
-      await ctx.reply('[ERROR] Invalid kWh reading. Must be between 0-999999');
-      return;
-    }
-
-    // Store value
-    state.ocrValue = value;
-    state.ocrConfidence = 100; // Manual entry is 100% accurate
-
-    await ctx.reply(`Got it: ${value}${state.meterType === 'luku' ? ' kWh' : '%'}`);
-
-    // Get batches for selection
-    const batches = await backendAPI.getActiveBatches();
-
-    if (!batches || batches.length === 0) {
-      await ctx.reply('[ERROR] No active batches found.');
-      delete userState[userId];
-      return;
-    }
-
-    const keyboard = {
-      inline_keyboard: batches.map((batch: any) => [{
-        text: `${batch.batchNumber} - ${batch.woodType}`,
-        callback_data: `select_batch_${batch.id}_${userId}`
-      }])
-    };
-
-    await ctx.reply('Select which batch:', { reply_markup: keyboard });
 
   } catch (error) {
     console.error('Error handling manual input:', error);
     await ctx.reply('[ERROR] Error processing input. Please try again.');
   }
 }
+
+/**
+ * Show confirmation message with current values
+ */
+async function showConfirmation(ctx: any, userId: number, state: any) {
+  const timestampText = state.timestamp
+    ? state.timestamp.toLocaleString('en-US', {
+        timeZone: 'Africa/Dar_es_Salaam',
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      })
+    : 'Not detected';
+
+  const confirmationMessage =
+    `📊 *Reading Extracted\\!*\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `⚡ *Electricity:* ${state.lukuValue} kWh\n` +
+    `💧 *Humidity:* ${state.humidityValue}%\n` +
+    `📅 *Date/Time:* ${timestampText.replace(/[-.()]/g, '\\$&')}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Is this information correct?`;
+
+  await ctx.reply(confirmationMessage, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '✅ Confirm & Save', callback_data: `confirm_both_${userId}` }
+        ],
+        [
+          { text: '✏️ Edit Electricity', callback_data: `edit_luku_${userId}` },
+          { text: '✏️ Edit Humidity', callback_data: `edit_humidity_${userId}` }
+        ],
+        [
+          { text: '❌ Cancel', callback_data: `cancel_reading_${userId}` }
+        ]
+      ]
+    }
+  });
+}
+
+// Export state for external access if needed
+export { userState };
