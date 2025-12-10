@@ -1042,3 +1042,39 @@ model NewsletterSubscriber {
   @@index([status])
   @@index([subscribedAt])
 }
+
+// ===== TELEGRAM BOT MANAGEMENT MODELS =====
+
+model TelegramMessage {
+  id          String   @id @default(uuid())
+  key         String   @unique // Unique identifier (e.g., "welcome_message", "help_text")
+  name        String   // Display name for admin
+  content     String   // Message content (supports Telegram MarkdownV2)
+  description String?  // Description of when this message is used
+  category    String   // START, HELP, MENU, ERRORS, CONFIRMATIONS, etc.
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@index([category])
+  @@index([isActive])
+  @@index([key])
+}
+
+model TelegramSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique // Setting key (e.g., "bot_username", "allowed_users")
+  value       String   // Setting value (can be JSON string for complex values)
+  type        String   // STRING, NUMBER, BOOLEAN, JSON, LIST
+  name        String   // Display name for admin
+  description String?  // Description of what this setting does
+  category    String   // GENERAL, PERMISSIONS, NOTIFICATIONS, API, etc.
+  isEditable  Boolean  @default(true) // Some settings might be read-only
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@index([category])
+  @@index([key])
+}

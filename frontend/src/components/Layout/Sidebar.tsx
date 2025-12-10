@@ -38,6 +38,7 @@ import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturi
 import BarChartIcon from '@mui/icons-material/BarChart';
 import AdminPanelSettingsOutlinedIcon from '@mui/icons-material/AdminPanelSettingsOutlined';
 import BoltIcon from '@mui/icons-material/Bolt';
+import TelegramIcon from '@mui/icons-material/Telegram';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import colors from '../../styles/colors';
@@ -676,7 +677,7 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
           )}
 
           {/* ========== ADMINISTRATION SECTION ========== */}
-          {(hasPermission('approvals') || hasPermission('drying-settings') || hasPermission('luku-recharge') || hasPermission('user-settings') || hasPermission('admin-settings') || hasPermission('notification-settings')) && (
+          {(hasPermission('approvals') || hasPermission('drying-settings') || hasPermission('luku-recharge') || hasPermission('telegram') || hasPermission('user-settings') || hasPermission('admin-settings') || hasPermission('notification-settings')) && (
             <>
               <ListItem button onClick={handleMenuClick(setAdministrationOpen, administrationOpen)} sx={sectionHeaderStyles}>
                 <ListItemIcon sx={{
@@ -744,6 +745,20 @@ const Sidebar = ({ width, open, onClose, isMobile }: SidebarProps) => {
                         <BoltIcon />
                       </ListItemIcon>
                       <ListItemText primary="Luku Recharge" />
+                    </ListItem>
+                  )}
+
+                  {hasPermission('telegram') && (
+                    <ListItem
+                      button
+                      sx={submenuStyles}
+                      onClick={() => handleNavigate('/dashboard/management/telegram')}
+                      selected={location.pathname === '/dashboard/management/telegram'}
+                    >
+                      <ListItemIcon sx={{ color: location.pathname === '/dashboard/management/telegram' ? colors.primary : colors.grey.main }}>
+                        <TelegramIcon />
+                      </ListItemIcon>
+                      <ListItemText primary="Telegram" />
                     </ListItem>
                   )}
 
