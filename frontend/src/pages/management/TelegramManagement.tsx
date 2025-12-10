@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -115,8 +115,8 @@ export default function TelegramManagement() {
   const [customMessageText, setCustomMessageText] = useState<string>('');
   const [simulatorMessages, setSimulatorMessages] = useState<Array<{ content: string; type: 'user' | 'bot' }>>([]);
 
-  // Text formatting state
-  const contentInputRef = useState<HTMLTextAreaElement | null>(null)[0];
+  // Text formatting ref
+  const contentInputRef = React.useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadData();
@@ -144,11 +144,9 @@ export default function TelegramManagement() {
 
   // HTML formatting helper
   const applyFormat = (tag: string) => {
-    if (!editingMessage) return;
+    if (!editingMessage || !contentInputRef.current) return;
 
-    const textarea = document.querySelector('textarea[label="Content"]') as HTMLTextAreaElement;
-    if (!textarea) return;
-
+    const textarea = contentInputRef.current;
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const selectedText = editingMessage.content.substring(start, end);
@@ -981,6 +979,7 @@ export default function TelegramManagement() {
               onChange={(e) => editingMessage && setEditingMessage({ ...editingMessage, content: e.target.value })}
               sx={{ fontFamily: 'monospace' }}
               placeholder="Enter message content..."
+              inputRef={contentInputRef}
             />
             <TextField
               label="Description"
