@@ -1,10 +1,12 @@
 import { Context } from 'telegraf';
+import { getMessage } from '../api/messages';
 
 export async function startHandler(ctx: Context) {
   const firstName = ctx.from?.first_name || 'there';
 
-  const message = `
-👋 Welcome ${firstName}\\!
+  // Fetch message from database with fallback
+  const messageTemplate = await getMessage('start_message', `
+👋 Welcome {firstName}\\!
 
 I'm the *UD System Bot* \\- your drying process monitoring assistant\\.
 
@@ -15,22 +17,33 @@ I can help you:
 • 📈 Track humidity and electricity
 
 *Quick Start:*
-1\\. Type /menu to see the main menu
-2\\. Click "Add Reading" to record new readings
-3\\. View "Drying Processes" to see active batches
+Tap the menu button below to get started\\!
+`);
 
-*Commands:*
-/menu \\- Show main menu
-/help \\- Show this help message
+  // Replace placeholders
+  const message = messageTemplate.replace(/\{firstName\}/g, firstName);
 
-Let's get started\\! Try /menu now\\.
-`;
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: '📋 Main Menu', callback_data: 'back_to_menu' }
+      ],
+      [
+        { text: '📋 All Commands', callback_data: 'menu_all_commands' },
+        { text: '❓ Help', callback_data: 'menu_help' }
+      ]
+    ]
+  };
 
-  await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+  await ctx.reply(message, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard
+  });
 }
 
 export async function helpHandler(ctx: Context) {
-  const message = `
+  // Fetch message from database with fallback
+  const message = await getMessage('help_message', `
 📖 *Help \\- Available Commands*
 
 *Main Commands:*
@@ -55,7 +68,21 @@ export async function helpHandler(ctx: Context) {
 • Date/Time: 12/09/2025 16:02
 
 Need help? Contact your system administrator\\.
-`;
+`);
 
-  await ctx.reply(message, { parse_mode: 'MarkdownV2' });
+  const keyboard = {
+    inline_keyboard: [
+      [
+        { text: '📋 Main Menu', callback_data: 'back_to_menu' }
+      ],
+      [
+        { text: '📋 All Commands', callback_data: 'menu_all_commands' }
+      ]
+    ]
+  };
+
+  await ctx.reply(message, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard
+  });
 }

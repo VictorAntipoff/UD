@@ -2,10 +2,11 @@ import { Context } from 'telegraf';
 import { backendAPI } from '../api/backend';
 import { formatDate, formatCompletionDate, formatDuration } from '../utils/formatters';
 import { differenceInHours } from 'date-fns';
+import { getMessage } from '../api/messages';
 
 export async function menuHandler(ctx: Context) {
   try {
-    // Simplified main menu - only essential options
+    // Enhanced interactive menu with all available commands
     const mainMenu = {
       inline_keyboard: [
         [
@@ -13,23 +14,126 @@ export async function menuHandler(ctx: Context) {
         ],
         [
           { text: '➕ Add Reading', callback_data: 'menu_add_reading' }
+        ],
+        [
+          { text: '📈 Status Summary', callback_data: 'menu_summary' }
+        ],
+        [
+          { text: '📋 All Commands', callback_data: 'menu_all_commands' }
+        ],
+        [
+          { text: '❓ Help', callback_data: 'menu_help' }
         ]
       ]
     };
 
-    const welcomeMessage =
-      '🏭 UD System Bot\n\n' +
-      'Choose an option:\n\n' +
-      '📊 Drying Processes - View all active processes\n' +
-      '➕ Add Reading - Add new meter reading';
+    // Fetch message from database with fallback
+    const welcomeMessage = await getMessage('menu_message',
+      '🏭 *UD System Bot* \\- Main Menu\n\n' +
+      'Choose an option below:\n\n' +
+      '📊 *Drying Processes* \\- View all active batches\n' +
+      '➕ *Add Reading* \\- Record new meter readings\n' +
+      '📈 *Status Summary* \\- Quick overview of all processes\n' +
+      '📋 *All Commands* \\- See available commands\n' +
+      '❓ *Help* \\- Get help and instructions'
+    );
 
     await ctx.reply(welcomeMessage, {
+      parse_mode: 'MarkdownV2',
       reply_markup: mainMenu
     });
 
   } catch (error) {
     console.error('Error in menu handler:', error);
     await ctx.reply('[ERROR] Error loading menu. Please try again later.');
+  }
+}
+
+export async function allCommandsHandler(ctx: any) {
+  try {
+    await ctx.answerCbQuery();
+
+    // Fetch message from database with fallback
+    const message = await getMessage('all_commands_message',
+      '📋 *Available Commands*\n\n' +
+      '*Main Commands:*\n' +
+      '/start \\- Welcome message and quick start\n' +
+      '/menu \\- Show main menu \\(this menu\\)\n' +
+      '/help \\- Show help and instructions\n' +
+      '/status \\- Quick status overview\n\n' +
+      '*Quick Actions:*\n' +
+      '• Type "menu" \\- Show main menu\n' +
+      '• Send photo 📸 \\- OCR reading from meter\n' +
+      '• Send number \\- Manual reading entry\n\n' +
+      '*Tips:*\n' +
+      '• Use the menu buttons for easy navigation\n' +
+      '• All commands start with /\n' +
+      '• You can also use keyboard shortcuts'
+    );
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '🏠 Back to Menu', callback_data: 'back_to_menu' }
+        ]
+      ]
+    };
+
+    await ctx.reply(message, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard
+    });
+
+  } catch (error) {
+    console.error('Error in all commands handler:', error);
+    await ctx.reply('[ERROR] Error loading commands. Please try again.');
+  }
+}
+
+export async function helpMenuHandler(ctx: any) {
+  try {
+    await ctx.answerCbQuery();
+
+    // Fetch message from database with fallback
+    const message = await getMessage('help_menu_message',
+      '📖 *Help \\- How to Use*\n\n' +
+      '*Adding Readings:*\n' +
+      '1\\. Click "➕ Add Reading" from menu\n' +
+      '2\\. Select the drying batch\n' +
+      '3\\. Enter Electricity reading \\(kWh\\)\n' +
+      '4\\. Enter Humidity reading \\(%\\)\n' +
+      '5\\. Enter Date/Time\n' +
+      '6\\. Confirm and save\n\n' +
+      '*Photo Reading \\(OCR\\):*\n' +
+      '• Send a photo of the meter\n' +
+      '• Bot will extract the reading\n' +
+      '• Confirm or edit the value\n\n' +
+      '*Examples:*\n' +
+      '• Electricity: 1174\\.66 kWh\n' +
+      '• Humidity: 30\\.9 %\n' +
+      '• Date: 12/09/2025 16:02\n\n' +
+      '*Need help?* Contact your administrator\\.'
+    );
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📋 All Commands', callback_data: 'menu_all_commands' }
+        ],
+        [
+          { text: '🏠 Back to Menu', callback_data: 'back_to_menu' }
+        ]
+      ]
+    };
+
+    await ctx.reply(message, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard
+    });
+
+  } catch (error) {
+    console.error('Error in help menu handler:', error);
+    await ctx.reply('[ERROR] Error loading help. Please try again.');
   }
 }
 

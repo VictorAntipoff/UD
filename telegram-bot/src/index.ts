@@ -1,11 +1,14 @@
 import { Telegraf, Context } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { CONFIG } from './config';
+import { preloadData } from './api/messages';
 import {
   menuHandler,
   processesMenuHandler,
   showAllProcessesHandler,
-  showSummaryHandler
+  showSummaryHandler,
+  allCommandsHandler,
+  helpMenuHandler
 } from './handlers/menu';
 import {
   photoHandler,
@@ -94,6 +97,14 @@ bot.on('callback_query', async (ctx) => {
       await ctx.answerCbQuery();
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
       return menuHandler(ctx);
+    }
+
+    if (data === 'menu_all_commands') {
+      return allCommandsHandler(ctx);
+    }
+
+    if (data === 'menu_help') {
+      return helpMenuHandler(ctx);
     }
 
     // Meter type selection: meter_type_luku_USERID or meter_type_humidity_USERID
@@ -202,10 +213,13 @@ bot.on(message('photo'), photoHandler);
 // Launch bot
 bot.launch({
   dropPendingUpdates: true, // Ignore messages sent while bot was offline
-}).then(() => {
+}).then(async () => {
   console.log('🤖 Telegram bot started successfully!');
   console.log(`📱 Bot username: @${bot.botInfo?.username || 'unknown'}`);
   console.log(`🔐 Authorized users: ${CONFIG.ALLOWED_TELEGRAM_IDS.join(', ')}`);
+
+  // Preload messages and settings from database
+  await preloadData();
 });
 
 // Enable graceful stop
