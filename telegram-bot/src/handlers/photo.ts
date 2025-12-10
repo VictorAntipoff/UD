@@ -176,7 +176,7 @@ export async function photoHandler(ctx: Context) {
           `Is this information correct?`;
 
         await ctx.reply(confirmationMessage, {
-          parse_mode: 'MarkdownV2',
+          
           reply_markup: {
             inline_keyboard: [
               [

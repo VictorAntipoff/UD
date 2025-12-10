@@ -36,7 +36,7 @@ Tap the menu button below to get started\\!
   };
 
   await ctx.reply(message, {
-    parse_mode: 'MarkdownV2',
+    
     reply_markup: keyboard
   });
 }
@@ -82,7 +82,7 @@ Need help? Contact your system administrator\\.
   };
 
   await ctx.reply(message, {
-    parse_mode: 'MarkdownV2',
+    
     reply_markup: keyboard
   });
 }

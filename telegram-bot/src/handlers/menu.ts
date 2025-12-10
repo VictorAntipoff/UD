@@ -39,7 +39,7 @@ export async function menuHandler(ctx: Context) {
     );
 
     await ctx.reply(welcomeMessage, {
-      parse_mode: 'MarkdownV2',
+      
       reply_markup: mainMenu
     });
 
@@ -80,7 +80,7 @@ export async function allCommandsHandler(ctx: any) {
     };
 
     await ctx.reply(message, {
-      parse_mode: 'MarkdownV2',
+      
       reply_markup: keyboard
     });
 
@@ -127,7 +127,7 @@ export async function helpMenuHandler(ctx: any) {
     };
 
     await ctx.reply(message, {
-      parse_mode: 'MarkdownV2',
+      
       reply_markup: keyboard
     });
 
@@ -261,7 +261,7 @@ export async function showAllProcessesHandler(ctx: any) {
     const keyboard = { inline_keyboard: buttons };
 
     await ctx.reply(message, {
-      parse_mode: 'MarkdownV2',
+      
       reply_markup: keyboard
     });
 
