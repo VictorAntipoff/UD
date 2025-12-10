@@ -49,6 +49,11 @@ import SmartphoneIcon from '@mui/icons-material/Smartphone';
 import SendIcon from '@mui/icons-material/Send';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import FormatBoldIcon from '@mui/icons-material/FormatBold';
+import FormatItalicIcon from '@mui/icons-material/FormatItalic';
+import FormatUnderlinedIcon from '@mui/icons-material/FormatUnderlined';
+import StrikethroughSIcon from '@mui/icons-material/StrikethroughS';
+import CodeIcon from '@mui/icons-material/Code';
 import api from '@/services/api';
 import { TelegramChatSimulator } from '@/components/TelegramPreview';
 
@@ -110,6 +115,9 @@ export default function TelegramManagement() {
   const [customMessageText, setCustomMessageText] = useState<string>('');
   const [simulatorMessages, setSimulatorMessages] = useState<Array<{ content: string; type: 'user' | 'bot' }>>([]);
 
+  // Text formatting state
+  const contentInputRef = useState<HTMLTextAreaElement | null>(null)[0];
+
   useEffect(() => {
     loadData();
   }, []);
@@ -131,6 +139,36 @@ export default function TelegramManagement() {
       toast.error('Failed to load Telegram data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // HTML formatting helper
+  const applyFormat = (tag: string) => {
+    if (!editingMessage) return;
+
+    const textarea = document.querySelector('textarea[label="Content"]') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = editingMessage.content.substring(start, end);
+
+    if (selectedText) {
+      const openTag = `<${tag}>`;
+      const closeTag = `</${tag}>`;
+      const formattedText = openTag + selectedText + closeTag;
+      const newContent =
+        editingMessage.content.substring(0, start) +
+        formattedText +
+        editingMessage.content.substring(end);
+
+      setEditingMessage({ ...editingMessage, content: newContent });
+
+      // Restore cursor position after state update
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(start + openTag.length, end + openTag.length);
+      }, 0);
     }
   };
 
@@ -900,14 +938,49 @@ export default function TelegramManagement() {
               value={editingMessage?.category || ''}
               onChange={(e) => editingMessage && setEditingMessage({ ...editingMessage, category: e.target.value })}
             />
+
+            {/* Formatting Toolbar */}
+            <Box>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 0.5, display: 'block' }}>
+                Content (Select text and click to format)
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 0.5, mb: 1, p: 1, bgcolor: 'background.default', borderRadius: 1 }}>
+                <Tooltip title="Bold">
+                  <IconButton size="small" onClick={() => applyFormat('b')} sx={{ border: 1, borderColor: 'divider' }}>
+                    <FormatBoldIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Italic">
+                  <IconButton size="small" onClick={() => applyFormat('i')} sx={{ border: 1, borderColor: 'divider' }}>
+                    <FormatItalicIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Underline">
+                  <IconButton size="small" onClick={() => applyFormat('u')} sx={{ border: 1, borderColor: 'divider' }}>
+                    <FormatUnderlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Strikethrough">
+                  <IconButton size="small" onClick={() => applyFormat('s')} sx={{ border: 1, borderColor: 'divider' }}>
+                    <StrikethroughSIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Code">
+                  <IconButton size="small" onClick={() => applyFormat('code')} sx={{ border: 1, borderColor: 'divider' }}>
+                    <CodeIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+
             <TextField
-              label="Content"
               fullWidth
               multiline
               rows={8}
               value={editingMessage?.content || ''}
               onChange={(e) => editingMessage && setEditingMessage({ ...editingMessage, content: e.target.value })}
               sx={{ fontFamily: 'monospace' }}
+              placeholder="Enter message content..."
             />
             <TextField
               label="Description"
