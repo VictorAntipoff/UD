@@ -1049,7 +1049,8 @@ model TelegramMessage {
   id          String   @id @default(uuid())
   key         String   @unique // Unique identifier (e.g., "welcome_message", "help_text")
   name        String   // Display name for admin
-  content     String   // Message content (supports Telegram MarkdownV2)
+  content     String   // Message content (supports Telegram HTML)
+  buttons     Json?    // Button layout configuration (JSON array)
   description String?  // Description of when this message is used
   category    String   // START, HELP, MENU, ERRORS, CONFIRMATIONS, etc.
   isActive    Boolean  @default(true)
@@ -1060,6 +1061,39 @@ model TelegramMessage {
   @@index([category])
   @@index([isActive])
   @@index([key])
+}
+
+model TelegramButtonLayout {
+  id          String            @id @default(uuid())
+  messageKey  String            @unique // Which message this layout belongs to (e.g., "start_message")
+  name        String            // Display name (e.g., "Start Message Buttons")
+  description String?           // Description
+  isActive    Boolean           @default(true)
+  buttons     TelegramButton[]  // Buttons in this layout
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([messageKey])
+  @@index([isActive])
+}
+
+model TelegramButton {
+  id              String                  @id @default(uuid())
+  layoutId        String
+  layout          TelegramButtonLayout    @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  text            String                  // Button text (e.g., "📋 Main Menu")
+  callbackData    String                  // Callback data (e.g., "back_to_menu")
+  url             String?                 // Optional URL for URL buttons
+  row             Int                     // Row position (0-indexed)
+  column          Int                     // Column position in row (0-indexed)
+  order           Int                     // Overall order for sorting
+  isActive        Boolean                 @default(true)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([layoutId])
+  @@index([isActive])
+  @@index([order])
 }
 
 model TelegramSetting {

@@ -66,6 +66,7 @@ const telegramAdminRoutes: FastifyPluginAsync = async (fastify) => {
         key: string;
         name: string;
         content: string;
+        buttons?: any;
         description?: string;
         category: string;
         isActive?: boolean;
@@ -85,6 +86,7 @@ const telegramAdminRoutes: FastifyPluginAsync = async (fastify) => {
           key: data.key,
           name: data.name,
           content: data.content,
+          buttons: data.buttons || null,
           description: data.description,
           category: data.category,
           isActive: data.isActive ?? true,
@@ -109,6 +111,7 @@ const telegramAdminRoutes: FastifyPluginAsync = async (fastify) => {
       const data = request.body as {
         name?: string;
         content?: string;
+        buttons?: any;
         description?: string;
         category?: string;
         isActive?: boolean;
