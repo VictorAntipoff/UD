@@ -139,9 +139,15 @@ export function clearCache() {
  */
 export async function preloadData() {
   console.log('📥 Preloading Telegram messages and settings...');
-  await Promise.all([
-    fetchTelegramMessages(),
-    fetchTelegramSettings()
-  ]);
-  console.log('✅ Preload complete');
+  try {
+    await Promise.all([
+      fetchTelegramMessages(),
+      fetchTelegramSettings()
+    ]);
+    console.log('✅ Preload complete');
+  } catch (error) {
+    console.error('⚠️  Warning: Failed to preload data from database, will use fallback messages');
+    console.error('Error details:', error);
+    // Don't throw - bot should still work with fallback messages
+  }
 }

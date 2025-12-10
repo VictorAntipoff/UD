@@ -96,6 +96,11 @@ const setupServer = async () => {
         return cb(null, true);
       }
 
+      // Allow Vercel preview/production deployments
+      if (origin.endsWith('.vercel.app')) {
+        return cb(null, true);
+      }
+
       // SECURITY: Only allow SPECIFIC Vercel/Railway URLs, not all subdomains
       // Specify your exact domain in .env as PRODUCTION_FRONTEND_URL
       if (allowedOrigins.includes(origin)) {
