@@ -37,7 +37,8 @@ Tap the menu button below to get started\\!
 
   await ctx.reply(message, {
     
-    reply_markup: keyboard
+    parse_mode: 'HTML',
+      reply_markup: keyboard
   });
 }
 
@@ -83,6 +84,7 @@ Need help? Contact your system administrator\\.
 
   await ctx.reply(message, {
     
-    reply_markup: keyboard
+    parse_mode: 'HTML',
+      reply_markup: keyboard
   });
 }

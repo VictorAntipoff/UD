@@ -40,6 +40,7 @@ export async function menuHandler(ctx: Context) {
 
     await ctx.reply(welcomeMessage, {
       
+      parse_mode: 'HTML',
       reply_markup: mainMenu
     });
 
@@ -81,6 +82,7 @@ export async function allCommandsHandler(ctx: any) {
 
     await ctx.reply(message, {
       
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
 
@@ -128,6 +130,7 @@ export async function helpMenuHandler(ctx: any) {
 
     await ctx.reply(message, {
       
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
 
@@ -186,6 +189,7 @@ export async function processesMenuHandler(ctx: any) {
     };
 
     await ctx.reply(message, {
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
 
@@ -262,6 +266,7 @@ export async function showAllProcessesHandler(ctx: any) {
 
     await ctx.reply(message, {
       
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
 
@@ -325,6 +330,7 @@ export async function showSummaryHandler(ctx: any) {
     };
 
     await ctx.reply(message, {
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
 

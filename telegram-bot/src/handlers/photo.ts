@@ -58,7 +58,8 @@ export async function photoHandler(ctx: Context) {
       userState[userId] = { lukuPhotoFileId: photo.file_id };
 
       await ctx.reply('📸 Photo received! What meter is this?', {
-        reply_markup: {
+        parse_mode: 'HTML',
+      reply_markup: {
           inline_keyboard: [
             [
               { text: '⚡ Electricity (kWh)', callback_data: `meter_type_luku_${userId}` },
@@ -126,7 +127,8 @@ export async function photoHandler(ctx: Context) {
           `Error: ${error.message}\n\n` +
           `Please send a clearer photo or enter manually.`,
           {
-            reply_markup: {
+            parse_mode: 'HTML',
+      reply_markup: {
               inline_keyboard: [
                 [{ text: 'Enter Manually', callback_data: `manual_entry_${secondMeterType}_${userId}` }]
               ]
@@ -177,7 +179,8 @@ export async function photoHandler(ctx: Context) {
 
         await ctx.reply(confirmationMessage, {
           
-          reply_markup: {
+          parse_mode: 'HTML',
+      reply_markup: {
             inline_keyboard: [
               [
                 { text: '✅ Confirm & Save', callback_data: `confirm_both_${userId}` }
@@ -203,7 +206,8 @@ export async function photoHandler(ctx: Context) {
           `• Capture date/time in the photo\n\n` +
           `You can try again or enter values manually.`,
           {
-            reply_markup: {
+            parse_mode: 'HTML',
+      reply_markup: {
               inline_keyboard: [
                 [{ text: 'Try Again', callback_data: `retry_humidity_${userId}` }],
                 [{ text: 'Enter Manually', callback_data: `manual_entry_both_${userId}` }]
@@ -327,7 +331,8 @@ export async function handleMeterTypeSelection(ctx: any, meterType: 'luku' | 'hu
         `Error: ${error.message}\n\n` +
         `Please send a clearer photo or enter manually.`,
         {
-          reply_markup: {
+          parse_mode: 'HTML',
+      reply_markup: {
             inline_keyboard: [
               [{ text: 'Enter Manually', callback_data: `manual_entry_${meterType}_${userId}` }]
             ]
@@ -375,7 +380,8 @@ export async function handleBothReadingsConfirmation(ctx: any, userId: number) {
 
     await ctx.reply(
       'Select which batch this reading is for:',
-      { reply_markup: keyboard }
+      { parse_mode: 'HTML',
+      reply_markup: keyboard }
     );
 
   } catch (error) {
@@ -650,7 +656,8 @@ async function showConfirmation(ctx: any, userId: number, state: any) {
     `Is this information correct?`;
 
   await ctx.reply(confirmationMessage, {
-    reply_markup: {
+    parse_mode: 'HTML',
+      reply_markup: {
       inline_keyboard: [
         [
           { text: '✅ Confirm & Save', callback_data: `confirm_both_${userId}` }
@@ -685,20 +692,23 @@ export async function handleManualEntry(ctx: any, meterType: string, userId: num
       state.waitingForManualLuku = true;
       await ctx.reply(
         '⚡ Please enter the electricity reading (in kWh):\n\nExample: 1174.66',
-        { reply_markup: { force_reply: true } }
+        { parse_mode: 'HTML',
+      reply_markup: { force_reply: true } }
       );
     } else if (meterType === 'humidity') {
       state.waitingForManualHumidity = true;
       await ctx.reply(
         '💧 Please enter the humidity percentage:\n\nExample: 30.9',
-        { reply_markup: { force_reply: true } }
+        { parse_mode: 'HTML',
+      reply_markup: { force_reply: true } }
       );
     } else if (meterType === 'both') {
       // Both meters failed - ask for electricity first
       state.waitingForManualLuku = true;
       await ctx.reply(
         '⚡ Please enter the electricity reading (in kWh):\n\nExample: 1174.66',
-        { reply_markup: { force_reply: true } }
+        { parse_mode: 'HTML',
+      reply_markup: { force_reply: true } }
       );
     }
   } catch (error) {

@@ -45,7 +45,8 @@ export async function addReadingHandler(ctx: any) {
 
     await ctx.reply(
       '📊 Select batch for new reading:',
-      { reply_markup: keyboard }
+      { parse_mode: 'HTML',
+      reply_markup: keyboard }
     );
 
   } catch (error) {
@@ -85,7 +86,8 @@ export async function handleReadingBatchSelection(ctx: any, batchId: string) {
       `📊 Adding reading for: ${selectedBatch.batchNumber}\n\n` +
       `⚡ Enter Electricity reading (kWh):\n\n` +
       `Example: 1174.66`,
-      { reply_markup: { force_reply: true } }
+      { parse_mode: 'HTML',
+      reply_markup: { force_reply: true } }
     );
 
   } catch (error) {
@@ -129,7 +131,8 @@ export async function handleReadingTextInput(ctx: any, text: string) {
         `✅ Electricity: ${value} kWh\n\n` +
         `💧 Enter Humidity reading (%):\n\n` +
         `Example: 30.9`,
-        { reply_markup: { force_reply: true } }
+        { parse_mode: 'HTML',
+      reply_markup: { force_reply: true } }
       );
       return;
     }
@@ -157,7 +160,8 @@ export async function handleReadingTextInput(ctx: any, text: string) {
         `📅 Enter Date and Time:\n\n` +
         `Format: MM/DD/YYYY HH:MM\n` +
         `Example: 12/09/2025 16:02`,
-        { reply_markup: { force_reply: true } }
+        { parse_mode: 'HTML',
+      reply_markup: { force_reply: true } }
       );
       return;
     }
@@ -219,7 +223,8 @@ async function showReadingConfirmation(ctx: any, userId: number, state: UserRead
     `Is this correct?`;
 
   await ctx.reply(confirmationMessage, {
-    reply_markup: {
+    parse_mode: 'HTML',
+      reply_markup: {
       inline_keyboard: [
         [
           { text: '✅ Save', callback_data: `save_reading_${userId}` }

@@ -90,6 +90,7 @@ export async function statusHandler(ctx: Context) {
 
     await ctx.reply(message, {
       
+      parse_mode: 'HTML',
       reply_markup: keyboard
     });
 
