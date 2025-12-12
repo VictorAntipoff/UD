@@ -1,11 +1,18 @@
 import axios from 'axios';
 import { CONFIG } from '../config';
 
+interface TelegramButton {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
+
 interface TelegramMessage {
   id: string;
   key: string;
   name: string;
   content: string;
+  buttons?: TelegramButton[][];
   description?: string;
   category: string;
   isActive: boolean;
@@ -114,6 +121,23 @@ export async function fetchTelegramSettings(): Promise<Record<string, TelegramSe
 export async function getMessage(key: string, fallback: string = ''): Promise<string> {
   const messages = await fetchTelegramMessages();
   return messages[key]?.content || fallback;
+}
+
+/**
+ * Get message data including buttons
+ */
+export async function getMessageData(key: string, fallback: { content: string; buttons?: TelegramButton[][] } = { content: '' }): Promise<{ content: string; buttons?: TelegramButton[][] }> {
+  const messages = await fetchTelegramMessages();
+  const msg = messages[key];
+
+  if (msg) {
+    return {
+      content: msg.content,
+      buttons: msg.buttons
+    };
+  }
+
+  return fallback;
 }
 
 /**

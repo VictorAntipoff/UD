@@ -57,11 +57,18 @@ import CodeIcon from '@mui/icons-material/Code';
 import api from '@/services/api';
 import { TelegramChatSimulator } from '@/components/TelegramPreview';
 
+interface TelegramButton {
+  text: string;
+  callback_data?: string;
+  url?: string;
+}
+
 interface TelegramMessage {
   id: string;
   key: string;
   name: string;
   content: string;
+  buttons?: TelegramButton[][];
   description?: string;
   category: string;
   isActive: boolean;
@@ -118,6 +125,19 @@ export default function TelegramManagement() {
   // Text formatting ref
   const contentInputRef = React.useRef<HTMLTextAreaElement>(null);
 
+  // Common callback actions for the dropdown
+  const commonCallbacks = [
+    { value: 'back_to_menu', label: '🏠 Back to Menu' },
+    { value: 'menu_all_commands', label: '📋 All Commands' },
+    { value: 'menu_help', label: '❓ Help' },
+    { value: 'menu_processes', label: '📊 Drying Processes' },
+    { value: 'menu_summary', label: '📈 Status Summary' },
+    { value: 'menu_add_reading', label: '➕ Add Reading' },
+    { value: 'menu_search', label: '🔍 Search Batch' },
+    { value: 'filter_all', label: '🔄 Show All Processes' },
+    { value: 'custom', label: '✏️ Custom (enter manually)' },
+  ];
+
   useEffect(() => {
     loadData();
   }, []);
@@ -170,6 +190,48 @@ export default function TelegramManagement() {
     }
   };
 
+  // Button management helpers
+  const addButtonRow = () => {
+    if (!editingMessage) return;
+    const currentButtons = editingMessage.buttons || [];
+    setEditingMessage({ ...editingMessage, buttons: [...currentButtons, []] });
+  };
+
+  const addButtonToRow = (rowIndex: number) => {
+    if (!editingMessage) return;
+    const currentButtons = editingMessage.buttons || [];
+    const newButtons = [...currentButtons];
+    newButtons[rowIndex] = [...(newButtons[rowIndex] || []), { text: '', callback_data: '' }];
+    setEditingMessage({ ...editingMessage, buttons: newButtons });
+  };
+
+  const updateButton = (rowIndex: number, buttonIndex: number, field: 'text' | 'callback_data' | 'url', value: string) => {
+    if (!editingMessage) return;
+    const currentButtons = editingMessage.buttons || [];
+    const newButtons = [...currentButtons];
+    newButtons[rowIndex][buttonIndex] = { ...newButtons[rowIndex][buttonIndex], [field]: value };
+    setEditingMessage({ ...editingMessage, buttons: newButtons });
+  };
+
+  const removeButton = (rowIndex: number, buttonIndex: number) => {
+    if (!editingMessage) return;
+    const currentButtons = editingMessage.buttons || [];
+    const newButtons = [...currentButtons];
+    newButtons[rowIndex].splice(buttonIndex, 1);
+    if (newButtons[rowIndex].length === 0) {
+      newButtons.splice(rowIndex, 1);
+    }
+    setEditingMessage({ ...editingMessage, buttons: newButtons });
+  };
+
+  const removeRow = (rowIndex: number) => {
+    if (!editingMessage) return;
+    const currentButtons = editingMessage.buttons || [];
+    const newButtons = [...currentButtons];
+    newButtons.splice(rowIndex, 1);
+    setEditingMessage({ ...editingMessage, buttons: newButtons });
+  };
+
   const handleSaveMessage = async () => {
     if (!editingMessage) return;
 
@@ -178,6 +240,7 @@ export default function TelegramManagement() {
         await api.put(`/api/telegram-admin/messages/${editingMessage.id}`, {
           name: editingMessage.name,
           content: editingMessage.content,
+          buttons: editingMessage.buttons,
           description: editingMessage.description,
           category: editingMessage.category,
           isActive: editingMessage.isActive,
@@ -236,7 +299,7 @@ export default function TelegramManagement() {
         {
           content: messages?.COMMANDS?.find(m => m.key === 'start_message')?.content || '👋 Welcome John!\n\nI\'m the *UD System Bot* - your drying process monitoring assistant.\n\nI can help you:\n• 📊 Monitor active drying processes\n• ➕ Add meter readings\n• ⏱️ Get completion time estimates\n• 📈 Track humidity and electricity\n\n*Quick Start:*\nTap the menu button below to get started!',
           type: 'bot',
-          buttons: [
+          buttons: messages?.COMMANDS?.find(m => m.key === 'start_message')?.buttons || [
             [{ text: '📋 Main Menu', callback_data: 'back_to_menu' }],
             [
               { text: '📋 All Commands', callback_data: 'menu_all_commands' },
@@ -248,9 +311,9 @@ export default function TelegramManagement() {
       menu: [
         { content: '/menu', type: 'user' },
         {
-          content: messages?.COMMANDS?.find(m => m.key === 'menu_message')?.content || '🏭 *UD System Bot* - Main Menu\n\nChoose an option below:\n\n📊 *Drying Processes* - View all active batches\n➕ *Add Reading* - Record new meter readings\n📈 *Status Summary* - Quick overview of all processes\n📋 *All Commands* - See available commands\n❓ *Help* - Get help and instructions',
+          content: messages?.COMMANDS?.find(m => m.key === 'menu_message')?.content || messages?.MENU?.find(m => m.key === 'menu_message')?.content || '🏭 *UD System Bot* - Main Menu\n\nChoose an option below:\n\n📊 *Drying Processes* - View all active batches\n➕ *Add Reading* - Record new meter readings\n📈 *Status Summary* - Quick overview of all processes\n📋 *All Commands* - See available commands\n❓ *Help* - Get help and instructions',
           type: 'bot',
-          buttons: [
+          buttons: messages?.COMMANDS?.find(m => m.key === 'menu_message')?.buttons || messages?.MENU?.find(m => m.key === 'menu_message')?.buttons || [
             [{ text: '📊 Drying Processes', callback_data: 'menu_processes' }],
             [{ text: '➕ Add Reading', callback_data: 'menu_add_reading' }],
             [{ text: '📈 Status Summary', callback_data: 'menu_summary' }],
@@ -988,6 +1051,126 @@ export default function TelegramManagement() {
               onChange={(e) => editingMessage && setEditingMessage({ ...editingMessage, description: e.target.value })}
               helperText="When is this message used?"
             />
+
+            {/* Button Editor */}
+            <Divider sx={{ my: 2 }} />
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight="bold">
+                  Telegram Buttons
+                </Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addButtonRow}>
+                  Add Row
+                </Button>
+              </Box>
+              <Typography variant="caption" color="textSecondary" display="block" sx={{ mb: 2 }}>
+                Configure inline keyboard buttons that appear below the message
+              </Typography>
+
+              {editingMessage?.buttons && editingMessage.buttons.length > 0 ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {editingMessage.buttons.map((row, rowIndex) => (
+                    <Paper key={rowIndex} sx={{ p: 2, bgcolor: 'background.default' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="caption" color="textSecondary">
+                          Row {rowIndex + 1}
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Button size="small" startIcon={<AddIcon />} onClick={() => addButtonToRow(rowIndex)}>
+                            Add Button
+                          </Button>
+                          <IconButton size="small" color="error" onClick={() => removeRow(rowIndex)} title="Remove Row">
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {row.map((button, buttonIndex) => {
+                          const isCustomCallback = !commonCallbacks.find(cb => cb.value === button.callback_data);
+                          const selectValue = isCustomCallback ? 'custom' : (button.callback_data || '');
+
+                          return (
+                            <Box key={buttonIndex} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                              <TextField
+                                size="small"
+                                label="Button Text"
+                                value={button.text}
+                                onChange={(e) => updateButton(rowIndex, buttonIndex, 'text', e.target.value)}
+                                sx={{ flex: 1 }}
+                                placeholder="📋 Main Menu"
+                              />
+                              <FormControl size="small" sx={{ flex: 1 }}>
+                                <InputLabel>Callback Action</InputLabel>
+                                <Select
+                                  value={selectValue}
+                                  label="Callback Action"
+                                  onChange={(e) => {
+                                    if (e.target.value !== 'custom') {
+                                      updateButton(rowIndex, buttonIndex, 'callback_data', e.target.value);
+                                    }
+                                  }}
+                                >
+                                  {commonCallbacks.map((cb) => (
+                                    <MenuItem key={cb.value} value={cb.value}>
+                                      {cb.label}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                              {selectValue === 'custom' && (
+                                <TextField
+                                  size="small"
+                                  label="Custom Callback"
+                                  value={button.callback_data || ''}
+                                  onChange={(e) => updateButton(rowIndex, buttonIndex, 'callback_data', e.target.value)}
+                                  sx={{ flex: 1 }}
+                                  placeholder="custom_action"
+                                />
+                              )}
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => removeButton(rowIndex, buttonIndex)}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              ) : (
+                <Alert severity="info">
+                  No buttons configured. Click "Add Row" to add inline keyboard buttons.
+                </Alert>
+              )}
+            </Box>
+
+            {/* Live Preview */}
+            <Divider sx={{ my: 2 }} />
+            <Box>
+              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                Live Preview
+              </Typography>
+              <Typography variant="caption" color="textSecondary" display="block" sx={{ mb: 2 }}>
+                See how this message will appear in Telegram
+              </Typography>
+              <Box sx={{ bgcolor: '#e5ddd5', p: 2, borderRadius: 1 }}>
+                <TelegramChatSimulator
+                  messages={[
+                    {
+                      content: editingMessage?.content || '',
+                      type: 'bot',
+                      buttons: editingMessage?.buttons
+                    }
+                  ]}
+                  onButtonClick={() => {}}
+                />
+              </Box>
+            </Box>
+
             <FormControlLabel
               control={
                 <Checkbox
@@ -1063,7 +1246,11 @@ export default function TelegramManagement() {
               <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
                 <TelegramChatSimulator
                   messages={[
-                    { content: previewMessage?.content || '', type: 'bot' }
+                    {
+                      content: previewMessage?.content || '',
+                      type: 'bot',
+                      buttons: previewMessage?.buttons
+                    }
                   ]}
                   onButtonClick={() => {}}
                 />

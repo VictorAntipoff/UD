@@ -326,17 +326,16 @@ async function managementRoutes(fastify: FastifyInstance) {
               return sum + (parseInt(m.qty) || 1);
             }, 0);
 
-            // Calculate total volume
+            // Calculate total volume using the stored measurement unit
+            const measurementUnit = draft.measurementUnit || 'imperial';
             actualVolumeM3 = measurements.reduce((sum: number, m: any) => {
               const thickness = parseFloat(m.thickness) || 0;
               const width = parseFloat(m.width) || 0;
               const length = parseFloat(m.length) || 0;
               const qty = parseInt(m.qty) || 1;
 
-              // Detect unit system: if thickness and width are small (< 50), assume imperial (inches/feet)
-              // Otherwise assume metric (cm)
               let volumeM3;
-              if (thickness < 50 && width < 50) {
+              if (measurementUnit === 'imperial') {
                 // Imperial: thickness and width in inches, length in feet
                 const thicknessM = thickness * 0.0254; // inch to meter
                 const widthM = width * 0.0254; // inch to meter

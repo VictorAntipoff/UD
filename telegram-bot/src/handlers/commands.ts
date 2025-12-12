@@ -1,14 +1,14 @@
 import { Context } from 'telegraf';
-import { getMessage } from '../api/messages';
+import { getMessageData } from '../api/messages';
 
 export async function startHandler(ctx: Context) {
   const firstName = ctx.from?.first_name || 'there';
 
-  // Fetch message from database with fallback
-  const messageTemplate = await getMessage('start_message', `
-👋 Welcome {firstName}\\!
+  // Fetch message and buttons from database with fallback
+  const messageData = await getMessageData('start_message', {
+    content: `👋 Welcome {firstName}!
 
-I'm the *UD System Bot* \\- your drying process monitoring assistant\\.
+I'm the <b>UD System Bot</b> - your drying process monitoring assistant.
 
 I can help you:
 • 📊 Monitor active drying processes
@@ -16,75 +16,61 @@ I can help you:
 • ⏱️ Get completion time estimates
 • 📈 Track humidity and electricity
 
-*Quick Start:*
-Tap the menu button below to get started\\!
-`);
-
-  // Replace placeholders
-  const message = messageTemplate.replace(/\{firstName\}/g, firstName);
-
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: '📋 Main Menu', callback_data: 'back_to_menu' }
-      ],
+<b>Quick Start:</b>
+Tap the menu button below to get started!`,
+    buttons: [
+      [{ text: '📋 Main Menu', callback_data: 'back_to_menu' }],
       [
         { text: '📋 All Commands', callback_data: 'menu_all_commands' },
         { text: '❓ Help', callback_data: 'menu_help' }
       ]
     ]
-  };
+  });
+
+  // Replace placeholders
+  const message = messageData.content.replace(/\{firstName\}/g, firstName);
 
   await ctx.reply(message, {
-    
     parse_mode: 'HTML',
-      reply_markup: keyboard
+    reply_markup: messageData.buttons ? { inline_keyboard: messageData.buttons as any } : undefined
   });
 }
 
 export async function helpHandler(ctx: Context) {
   // Fetch message from database with fallback
-  const message = await getMessage('help_message', `
-📖 *Help \\- Available Commands*
+  const messageData = await getMessageData('help_message', {
+    content: `📖 <b>Help - Available Commands</b>
 
-*Main Commands:*
-• /menu \\- Show main menu
-• /help \\- Show this help message
+<b>Main Commands:</b>
+• /menu - Show main menu
+• /help - Show this help message
 
-*Main Menu Options:*
-• 📊 *Drying Processes* \\- View all active batches with estimates
-• ➕ *Add Reading* \\- Record new meter readings
+<b>Main Menu Options:</b>
+• 📊 <b>Drying Processes</b> - View all active batches with estimates
+• ➕ <b>Add Reading</b> - Record new meter readings
 
-*Adding a Reading:*
-1\\. Click "Add Reading" from the menu
-2\\. Select the batch
-3\\. Enter Electricity reading \\(kWh\\)
-4\\. Enter Humidity reading \\(%\\)
-5\\. Enter Date and Time \\(MM/DD/YYYY HH:MM\\)
-6\\. Confirm and save
+<b>Adding a Reading:</b>
+1. Click "Add Reading" from the menu
+2. Select the batch
+3. Enter Electricity reading (kWh)
+4. Enter Humidity reading (%)
+5. Enter Date and Time (MM/DD/YYYY HH:MM)
+6. Confirm and save
 
-*Examples:*
-• Electricity: 1174\\.66
-• Humidity: 30\\.9
+<b>Examples:</b>
+• Electricity: 1174.66
+• Humidity: 30.9
 • Date/Time: 12/09/2025 16:02
 
-Need help? Contact your system administrator\\.
-`);
-
-  const keyboard = {
-    inline_keyboard: [
-      [
-        { text: '📋 Main Menu', callback_data: 'back_to_menu' }
-      ],
-      [
-        { text: '📋 All Commands', callback_data: 'menu_all_commands' }
-      ]
+Need help? Contact your system administrator.`,
+    buttons: [
+      [{ text: '📋 Main Menu', callback_data: 'back_to_menu' }],
+      [{ text: '📋 All Commands', callback_data: 'menu_all_commands' }]
     ]
-  };
+  });
 
-  await ctx.reply(message, {
-    
+  await ctx.reply(messageData.content, {
     parse_mode: 'HTML',
-      reply_markup: keyboard
+    reply_markup: messageData.buttons ? { inline_keyboard: messageData.buttons as any } : undefined
   });
 }
