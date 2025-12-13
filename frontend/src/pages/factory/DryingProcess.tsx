@@ -518,21 +518,29 @@ export default function DryingProcess() {
       const kwhMatch = smsText.match(/([0-9]+(?:\.[0-9]+)?)\s*KWH/i);
       const kwhAmount = kwhMatch ? parseFloat(kwhMatch[1]) : 0;
 
-      // Extract costs
-      const baseCostMatch = smsText.match(/MALIPO[_\-]UMEME[_\-]([0-9]+(?:\.[0-9]+)?)/i);
-      const baseCost = baseCostMatch ? parseFloat(baseCostMatch[1]) : 0;
+      // Extract costs - support both old format (MALIPO_UMEME) and new format (Cost)
+      const baseCostMatch = smsText.match(/(?:MALIPO[_\-]UMEME[_\-]|Cost\s+)([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+      const baseCost = baseCostMatch ? parseFloat(baseCostMatch[1].replace(/,/g, '')) : 0;
 
-      const vatMatch = smsText.match(/VAT[_\-]([0-9]+(?:\.[0-9]+)?)/i);
-      const vat = vatMatch ? parseFloat(vatMatch[1]) : 0;
+      // VAT - support both "VAT_123" and "VAT 18% 123" formats
+      const vatMatch = smsText.match(/VAT[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+      const vat = vatMatch ? parseFloat(vatMatch[1].replace(/,/g, '')) : 0;
 
-      const ewuraMatch = smsText.match(/EWURA[_\-]([0-9]+(?:\.[0-9]+)?)/i);
-      const ewuraFee = ewuraMatch ? parseFloat(ewuraMatch[1]) : 0;
+      // EWURA - support both "EWURA_123" and "EWURA 1% 123" formats
+      const ewuraMatch = smsText.match(/EWURA[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+      const ewuraFee = ewuraMatch ? parseFloat(ewuraMatch[1].replace(/,/g, '')) : 0;
 
-      const reaMatch = smsText.match(/REA[_\-]([0-9]+(?:\.[0-9]+)?)/i);
-      const reaFee = reaMatch ? parseFloat(reaMatch[1]) : 0;
+      // REA - support both "REA_123" and "REA 3% 123" formats
+      const reaMatch = smsText.match(/REA[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+      const reaFee = reaMatch ? parseFloat(reaMatch[1].replace(/,/g, '')) : 0;
 
-      const totalMatch = smsText.match(/Jumla\s+([0-9]+(?:\.[0-9]+)?)/i);
-      const totalPaid = totalMatch ? parseFloat(totalMatch[1]) : 0;
+      // Debt Collected (new field)
+      const debtMatch = smsText.match(/Debt\s+Collected\s+([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+      const debtCollected = debtMatch ? parseFloat(debtMatch[1].replace(/,/g, '')) : 0;
+
+      // Total - support both "Jumla 123" and "TOTAL TZS 123" formats
+      const totalMatch = smsText.match(/(?:Jumla\s+|TOTAL\s+TZS\s+)([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+      const totalPaid = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : 0;
 
       // IMPORTANT: Use CURRENT time (when meter reading was taken) instead of SMS timestamp
       // The SMS timestamp is when LUKU generated the token, NOT when user entered it
@@ -540,7 +548,9 @@ export default function DryingProcess() {
       const rechargeDate = new Date().toISOString();
 
       // Extract SMS date for audit trail only (stored in notes)
+      // Support both "Tarehe DD/MM/YYYY" and "YYYY-MM-DD HH:MM" formats
       const dateMatch = smsText.match(/Tarehe\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/i);
+      const newDateMatch = smsText.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
       let smsTimestamp = '';
       if (dateMatch) {
         const day = String(dateMatch[1]).padStart(2, '0');
@@ -548,6 +558,14 @@ export default function DryingProcess() {
         const year = dateMatch[3];
         const hour = dateMatch[4] ? String(dateMatch[4]).padStart(2, '0') : '00';
         const minute = dateMatch[5] ? String(dateMatch[5]).padStart(2, '0') : '00';
+        smsTimestamp = ` (SMS timestamp: ${day}/${month}/${year} ${hour}:${minute})`;
+      } else if (newDateMatch) {
+        // New format: YYYY-MM-DD HH:MM
+        const year = newDateMatch[1];
+        const month = newDateMatch[2];
+        const day = newDateMatch[3];
+        const hour = newDateMatch[4];
+        const minute = newDateMatch[5];
         smsTimestamp = ` (SMS timestamp: ${day}/${month}/${year} ${hour}:${minute})`;
       }
 
@@ -567,6 +585,7 @@ export default function DryingProcess() {
         vat,
         ewuraFee,
         reaFee,
+        debtCollected,
         meterReadingAfter: parseFloat(rechargeData.meterReadingAfter),
         notes: `Added during drying process${smsTimestamp}`
       });
