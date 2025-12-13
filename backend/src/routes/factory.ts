@@ -2040,6 +2040,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Receipt not found' });
       }
 
+      // Validate warehouse is assigned before completing receipt
+      if (!receipt.warehouseId) {
+        return reply.status(400).send({ error: 'Cannot complete receipt: No warehouse assigned. Please assign a warehouse first.' });
+      }
+
       // 2. Get draft measurements
       const draft = await prisma.receiptDraft.findFirst({
         where: { receiptId: lotNumber },

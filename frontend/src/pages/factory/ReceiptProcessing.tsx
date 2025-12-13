@@ -104,6 +104,7 @@ interface ReceiptForm {
   status: string;
   purchaseOrder: string;
   woodFormat?: string; // 'SLEEPERS' or 'PLANKS'
+  warehouseId?: string;
   warehouseName?: string;
   lastModifiedBy?: string;
   lastModifiedAt?: string;
@@ -1007,6 +1008,7 @@ const ReceiptProcessing = () => {
         status: selectedReceipt.status || 'PENDING',
         purchaseOrder: selectedReceipt.purchaseOrder || '',
         woodFormat: selectedReceipt.woodFormat || 'SLEEPERS',
+        warehouseId: selectedReceipt.warehouseId || '',
         warehouseName: selectedReceipt.warehouse?.name || 'No Warehouse',
       });
     }
@@ -1016,11 +1018,15 @@ const ReceiptProcessing = () => {
 
   const validateForm = () => {
     if (!formData.receiptNumber) {
-      console.error('Please select a LOT number');
+      enqueueSnackbar('Please select a LOT number', { variant: 'error' });
       return false;
     }
     if (measurements.length === 0) {
-      console.error('Please add at least one measurement');
+      enqueueSnackbar('Please add at least one measurement', { variant: 'error' });
+      return false;
+    }
+    if (!formData.warehouseId) {
+      enqueueSnackbar('Cannot complete receipt: No warehouse assigned. Please assign a warehouse to this LOT first in LOT Management.', { variant: 'error' });
       return false;
     }
     return true;
@@ -1279,23 +1285,8 @@ const ReceiptProcessing = () => {
         await api.post('/factory/drafts', draftData);
       }
 
-      // Add to change history
-      const historyEntry = {
-        receipt_id: formData.receiptNumber,
-        user_id: userId,
-        user_name: userName,
-        action: existingDraft ? 'UPDATE' : 'CREATE',
-        timestamp: timestamp,
-        details: `Draft ${existingDraft ? 'updated' : 'created'} with ${measurements.length} measurements`
-      };
-
-      try {
-        await api.post('/factory/receipt-history', historyEntry);
-        // Don't add to local state here - it will be loaded from DB on next load
-        // This prevents duplication when the component re-renders
-      } catch (historyError) {
-        console.error('Error saving history:', historyError);
-      }
+      // Note: History entry is now created by the backend in the draft POST/PUT endpoints
+      // to avoid duplicate entries (DRAFT_CREATED/DRAFT_UPDATED)
 
       // Show success notification with timestamp
       const saveTime = new Date(timestamp).toLocaleString('en-US', {
@@ -2676,7 +2667,16 @@ const ReceiptProcessing = () => {
                             }}
                           >
                             <Chip
-                              label={entry.action.replace(/_/g, ' ')}
+                              label={
+                                entry.action === 'DRAFT_CREATED' ? 'Draft Created' :
+                                entry.action === 'DRAFT_UPDATED' ? 'Draft Updated' :
+                                entry.action === 'CREATE' ? 'Created' :
+                                entry.action === 'UPDATE' ? 'Updated' :
+                                entry.action === 'APPROVED' ? 'Approved' :
+                                entry.action === 'COMPLETED' ? 'Completed' :
+                                entry.action === 'SUBMIT' ? 'Submitted' :
+                                entry.action.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())
+                              }
                               size="small"
                               sx={{
                                 fontSize: '0.75rem',
@@ -2708,7 +2708,6 @@ const ReceiptProcessing = () => {
                                     ? '#d97706'
                                     : '#475569',
                                 border: 'none',
-                                textTransform: 'capitalize',
                               }}
                             />
                           </TableCell>

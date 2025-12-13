@@ -5,6 +5,7 @@ export type ReceiptStatus = 'CREATED' | 'PENDING' | 'RECEIVED' | 'PROCESSING' | 
 export interface WoodReceipt {
   id: string;
   wood_type_id: string;
+  warehouse_id?: string;
   supplier: string;
   receipt_date: string;
   purchase_date?: string; // For frontend compatibility
@@ -26,6 +27,13 @@ export interface WoodReceipt {
     id: string;
     name: string;
   };
+  warehouse?: {
+    id: string;
+    name: string;
+    code: string;
+    stockControlEnabled?: boolean;
+  };
+  receiptConfirmedAt?: string;
 }
 
 export interface WoodReceiptItem {

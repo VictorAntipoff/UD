@@ -38,6 +38,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 interface Warehouse {
+  id: string;
   code: string;
   name: string;
   stockControlEnabled: boolean;
@@ -560,8 +561,35 @@ const InventoryReports: FC = () => {
         )}
 
         {/* Tabs */}
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-          <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
+        <Box sx={{ mb: 3 }}>
+          <Tabs
+            value={tabValue}
+            onChange={(_, v) => setTabValue(v)}
+            sx={{
+              '& .MuiTabs-indicator': {
+                backgroundColor: '#dc2626',
+                height: 3,
+                borderRadius: '3px 3px 0 0',
+              },
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontWeight: 500,
+                fontSize: '0.875rem',
+                color: '#64748b',
+                minHeight: 44,
+                px: 2.5,
+                '&:hover': {
+                  color: '#dc2626',
+                  backgroundColor: '#fef2f2',
+                },
+                '&.Mui-selected': {
+                  color: '#dc2626',
+                  fontWeight: 600,
+                },
+              },
+              borderBottom: '2px solid #e2e8f0',
+            }}
+          >
             <Tab label="By Warehouse" />
             <Tab label="Consolidated View" />
             <Tab label="Low Stock Alerts" />
@@ -574,21 +602,23 @@ const InventoryReports: FC = () => {
           <Box>
             <Paper
               sx={{
-                p: 2,
-                mb: 3,
+                px: 2,
+                py: 1.5,
+                mb: 2,
                 borderRadius: 2,
                 backgroundColor: '#f8fafc',
                 border: '1px solid #e2e8f0'
               }}
             >
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
                 <TextField
                   select
                   label="Select Warehouse"
                   value={selectedWarehouse}
                   onChange={(e) => setSelectedWarehouse(e.target.value)}
+                  size="small"
                   sx={{
-                    minWidth: 300,
+                    minWidth: 280,
                     '& .MuiOutlinedInput-root': {
                       backgroundColor: '#fff',
                       '&:hover fieldset': {
@@ -615,8 +645,9 @@ const InventoryReports: FC = () => {
                   label="Filter by Wood Type"
                   value={selectedWoodType}
                   onChange={(e) => setSelectedWoodType(e.target.value)}
+                  size="small"
                   sx={{
-                    minWidth: 250,
+                    minWidth: 220,
                     '& .MuiOutlinedInput-root': {
                       backgroundColor: '#fff',
                       '&:hover fieldset': {

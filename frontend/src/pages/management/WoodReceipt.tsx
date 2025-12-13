@@ -44,6 +44,7 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import SendIcon from '@mui/icons-material/Send';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import SyncIcon from '@mui/icons-material/Sync';
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
@@ -224,6 +225,7 @@ const WoodReceipt = () => {
       const mappedReceipts = (response.data || []).map((receipt: any) => ({
         id: receipt.id,
         wood_type_id: receipt.woodTypeId,
+        warehouse_id: receipt.warehouseId,
         supplier: receipt.supplier,
         receipt_date: receipt.receiptDate ? receipt.receiptDate.split('T')[0] : '',
         purchase_date: receipt.receiptDate ? receipt.receiptDate.split('T')[0] : '',
@@ -242,7 +244,9 @@ const WoodReceipt = () => {
         created_at: receipt.createdAt,
         updated_at: receipt.updatedAt,
         wood_type: receipt.woodType,
-        measurements: receipt.measurements || []
+        warehouse: receipt.warehouse,
+        measurements: receipt.measurements || [],
+        receiptConfirmedAt: receipt.receiptConfirmedAt
       }));
       setReceipts(mappedReceipts);
     } catch (error: any) {
@@ -353,6 +357,35 @@ const WoodReceipt = () => {
     } catch (error: any) {
       console.error('Error reopening LOT:', error);
       enqueueSnackbar(error?.response?.data?.error || 'Failed to reopen LOT', { variant: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSyncStock = async (receipt: WoodReceiptType) => {
+    if (!isAdmin) {
+      enqueueSnackbar('Only admins can sync stock', { variant: 'error' });
+      return;
+    }
+
+    if (receipt.status !== 'COMPLETED') {
+      enqueueSnackbar('Can only sync stock for completed LOTs', { variant: 'error' });
+      return;
+    }
+
+    if (!receipt.warehouse_id) {
+      enqueueSnackbar('Please assign a warehouse to this LOT first', { variant: 'error' });
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await api.post(`/management/wood-receipts/${receipt.id}/sync-stock`);
+      enqueueSnackbar(response.data.message || `Stock synced for LOT ${receipt.lot_number}`, { variant: 'success' });
+      await fetchReceipts();
+    } catch (error: any) {
+      console.error('Error syncing stock:', error);
+      enqueueSnackbar(error?.response?.data?.error || 'Failed to sync stock', { variant: 'error' });
     } finally {
       setLoading(false);
     }
@@ -1691,6 +1724,26 @@ const WoodReceipt = () => {
                         <LockOpenIcon fontSize="small" />
                       </IconButton>
                     )}
+                    {isAdmin && receipt.status === 'COMPLETED' && receipt.warehouse_id && !receipt.receiptConfirmedAt && (
+                      <IconButton
+                        size="small"
+                        title="Sync stock to warehouse"
+                        onClick={() => handleSyncStock(receipt)}
+                        sx={{
+                          backgroundColor: '#3b82f6',
+                          color: '#fff',
+                          ml: 1,
+                          width: 32,
+                          height: 32,
+                          '&:hover': {
+                            backgroundColor: '#2563eb',
+                          },
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <SyncIcon fontSize="small" />
+                      </IconButton>
+                    )}
                     {isAdmin && (receipt.status === 'PENDING' || receipt.status === 'PROCESSING') && (
                       <IconButton
                         size="small"
@@ -2031,6 +2084,8 @@ const WoodReceipt = () => {
                   value={editingReceipt.wood_type_id}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, wood_type_id: e.target.value } : null)}
                   required
+                  disabled={!!(editingReceipt.receiptConfirmedAt && editingReceipt.warehouse?.stockControlEnabled)}
+                  helperText={editingReceipt.receiptConfirmedAt && editingReceipt.warehouse?.stockControlEnabled ? "Wood type cannot be changed after stock has been synced" : undefined}
                   sx={textFieldSx}
                 >
                   {woodTypes.map((type) => (
@@ -2047,7 +2102,8 @@ const WoodReceipt = () => {
                   label="Warehouse"
                   value={editingReceipt.warehouse_id || ''}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, warehouse_id: e.target.value } : null)}
-                  helperText="Select warehouse for stock tracking"
+                  helperText={editingReceipt.receiptConfirmedAt && editingReceipt.warehouse?.stockControlEnabled ? "Warehouse cannot be changed after stock has been synced" : "Select warehouse for stock tracking"}
+                  disabled={!!(editingReceipt.receiptConfirmedAt && editingReceipt.warehouse?.stockControlEnabled)}
                   sx={textFieldSx}
                 >
                   <MenuItem value="">
@@ -2123,11 +2179,12 @@ const WoodReceipt = () => {
                 <TextField
                   select
                   fullWidth
-                  label="Wood Type"
+                  label="Format"
                   value={editingReceipt.wood_format || 'SLEEPERS'}
                   onChange={(e) => setEditingReceipt(prev => prev ? { ...prev, wood_format: e.target.value } : null)}
                   required
-                  helperText="Sleepers require slicing, Planks skip slicing stage"
+                  disabled={!!(editingReceipt.receiptConfirmedAt && editingReceipt.warehouse?.stockControlEnabled)}
+                  helperText={editingReceipt.receiptConfirmedAt && editingReceipt.warehouse?.stockControlEnabled ? "Format cannot be changed after stock has been synced" : "Sleepers require slicing, Planks skip slicing stage"}
                   sx={textFieldSx}
                 >
                   <MenuItem value="SLEEPERS">Sleepers (Requires Slicing)</MenuItem>
