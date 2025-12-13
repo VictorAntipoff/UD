@@ -510,6 +510,9 @@ export default function DryingProcess() {
       smsText: '',
       meterReadingAfter: ''
     });
+    // Reset preview state
+    setShowRechargePreview(false);
+    setRechargePreview(null);
   };
 
   // Parse SMS and show preview
