@@ -294,6 +294,18 @@ export default function DryingProcess() {
     smsText: '',
     meterReadingAfter: ''
   });
+  const [rechargePreview, setRechargePreview] = useState<{
+    token: string;
+    kwhAmount: number;
+    baseCost: number;
+    vat: number;
+    ewuraFee: number;
+    reaFee: number;
+    debtCollected: number;
+    totalPaid: number;
+    smsTimestamp: string;
+  } | null>(null);
+  const [showRechargePreview, setShowRechargePreview] = useState(false);
   const [annualDepreciation, setAnnualDepreciation] = useState<number>(0);
   const [electricityRatePerKwh, setElectricityRatePerKwh] = useState<number>(292); // Default fallback rate
 
@@ -500,104 +512,133 @@ export default function DryingProcess() {
     });
   };
 
-  const handleAddRecharge = async () => {
+  // Parse SMS and show preview
+  const handleParseRecharge = () => {
+    if (!selectedProcessForRecharge || !rechargeData.smsText || !rechargeData.meterReadingAfter) {
+      alert('Please provide SMS text and meter reading after recharge');
+      return;
+    }
+
+    // Parse SMS to extract recharge information
+    const smsText = rechargeData.smsText;
+
+    // Extract token
+    const tokenMatch = smsText.match(/TOKEN[:：\s]*([0-9\s\-]+)/i);
+    const token = tokenMatch ? tokenMatch[1].replace(/\s+/g, '').substring(0, 50) : '';
+
+    // Extract kWh amount
+    const kwhMatch = smsText.match(/([0-9]+(?:\.[0-9]+)?)\s*KWH/i);
+    const kwhAmount = kwhMatch ? parseFloat(kwhMatch[1]) : 0;
+
+    // Extract costs - support both old format (MALIPO_UMEME) and new format (Cost)
+    const baseCostMatch = smsText.match(/(?:MALIPO[_\-]UMEME[_\-]|Cost\s+)([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+    const baseCost = baseCostMatch ? parseFloat(baseCostMatch[1].replace(/,/g, '')) : 0;
+
+    // VAT - support both "VAT_123" and "VAT 18% 123" formats
+    const vatMatch = smsText.match(/VAT[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+    const vat = vatMatch ? parseFloat(vatMatch[1].replace(/,/g, '')) : 0;
+
+    // EWURA - support both "EWURA_123" and "EWURA 1% 123" formats
+    const ewuraMatch = smsText.match(/EWURA[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+    const ewuraFee = ewuraMatch ? parseFloat(ewuraMatch[1].replace(/,/g, '')) : 0;
+
+    // REA - support both "REA_123" and "REA 3% 123" formats
+    const reaMatch = smsText.match(/REA[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+    const reaFee = reaMatch ? parseFloat(reaMatch[1].replace(/,/g, '')) : 0;
+
+    // Debt Collected (new field)
+    const debtMatch = smsText.match(/Debt\s+Collected\s+([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+    const debtCollected = debtMatch ? parseFloat(debtMatch[1].replace(/,/g, '')) : 0;
+
+    // Total - support both "Jumla 123" and "TOTAL TZS 123" formats
+    const totalMatch = smsText.match(/(?:Jumla\s+|TOTAL\s+TZS\s+)([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
+    const totalPaid = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : 0;
+
+    // Extract SMS date for audit trail only (stored in notes)
+    // Support both "Tarehe DD/MM/YYYY" and "YYYY-MM-DD HH:MM" formats
+    const dateMatch = smsText.match(/Tarehe\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/i);
+    const newDateMatch = smsText.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+    let smsTimestamp = '';
+    if (dateMatch) {
+      const day = String(dateMatch[1]).padStart(2, '0');
+      const month = String(dateMatch[2]).padStart(2, '0');
+      const year = dateMatch[3];
+      const hour = dateMatch[4] ? String(dateMatch[4]).padStart(2, '0') : '00';
+      const minute = dateMatch[5] ? String(dateMatch[5]).padStart(2, '0') : '00';
+      smsTimestamp = `${day}/${month}/${year} ${hour}:${minute}`;
+    } else if (newDateMatch) {
+      // New format: YYYY-MM-DD HH:MM
+      const year = newDateMatch[1];
+      const month = newDateMatch[2];
+      const day = newDateMatch[3];
+      const hour = newDateMatch[4];
+      const minute = newDateMatch[5];
+      smsTimestamp = `${day}/${month}/${year} ${hour}:${minute}`;
+    }
+
+    if (!kwhAmount || kwhAmount === 0) {
+      alert('Could not parse kWh amount from SMS. Please check the SMS format.');
+      return;
+    }
+
+    // Set preview data
+    setRechargePreview({
+      token,
+      kwhAmount,
+      baseCost,
+      vat,
+      ewuraFee,
+      reaFee,
+      debtCollected,
+      totalPaid,
+      smsTimestamp
+    });
+    setShowRechargePreview(true);
+  };
+
+  // Confirm and save the recharge
+  const handleConfirmRecharge = async () => {
     try {
-      if (!selectedProcessForRecharge || !rechargeData.smsText || !rechargeData.meterReadingAfter) {
-        alert('Please provide SMS text and meter reading after recharge');
+      if (!selectedProcessForRecharge || !rechargePreview) {
         return;
       }
 
-      // Parse SMS to extract recharge information
-      const smsText = rechargeData.smsText;
-
-      // Extract token
-      const tokenMatch = smsText.match(/TOKEN[:：\s]*([0-9\s\-]+)/i);
-      const token = tokenMatch ? tokenMatch[1].replace(/\s+/g, '').substring(0, 50) : '';
-
-      // Extract kWh amount
-      const kwhMatch = smsText.match(/([0-9]+(?:\.[0-9]+)?)\s*KWH/i);
-      const kwhAmount = kwhMatch ? parseFloat(kwhMatch[1]) : 0;
-
-      // Extract costs - support both old format (MALIPO_UMEME) and new format (Cost)
-      const baseCostMatch = smsText.match(/(?:MALIPO[_\-]UMEME[_\-]|Cost\s+)([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
-      const baseCost = baseCostMatch ? parseFloat(baseCostMatch[1].replace(/,/g, '')) : 0;
-
-      // VAT - support both "VAT_123" and "VAT 18% 123" formats
-      const vatMatch = smsText.match(/VAT[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
-      const vat = vatMatch ? parseFloat(vatMatch[1].replace(/,/g, '')) : 0;
-
-      // EWURA - support both "EWURA_123" and "EWURA 1% 123" formats
-      const ewuraMatch = smsText.match(/EWURA[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
-      const ewuraFee = ewuraMatch ? parseFloat(ewuraMatch[1].replace(/,/g, '')) : 0;
-
-      // REA - support both "REA_123" and "REA 3% 123" formats
-      const reaMatch = smsText.match(/REA[_\-\s]+(?:\d+%\s+)?([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
-      const reaFee = reaMatch ? parseFloat(reaMatch[1].replace(/,/g, '')) : 0;
-
-      // Debt Collected (new field)
-      const debtMatch = smsText.match(/Debt\s+Collected\s+([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
-      const debtCollected = debtMatch ? parseFloat(debtMatch[1].replace(/,/g, '')) : 0;
-
-      // Total - support both "Jumla 123" and "TOTAL TZS 123" formats
-      const totalMatch = smsText.match(/(?:Jumla\s+|TOTAL\s+TZS\s+)([0-9]+(?:,[0-9]+)*(?:\.[0-9]+)?)/i);
-      const totalPaid = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : 0;
-
-      // IMPORTANT: Use CURRENT time (when meter reading was taken) instead of SMS timestamp
-      // The SMS timestamp is when LUKU generated the token, NOT when user entered it
-      // Using SMS timestamp causes calculation errors when reading is taken before SMS time
       const rechargeDate = new Date().toISOString();
-
-      // Extract SMS date for audit trail only (stored in notes)
-      // Support both "Tarehe DD/MM/YYYY" and "YYYY-MM-DD HH:MM" formats
-      const dateMatch = smsText.match(/Tarehe\s+(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/i);
-      const newDateMatch = smsText.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
-      let smsTimestamp = '';
-      if (dateMatch) {
-        const day = String(dateMatch[1]).padStart(2, '0');
-        const month = String(dateMatch[2]).padStart(2, '0');
-        const year = dateMatch[3];
-        const hour = dateMatch[4] ? String(dateMatch[4]).padStart(2, '0') : '00';
-        const minute = dateMatch[5] ? String(dateMatch[5]).padStart(2, '0') : '00';
-        smsTimestamp = ` (SMS timestamp: ${day}/${month}/${year} ${hour}:${minute})`;
-      } else if (newDateMatch) {
-        // New format: YYYY-MM-DD HH:MM
-        const year = newDateMatch[1];
-        const month = newDateMatch[2];
-        const day = newDateMatch[3];
-        const hour = newDateMatch[4];
-        const minute = newDateMatch[5];
-        smsTimestamp = ` (SMS timestamp: ${day}/${month}/${year} ${hour}:${minute})`;
-      }
-
-      if (!kwhAmount || kwhAmount === 0) {
-        alert('Could not parse kWh amount from SMS. Please check the SMS format.');
-        return;
-      }
+      const smsTimestamp = rechargePreview.smsTimestamp ? ` (SMS timestamp: ${rechargePreview.smsTimestamp})` : '';
 
       // Create recharge record
       await api.post('/electricity/recharges', {
         dryingProcessId: selectedProcessForRecharge.id,
         rechargeDate,
-        token,
-        kwhAmount,
-        totalPaid,
-        baseCost,
-        vat,
-        ewuraFee,
-        reaFee,
-        debtCollected,
+        token: rechargePreview.token,
+        kwhAmount: rechargePreview.kwhAmount,
+        totalPaid: rechargePreview.totalPaid,
+        baseCost: rechargePreview.baseCost,
+        vat: rechargePreview.vat,
+        ewuraFee: rechargePreview.ewuraFee,
+        reaFee: rechargePreview.reaFee,
+        debtCollected: rechargePreview.debtCollected,
         meterReadingAfter: parseFloat(rechargeData.meterReadingAfter),
         notes: `Added during drying process${smsTimestamp}`
       });
 
-      // Refresh data
+      // Refresh data and close dialogs
       await fetchData();
+      setShowRechargePreview(false);
+      setRechargePreview(null);
       setRechargeDialogOpen(false);
+      setRechargeData({ smsText: '', meterReadingAfter: '' });
       alert('Recharge added successfully!');
     } catch (error: any) {
       console.error('Error adding recharge:', error);
       alert(error.response?.data?.error || 'Failed to add recharge');
     }
+  };
+
+  // Cancel preview and go back to edit
+  const handleCancelPreview = () => {
+    setShowRechargePreview(false);
+    setRechargePreview(null);
   };
 
   const handleAddReading = async () => {
@@ -3690,7 +3731,11 @@ export default function DryingProcess() {
       {/* Add Luku Recharge Dialog */}
       <Dialog
         open={rechargeDialogOpen}
-        onClose={() => setRechargeDialogOpen(false)}
+        onClose={() => {
+          setRechargeDialogOpen(false);
+          setShowRechargePreview(false);
+          setRechargePreview(null);
+        }}
         maxWidth="sm"
         fullWidth
         PaperProps={{
@@ -3703,81 +3748,219 @@ export default function DryingProcess() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <ElectricBoltIcon sx={{ color: '#dc2626', fontSize: 28 }} />
             <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
-              Add Luku Recharge - {selectedProcessForRecharge?.batchNumber}
+              {showRechargePreview ? 'Confirm Luku Recharge' : 'Add Luku Recharge'} - {selectedProcessForRecharge?.batchNumber}
             </Typography>
           </Box>
         </DialogTitle>
         <Divider />
         <DialogContent sx={{ pt: 3 }}>
-          <Stack spacing={2.5}>
-            <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
-              <strong>Important:</strong> Paste the Luku SMS and enter the meter reading AFTER the recharge was applied. The recharge will be recorded with the CURRENT time (when you're entering it), not the SMS timestamp, to ensure accurate calculations.
-            </Alert>
+          {!showRechargePreview ? (
+            <Stack spacing={2.5}>
+              <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
+                <strong>Important:</strong> Paste the Luku SMS and enter the meter reading AFTER the recharge was applied. The recharge will be recorded with the CURRENT time (when you're entering it), not the SMS timestamp, to ensure accurate calculations.
+              </Alert>
 
-            <TextField
-              fullWidth
-              label="Luku SMS"
-              multiline
-              rows={5}
-              value={rechargeData.smsText}
-              onChange={(e) => setRechargeData({ ...rechargeData, smsText: e.target.value })}
-              placeholder="Malipo yamekamilika.199d451c4c852896 9007252842029144016 TOKEN 1193 7922 8154 0931 2016 1403.5KWH..."
-              size="small"
-              sx={textFieldSx}
-              required
-            />
+              <TextField
+                fullWidth
+                label="Luku SMS"
+                multiline
+                rows={5}
+                value={rechargeData.smsText}
+                onChange={(e) => setRechargeData({ ...rechargeData, smsText: e.target.value })}
+                placeholder="Malipo yamekamilika.199d451c4c852896 9007252842029144016 TOKEN 1193 7922 8154 0931 2016 1403.5KWH..."
+                size="small"
+                sx={textFieldSx}
+                required
+              />
 
-            <TextField
-              fullWidth
-              label="Meter Reading AFTER Recharge (Unit)"
-              type="number"
-              value={rechargeData.meterReadingAfter}
-              onChange={(e) => setRechargeData({ ...rechargeData, meterReadingAfter: e.target.value })}
-              size="small"
-              sx={textFieldSx}
-              inputProps={{ step: 0.01 }}
-              required
-              helperText="Enter the electricity meter reading shown AFTER the recharge was added"
-            />
+              <TextField
+                fullWidth
+                label="Meter Reading AFTER Recharge (Unit)"
+                type="number"
+                value={rechargeData.meterReadingAfter}
+                onChange={(e) => setRechargeData({ ...rechargeData, meterReadingAfter: e.target.value })}
+                size="small"
+                sx={textFieldSx}
+                inputProps={{ step: 0.01 }}
+                required
+                helperText="Enter the electricity meter reading shown AFTER the recharge was added"
+              />
 
-            <Typography variant="caption" sx={{ color: '#64748b', mt: 1 }}>
-              <strong>Example:</strong> If meter was at 400 units, you recharged 2,807 kWh, and meter now shows 3,148 units, enter 3148.
-            </Typography>
-          </Stack>
+              <Typography variant="caption" sx={{ color: '#64748b', mt: 1 }}>
+                <strong>Example:</strong> If meter was at 400 units, you recharged 2,807 kWh, and meter now shows 3,148 units, enter 3148.
+              </Typography>
+            </Stack>
+          ) : (
+            <Stack spacing={2}>
+              <Alert severity="warning" sx={{ fontSize: '0.875rem' }}>
+                <strong>Please verify</strong> the parsed values below before saving. If anything looks wrong, click "Back" to edit the SMS.
+              </Alert>
+
+              <Paper elevation={0} sx={{ p: 2, backgroundColor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>Token</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                      {rechargePreview?.token || 'N/A'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>SMS Timestamp</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                      {rechargePreview?.smsTimestamp || 'Not detected'}
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>kWh Amount</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 700, color: '#16a34a' }}>
+                      {rechargePreview?.kwhAmount.toLocaleString()} kWh
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>Meter Reading After</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 700, color: '#2563eb' }}>
+                      {parseFloat(rechargeData.meterReadingAfter).toLocaleString()} units
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              <Paper elevation={0} sx={{ p: 2, backgroundColor: '#fef2f2', borderRadius: 2, border: '1px solid #fecaca' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#dc2626', mb: 1.5 }}>
+                  Cost Breakdown
+                </Typography>
+                <Grid container spacing={1.5}>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>Base Cost:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        TZS {rechargePreview?.baseCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>VAT (18%):</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        TZS {rechargePreview?.vat.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>EWURA (1%):</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        TZS {rechargePreview?.ewuraFee.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>REA (3%):</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        TZS {rechargePreview?.reaFee.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  {(rechargePreview?.debtCollected ?? 0) > 0 && (
+                    <Grid item xs={6}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#64748b' }}>Debt Collected:</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          TZS {rechargePreview?.debtCollected.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  )}
+                  <Grid item xs={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body1" sx={{ fontWeight: 700, color: '#dc2626' }}>TOTAL PAID:</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626' }}>
+                        TZS {rechargePreview?.totalPaid.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
+                      <Typography variant="body2" sx={{ color: '#64748b' }}>Rate per kWh:</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: '#7c3aed' }}>
+                        TZS {rechargePreview && rechargePreview.kwhAmount > 0
+                          ? (rechargePreview.totalPaid / rechargePreview.kwhAmount).toFixed(2)
+                          : '0.00'} /kWh
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Stack>
+          )}
         </DialogContent>
         <Divider />
         <DialogActions sx={{ p: 2.5 }}>
-          <Button
-            onClick={() => setRechargeDialogOpen(false)}
-            sx={{
-              color: '#64748b',
-              textTransform: 'none',
-              fontWeight: 600,
-            }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleAddRecharge}
-            variant="contained"
-            disabled={!rechargeData.smsText.trim() || !rechargeData.meterReadingAfter}
-            sx={{
-              backgroundColor: '#dc2626',
-              textTransform: 'none',
-              fontWeight: 600,
-              px: 3,
-              '&:hover': {
-                backgroundColor: '#b91c1c',
-              },
-              '&:disabled': {
-                backgroundColor: '#f87171',
-                color: 'white',
-                opacity: 0.7
-              }
-            }}
-          >
-            Add Recharge
-          </Button>
+          {!showRechargePreview ? (
+            <>
+              <Button
+                onClick={() => setRechargeDialogOpen(false)}
+                sx={{
+                  color: '#64748b',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleParseRecharge}
+                variant="contained"
+                disabled={!rechargeData.smsText.trim() || !rechargeData.meterReadingAfter}
+                sx={{
+                  backgroundColor: '#dc2626',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  px: 3,
+                  '&:hover': {
+                    backgroundColor: '#b91c1c',
+                  },
+                  '&:disabled': {
+                    backgroundColor: '#f87171',
+                    color: 'white',
+                    opacity: 0.7
+                  }
+                }}
+              >
+                Preview Recharge
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                onClick={handleCancelPreview}
+                sx={{
+                  color: '#64748b',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                }}
+              >
+                Back
+              </Button>
+              <Button
+                onClick={handleConfirmRecharge}
+                variant="contained"
+                sx={{
+                  backgroundColor: '#16a34a',
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  px: 3,
+                  '&:hover': {
+                    backgroundColor: '#15803d',
+                  },
+                }}
+              >
+                Confirm & Save
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </StyledContainer>
