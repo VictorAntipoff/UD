@@ -57,7 +57,68 @@ async function managementRoutes(fastify: FastifyInstance) {
         orderBy: { createdAt: 'desc' }
       });
 
-      return receipts;
+      // Get all drafts to calculate actual values from measurements
+      const drafts = await prisma.receiptDraft.findMany({
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      // Create a map of drafts by receiptId (lotNumber)
+      const draftMap = new Map<string, any>();
+      drafts.forEach(draft => {
+        // Only keep the most recent draft for each receipt
+        if (!draftMap.has(draft.receiptId)) {
+          draftMap.set(draft.receiptId, draft);
+        }
+      });
+
+      // Enrich receipts with calculated actual values from drafts
+      const enrichedReceipts = receipts.map(receipt => {
+        const draft = draftMap.get(receipt.lotNumber);
+
+        let actualVolumeM3 = receipt.actualVolumeM3;
+        let actualPieces = receipt.actualPieces;
+
+        // If there's draft data, calculate from measurements (same logic as lot-traceability)
+        if (draft && draft.measurements) {
+          const measurements = draft.measurements as any[];
+
+          // Calculate total pieces by summing all qty fields
+          actualPieces = measurements.reduce((sum: number, m: any) => {
+            return sum + (parseInt(m.qty) || 1);
+          }, 0);
+
+          // Calculate total volume using the stored measurement unit
+          const measurementUnit = draft.measurementUnit || 'imperial';
+          actualVolumeM3 = measurements.reduce((sum: number, m: any) => {
+            const thickness = parseFloat(m.thickness) || 0;
+            const width = parseFloat(m.width) || 0;
+            const length = parseFloat(m.length) || 0;
+            const qty = parseInt(m.qty) || 1;
+
+            let volumeM3;
+            if (measurementUnit === 'imperial') {
+              // Imperial: thickness and width in inches, length in feet
+              const thicknessM = thickness * 0.0254; // inch to meter
+              const widthM = width * 0.0254; // inch to meter
+              const lengthM = length * 0.3048; // feet to meter
+              volumeM3 = thicknessM * widthM * lengthM * qty;
+            } else {
+              // Metric: all in cm
+              volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+            }
+
+            return sum + volumeM3;
+          }, 0);
+        }
+
+        return {
+          ...receipt,
+          actualVolumeM3,
+          actualPieces
+        };
+      });
+
+      return enrichedReceipts;
     } catch (error) {
       console.error('Error fetching wood receipts:', error);
       return reply.status(500).send({ error: 'Failed to fetch wood receipts' });
