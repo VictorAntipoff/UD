@@ -62,7 +62,7 @@ const setupServer = async () => {
 
   // Register rate limiting
   await app.register(rateLimit, {
-    max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Max 100 requests in production, 1000 in development
+    max: process.env.NODE_ENV === 'production' ? 500 : 1000, // Max 500 requests in production, 1000 in development
     timeWindow: '15 minutes', // Per 15 minutes
     errorResponseBuilder: function (request, context) {
       return {
