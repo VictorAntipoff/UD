@@ -808,10 +808,24 @@ export default function DryingProcess() {
       });
 
       if (rechargesBetween.length > 0) {
-        // Recharge occurred - use formula: prevReading + recharged - currentReading
-        const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
-        const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
-        totalUsed += Math.max(0, consumed);
+        // Recharge occurred - use meterReadingAfter from the last recharge
+        // Sort recharges by date to get the last one
+        const sortedRecharges = [...rechargesBetween].sort(
+          (a, b) => new Date(b.rechargeDate).getTime() - new Date(a.rechargeDate).getTime()
+        );
+        const lastRecharge = sortedRecharges[0];
+
+        // Use meterReadingAfter if available, otherwise fall back to old calculation
+        if (lastRecharge.meterReadingAfter && lastRecharge.meterReadingAfter > 0) {
+          // Consumption = meter after last recharge - current reading
+          const consumed = lastRecharge.meterReadingAfter - currentReading.electricityMeter;
+          totalUsed += Math.max(0, consumed);
+        } else {
+          // Fallback for old recharges without meterReadingAfter
+          const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
+          const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+          totalUsed += Math.max(0, consumed);
+        }
       } else {
         // Normal consumption (prepaid meter counting down)
         const consumed = prevReading - currentReading.electricityMeter;
