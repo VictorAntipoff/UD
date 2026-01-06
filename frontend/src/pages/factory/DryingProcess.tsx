@@ -808,16 +808,15 @@ export default function DryingProcess() {
       });
 
       if (rechargesBetween.length > 0) {
-        // Recharge occurred - use meterReadingAfter from the last recharge
-        // Sort recharges by date to get the last one
+        // Recharges occurred - only count consumption AFTER the last recharge
+        // Sort recharges by date descending to get the last one
         const sortedRecharges = [...rechargesBetween].sort(
           (a, b) => new Date(b.rechargeDate).getTime() - new Date(a.rechargeDate).getTime()
         );
         const lastRecharge = sortedRecharges[0];
 
-        // Use meterReadingAfter if available, otherwise fall back to old calculation
         if (lastRecharge.meterReadingAfter && lastRecharge.meterReadingAfter > 0) {
-          // Consumption = meter after last recharge - current reading
+          // Consumed = meterAfterRecharge - currentReading
           const consumed = lastRecharge.meterReadingAfter - currentReading.electricityMeter;
           totalUsed += Math.max(0, consumed);
         } else {
