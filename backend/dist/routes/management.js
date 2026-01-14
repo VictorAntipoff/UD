@@ -44,7 +44,59 @@ async function managementRoutes(fastify) {
                 },
                 orderBy: { createdAt: 'desc' }
             });
-            return receipts;
+            // Get all drafts to calculate actual values from measurements
+            const drafts = await prisma.receiptDraft.findMany({
+                orderBy: { updatedAt: 'desc' }
+            });
+            // Create a map of drafts by receiptId (lotNumber)
+            const draftMap = new Map();
+            drafts.forEach(draft => {
+                // Only keep the most recent draft for each receipt
+                if (!draftMap.has(draft.receiptId)) {
+                    draftMap.set(draft.receiptId, draft);
+                }
+            });
+            // Enrich receipts with calculated actual values from drafts
+            const enrichedReceipts = receipts.map(receipt => {
+                const draft = draftMap.get(receipt.lotNumber);
+                let actualVolumeM3 = receipt.actualVolumeM3;
+                let actualPieces = receipt.actualPieces;
+                // If there's draft data, calculate from measurements (same logic as lot-traceability)
+                if (draft && draft.measurements) {
+                    const measurements = draft.measurements;
+                    // Calculate total pieces by summing all qty fields
+                    actualPieces = measurements.reduce((sum, m) => {
+                        return sum + (parseInt(m.qty) || 1);
+                    }, 0);
+                    // Calculate total volume using the stored measurement unit
+                    const measurementUnit = draft.measurementUnit || 'imperial';
+                    actualVolumeM3 = measurements.reduce((sum, m) => {
+                        const thickness = parseFloat(m.thickness) || 0;
+                        const width = parseFloat(m.width) || 0;
+                        const length = parseFloat(m.length) || 0;
+                        const qty = parseInt(m.qty) || 1;
+                        let volumeM3;
+                        if (measurementUnit === 'imperial') {
+                            // Imperial: thickness and width in inches, length in feet
+                            const thicknessM = thickness * 0.0254; // inch to meter
+                            const widthM = width * 0.0254; // inch to meter
+                            const lengthM = length * 0.3048; // feet to meter
+                            volumeM3 = thicknessM * widthM * lengthM * qty;
+                        }
+                        else {
+                            // Metric: all in cm
+                            volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+                        }
+                        return sum + volumeM3;
+                    }, 0);
+                }
+                return {
+                    ...receipt,
+                    actualVolumeM3,
+                    actualPieces
+                };
+            });
+            return enrichedReceipts;
         }
         catch (error) {
             console.error('Error fetching wood receipts:', error);
@@ -111,6 +163,29 @@ async function managementRoutes(fastify) {
             const { id } = request.params;
             const data = request.body;
             console.log('PUT /wood-receipts/:id - Received data:', JSON.stringify(data, null, 2));
+            // Check if receipt has been confirmed (stock synced) - prevent changes that affect inventory
+            // Only lock if warehouse has stock control enabled
+            const existingReceipt = await prisma.woodReceipt.findUnique({
+                where: { id },
+                include: { warehouse: true }
+            });
+            if (existingReceipt?.receiptConfirmedAt && existingReceipt?.warehouse?.stockControlEnabled) {
+                const errors = [];
+                if (data.warehouse_id !== existingReceipt.warehouseId) {
+                    errors.push('warehouse');
+                }
+                if (data.wood_type_id !== existingReceipt.woodTypeId) {
+                    errors.push('wood type');
+                }
+                if (data.wood_format !== existingReceipt.woodFormat) {
+                    errors.push('format (sleepers/planks)');
+                }
+                if (errors.length > 0) {
+                    return reply.status(400).send({
+                        error: `Cannot change ${errors.join(', ')} after stock has been synced to a stock-controlled warehouse. This would cause inventory mismatch.`
+                    });
+                }
+            }
             const receipt = await prisma.woodReceipt.update({
                 where: { id },
                 data: {
@@ -145,9 +220,37 @@ async function managementRoutes(fastify) {
         try {
             const { id } = request.params;
             const data = request.body;
+            // Check if receipt has been confirmed (stock synced) - prevent changes that affect inventory
+            // Only lock if warehouse has stock control enabled
+            const hasStockAffectingChanges = data.warehouse_id !== undefined || data.wood_type_id !== undefined || data.wood_format !== undefined;
+            if (hasStockAffectingChanges) {
+                const existingReceipt = await prisma.woodReceipt.findUnique({
+                    where: { id },
+                    include: { warehouse: true }
+                });
+                if (existingReceipt?.receiptConfirmedAt && existingReceipt?.warehouse?.stockControlEnabled) {
+                    const errors = [];
+                    if (data.warehouse_id !== undefined && data.warehouse_id !== existingReceipt.warehouseId) {
+                        errors.push('warehouse');
+                    }
+                    if (data.wood_type_id !== undefined && data.wood_type_id !== existingReceipt.woodTypeId) {
+                        errors.push('wood type');
+                    }
+                    if (data.wood_format !== undefined && data.wood_format !== existingReceipt.woodFormat) {
+                        errors.push('format (sleepers/planks)');
+                    }
+                    if (errors.length > 0) {
+                        return reply.status(400).send({
+                            error: `Cannot change ${errors.join(', ')} after stock has been synced to a stock-controlled warehouse. This would cause inventory mismatch.`
+                        });
+                    }
+                }
+            }
             const updateData = {};
             if (data.wood_type_id !== undefined)
                 updateData.woodTypeId = data.wood_type_id;
+            if (data.warehouse_id !== undefined)
+                updateData.warehouseId = data.warehouse_id;
             if (data.supplier !== undefined)
                 updateData.supplier = data.supplier;
             if (data.receipt_date !== undefined)
@@ -296,16 +399,15 @@ async function managementRoutes(fastify) {
                     actualPieces = measurements.reduce((sum, m) => {
                         return sum + (parseInt(m.qty) || 1);
                     }, 0);
-                    // Calculate total volume
+                    // Calculate total volume using the stored measurement unit
+                    const measurementUnit = draft.measurementUnit || 'imperial';
                     actualVolumeM3 = measurements.reduce((sum, m) => {
                         const thickness = parseFloat(m.thickness) || 0;
                         const width = parseFloat(m.width) || 0;
                         const length = parseFloat(m.length) || 0;
                         const qty = parseInt(m.qty) || 1;
-                        // Detect unit system: if thickness and width are small (< 50), assume imperial (inches/feet)
-                        // Otherwise assume metric (cm)
                         let volumeM3;
-                        if (thickness < 50 && width < 50) {
+                        if (measurementUnit === 'imperial') {
                             // Imperial: thickness and width in inches, length in feet
                             const thicknessM = thickness * 0.0254; // inch to meter
                             const widthM = width * 0.0254; // inch to meter
@@ -661,6 +763,137 @@ async function managementRoutes(fastify) {
         catch (error) {
             console.error('Error rejecting wood receipt:', error);
             return reply.status(500).send({ error: 'Failed to reject wood receipt' });
+        }
+    });
+    // Fix a completed LOT - sync stock to warehouse (use when LOT was completed without warehouse or stock wasn't updated)
+    fastify.post('/wood-receipts/:id/sync-stock', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const body = (request.body || {});
+            const warehouse_id = body.warehouse_id;
+            // Get the receipt
+            const receipt = await prisma.woodReceipt.findUnique({
+                where: { id },
+                include: { woodType: true, warehouse: true }
+            });
+            if (!receipt) {
+                return reply.status(404).send({ error: 'Receipt not found' });
+            }
+            if (receipt.status !== 'COMPLETED') {
+                return reply.status(400).send({ error: 'This endpoint is only for COMPLETED receipts' });
+            }
+            // Use provided warehouse_id or the one already on the receipt
+            const targetWarehouseId = warehouse_id || receipt.warehouseId;
+            if (!targetWarehouseId) {
+                return reply.status(400).send({ error: 'No warehouse assigned to this LOT. Please provide warehouse_id.' });
+            }
+            // TypeScript assertion - we've verified targetWarehouseId is defined above
+            const warehouseId = targetWarehouseId;
+            // Get the warehouse
+            const warehouse = await prisma.warehouse.findUnique({
+                where: { id: warehouseId }
+            });
+            if (!warehouse) {
+                return reply.status(404).send({ error: 'Warehouse not found' });
+            }
+            if (!warehouse.stockControlEnabled) {
+                return reply.status(400).send({ error: `Warehouse ${warehouse.name} does not have stock control enabled` });
+            }
+            // Get the draft measurements to calculate stock
+            const draft = await prisma.receiptDraft.findFirst({
+                where: { receiptId: receipt.lotNumber },
+                orderBy: { updatedAt: 'desc' }
+            });
+            if (!draft || !draft.measurements) {
+                return reply.status(400).send({ error: 'No measurements found for this receipt' });
+            }
+            const measurements = draft.measurements;
+            const measurementUnit = draft.measurementUnit || 'imperial';
+            // Group measurements by thickness
+            const stockByThickness = measurements.reduce((acc, m) => {
+                let thickness;
+                if (m.isCustom === true) {
+                    thickness = 'Custom';
+                }
+                else if (m.isCustom === false) {
+                    const thicknessValue = parseFloat(m.thickness);
+                    thickness = `${Math.round(thicknessValue)}"`;
+                }
+                else {
+                    if (measurementUnit === 'metric') {
+                        thickness = 'Custom';
+                    }
+                    else {
+                        const thicknessValue = parseFloat(m.thickness);
+                        const STANDARD_SIZES = [1, 2, 3];
+                        thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+                            ? `${Math.round(thicknessValue)}"`
+                            : 'Custom';
+                    }
+                }
+                if (!acc[thickness]) {
+                    acc[thickness] = 0;
+                }
+                acc[thickness] += parseInt(m.qty) || 1;
+                return acc;
+            }, {});
+            // Check if stock was already synced by looking at receiptConfirmedAt
+            if (receipt.receiptConfirmedAt) {
+                return reply.status(400).send({
+                    error: 'Stock has already been synced for this LOT',
+                    syncedAt: receipt.receiptConfirmedAt
+                });
+            }
+            // Update the receipt with the warehouse if not already set
+            if (!receipt.warehouseId || receipt.warehouseId !== warehouseId) {
+                await prisma.woodReceipt.update({
+                    where: { id },
+                    data: { warehouseId: warehouseId }
+                });
+            }
+            // Update stock
+            for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+                const qty = quantity;
+                await prisma.stock.upsert({
+                    where: {
+                        warehouseId_woodTypeId_thickness: {
+                            warehouseId: warehouseId,
+                            woodTypeId: receipt.woodTypeId,
+                            thickness: thickness
+                        }
+                    },
+                    update: {
+                        statusNotDried: { increment: qty }
+                    },
+                    create: {
+                        warehouseId: warehouseId,
+                        woodTypeId: receipt.woodTypeId,
+                        thickness: thickness,
+                        statusNotDried: qty,
+                        statusUnderDrying: 0,
+                        statusDried: 0,
+                        statusDamaged: 0
+                    }
+                });
+            }
+            // Mark receipt as confirmed to prevent double-sync
+            await prisma.woodReceipt.update({
+                where: { id },
+                data: { receiptConfirmedAt: new Date() }
+            });
+            console.log(`Synced stock for LOT ${receipt.lotNumber} to warehouse ${warehouse.name}`);
+            return {
+                success: true,
+                message: `LOT ${receipt.lotNumber} stock synced to ${warehouse.name}.`,
+                stockUpdated: stockByThickness
+            };
+        }
+        catch (error) {
+            console.error('Error syncing stock:', error);
+            return reply.status(500).send({
+                error: 'Failed to sync stock',
+                details: error?.message || 'Unknown error'
+            });
         }
     });
     // ==================== APPROVAL RULES ====================

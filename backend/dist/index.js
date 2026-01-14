@@ -51,7 +51,7 @@ const setupServer = async () => {
     });
     // Register rate limiting
     await app.register(rateLimit, {
-        max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Max 100 requests in production, 1000 in development
+        max: process.env.NODE_ENV === 'production' ? 500 : 1000, // Max 500 requests in production, 1000 in development
         timeWindow: '15 minutes', // Per 15 minutes
         errorResponseBuilder: function (request, context) {
             return {
@@ -80,6 +80,10 @@ const setupServer = async () => {
             // SECURITY: Allow no origin for health checks, monitoring, and development tools
             // Health check endpoints (/api/health) don't need CORS as they contain no sensitive data
             if (!origin) {
+                return cb(null, true);
+            }
+            // Allow Vercel preview/production deployments
+            if (origin.endsWith('.vercel.app')) {
                 return cb(null, true);
             }
             // SECURITY: Only allow SPECIFIC Vercel/Railway URLs, not all subdomains
@@ -397,6 +401,7 @@ const setupServer = async () => {
     const notificationRoutes = (await import('./routes/notifications.js')).default;
     const crmRoutes = (await import('./routes/crm.js')).default;
     const telegramRoutes = (await import('./routes/telegram.js')).default;
+    const telegramAdminRoutes = (await import('./routes/telegram-admin.js')).default;
     await app.register(authRoutes, { prefix: '/api/auth' });
     await app.register(projectRoutes, { prefix: '/api/projects' });
     await app.register(factoryRoutes, { prefix: '/api/factory' });
@@ -410,6 +415,7 @@ const setupServer = async () => {
     await app.register(notificationRoutes, { prefix: '/api/notifications' });
     await app.register(crmRoutes);
     await app.register(telegramRoutes, { prefix: '/api/telegram' });
+    await app.register(telegramAdminRoutes, { prefix: '/api/telegram-admin' });
     // Register static file serving for public files
     await app.register(fastifyStatic, {
         root: path.join(__dirname, '../public'),

@@ -2103,71 +2103,105 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return acc;
       }, {} as Record<string, number>);
 
-      // 4. Update warehouse stock if warehouse exists and stock control is enabled
-      if (receipt.warehouseId && receipt.warehouse?.stockControlEnabled) {
-
-        // Update stock for each thickness
-        for (const [thickness, quantity] of Object.entries(stockByThickness)) {
-          const qty = quantity as number; // Type cast from unknown to number
-          await prisma.stock.upsert({
-            where: {
-              warehouseId_woodTypeId_thickness: {
-                warehouseId: receipt.warehouseId,
-                woodTypeId: receipt.woodTypeId,
-                thickness: thickness
-              }
-            },
-            update: {
-              statusNotDried: { increment: qty }
-            },
-            create: {
-              warehouseId: receipt.warehouseId,
-              woodTypeId: receipt.woodTypeId,
-              thickness: thickness,
-              statusNotDried: qty,
-              statusUnderDrying: 0,
-              statusDried: 0,
-              statusDamaged: 0
-            }
-          });
-        }
-      }
-
-      // 5. Save measurements to SleeperMeasurement table
-      const receiptRecord = await prisma.woodReceipt.findUnique({
-        where: { lotNumber }
+      console.log('📦 Stock grouping by thickness:', {
+        lotNumber,
+        stockByThickness,
+        warehouseId: receipt.warehouseId,
+        stockControlEnabled: receipt.warehouse?.stockControlEnabled
       });
 
-      if (receiptRecord) {
-        // Delete existing measurements for this receipt (if any)
-        await prisma.sleeperMeasurement.deleteMany({
-          where: { receiptId: receiptRecord.id }
-        });
+      // 4-6. Execute all database operations in a single transaction
+      // This ensures EITHER everything succeeds OR everything rolls back
+      const updatedReceipt = await prisma.$transaction(async (tx) => {
+        // 4. Update warehouse stock if warehouse exists and stock control is enabled
+        if (receipt.warehouseId && receipt.warehouse?.stockControlEnabled) {
+          console.log('🔄 Starting stock sync for LOT', lotNumber);
 
-        // Create new measurements
-        await prisma.sleeperMeasurement.createMany({
-          data: measurements.map(m => ({
-            receiptId: receiptRecord.id,
-            thickness: parseFloat(m.thickness) || 0,
-            width: parseFloat(m.width) || 0,
-            length: parseFloat(m.length) || 0,
-            qty: parseInt(m.qty) || 1,
-            volumeM3: parseFloat(m.m3) || 0,
-            isCustom: m.isCustom === true
-          }))
-        });
-      }
+          // Update stock for each thickness
+          for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+            const qty = quantity as number; // Type cast from unknown to number
 
-      // 6. Update receipt status to COMPLETED
-      const updatedReceipt = await prisma.woodReceipt.update({
-        where: { lotNumber },
-        data: {
-          status: 'COMPLETED',
-          actualPieces: totalPieces,
-          actualVolumeM3: totalVolumeM3,
-          measurementUnit: measurementUnit,
-          receiptConfirmedAt: new Date()
+            console.log(`  → Syncing ${thickness}: ${qty} pieces to warehouse ${receipt.warehouseId}`);
+
+            try {
+              await tx.stock.upsert({
+                where: {
+                  warehouseId_woodTypeId_thickness: {
+                    warehouseId: receipt.warehouseId,
+                    woodTypeId: receipt.woodTypeId,
+                    thickness: thickness
+                  }
+                },
+                update: {
+                  statusNotDried: { increment: qty }
+                },
+                create: {
+                  warehouseId: receipt.warehouseId,
+                  woodTypeId: receipt.woodTypeId,
+                  thickness: thickness,
+                  statusNotDried: qty,
+                  statusUnderDrying: 0,
+                  statusDried: 0,
+                  statusDamaged: 0
+                }
+              });
+              console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
+            } catch (stockError) {
+              console.error(`  ❌ FAILED to sync ${thickness}: ${qty} pieces`, stockError);
+              throw new Error(`Stock sync failed for thickness ${thickness}: ${stockError.message}`);
+            }
+          }
+
+          console.log('✅ All stock synced successfully for LOT', lotNumber);
         }
+
+        // 5. Save measurements to SleeperMeasurement table
+        const receiptRecord = await tx.woodReceipt.findUnique({
+          where: { lotNumber }
+        });
+
+        if (receiptRecord) {
+          console.log('💾 Saving measurements to SleeperMeasurement table');
+
+          // Delete existing measurements for this receipt (if any)
+          await tx.sleeperMeasurement.deleteMany({
+            where: { receiptId: receiptRecord.id }
+          });
+
+          // Create new measurements
+          await tx.sleeperMeasurement.createMany({
+            data: measurements.map(m => ({
+              receiptId: receiptRecord.id,
+              thickness: parseFloat(m.thickness) || 0,
+              width: parseFloat(m.width) || 0,
+              length: parseFloat(m.length) || 0,
+              qty: parseInt(m.qty) || 1,
+              volumeM3: parseFloat(m.m3) || 0,
+              isCustom: m.isCustom === true
+            }))
+          });
+
+          console.log('✅ Measurements saved successfully');
+        }
+
+        // 6. Update receipt status to COMPLETED
+        // This happens LAST - if we get here, everything else succeeded
+        console.log('📝 Updating receipt status to COMPLETED');
+
+        const updated = await tx.woodReceipt.update({
+          where: { lotNumber },
+          data: {
+            status: 'COMPLETED',
+            actualPieces: totalPieces,
+            actualVolumeM3: totalVolumeM3,
+            measurementUnit: measurementUnit,
+            receiptConfirmedAt: new Date()
+          }
+        });
+
+        console.log('✅ Receipt status updated to COMPLETED');
+
+        return updated;
       });
 
       // Create history entry for completion
