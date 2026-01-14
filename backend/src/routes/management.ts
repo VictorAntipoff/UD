@@ -918,15 +918,15 @@ async function managementRoutes(fastify: FastifyInstance) {
           thickness = 'Custom';
         } else if (m.isCustom === false) {
           const thicknessValue = parseFloat(m.thickness);
-          thickness = `${thicknessValue}"`;
+          thickness = `${Math.round(thicknessValue)}"`;
         } else {
           if (measurementUnit === 'metric') {
             thickness = 'Custom';
           } else {
             const thicknessValue = parseFloat(m.thickness);
             const STANDARD_SIZES = [1, 2, 3];
-            thickness = STANDARD_SIZES.includes(thicknessValue)
-              ? `${thicknessValue}"`
+            thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+              ? `${Math.round(thicknessValue)}"`
               : 'Custom';
           }
         }

@@ -708,6 +708,14 @@ async function transferRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Transfer not found' });
       }
 
+      // Prevent double completion
+      if (transfer.status === 'COMPLETED') {
+        return reply.status(400).send({
+          error: 'Transfer has already been completed',
+          completedAt: transfer.completedAt
+        });
+      }
+
       if (transfer.status !== 'IN_TRANSIT' && transfer.status !== 'APPROVED') {
         return reply.status(400).send({
           error: `Cannot complete transfer with status: ${transfer.status}`
