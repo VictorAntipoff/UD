@@ -1806,6 +1806,21 @@ async function factoryRoutes(fastify) {
                                 }
                             });
                             console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
+                            // Log stock movement
+                            const { createStockMovement } = await import('../services/stockMovementService.js');
+                            await createStockMovement({
+                                warehouseId: receipt.warehouseId,
+                                woodTypeId: receipt.woodTypeId,
+                                thickness: thickness,
+                                movementType: 'RECEIPT_SYNC',
+                                quantityChange: qty,
+                                toStatus: 'NOT_DRIED',
+                                referenceType: 'RECEIPT',
+                                referenceId: receipt.id,
+                                referenceNumber: lotNumber,
+                                userId: userId,
+                                details: `Receipt ${lotNumber} synced to stock`
+                            }, tx);
                         }
                         catch (stockError) {
                             console.error(`  ❌ FAILED to sync ${thickness}: ${qty} pieces`, stockError);

@@ -36,6 +36,7 @@ import api from '../../lib/api';
 import { format } from 'date-fns';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { StockMovementDialog } from '../../components/stock/StockMovementDialog';
 
 interface Warehouse {
   id: string;
@@ -150,6 +151,10 @@ const InventoryReports: FC = () => {
   const [adjustments, setAdjustments] = useState<StockAdjustment[]>([]);
   const [inTransitTransfers, setInTransitTransfers] = useState<Transfer[]>([]);
   const [dryingProcesses, setDryingProcesses] = useState<any[]>([]);
+
+  // Stock movement dialog state
+  const [movementDialogOpen, setMovementDialogOpen] = useState(false);
+  const [selectedWoodTypeForMovement, setSelectedWoodTypeForMovement] = useState<{ id: string; name: string; thickness: string } | null>(null);
 
   useEffect(() => {
     fetchWarehouses();
@@ -320,6 +325,11 @@ const InventoryReports: FC = () => {
 
   const getStatusLabel = (status: string) => {
     return status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  const handleWoodTypeClick = (id: string, name: string, thickness: string) => {
+    setSelectedWoodTypeForMovement({ id, name, thickness });
+    setMovementDialogOpen(true);
   };
 
   const exportToPDF = () => {
@@ -718,7 +728,20 @@ const InventoryReports: FC = () => {
                           }
                         }}
                       >
-                        <TableCell sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#1e293b' }}>
+                        <TableCell
+                          sx={{
+                            fontSize: '0.875rem',
+                            fontWeight: 600,
+                            color: '#dc2626',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            '&:hover': {
+                              color: '#b91c1c',
+                              backgroundColor: '#fef2f2'
+                            }
+                          }}
+                          onClick={() => handleWoodTypeClick(stock.woodType.id, stock.woodType.name, stock.thickness)}
+                        >
                           {stock.woodType.name}
                         </TableCell>
                         <TableCell sx={{ fontSize: '0.875rem', color: '#64748b' }}>
@@ -1147,6 +1170,17 @@ const InventoryReports: FC = () => {
           </TableContainer>
         )}
       </Box>
+
+      {/* Stock Movement Dialog */}
+      {selectedWoodTypeForMovement && (
+        <StockMovementDialog
+          open={movementDialogOpen}
+          onClose={() => setMovementDialogOpen(false)}
+          woodTypeId={selectedWoodTypeForMovement.id}
+          woodTypeName={selectedWoodTypeForMovement.name}
+          thickness={selectedWoodTypeForMovement.thickness}
+        />
+      )}
     </Container>
   );
 };

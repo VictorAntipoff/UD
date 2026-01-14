@@ -1536,6 +1536,59 @@ async function managementRoutes(fastify) {
             return reply.status(500).send({ error: 'Failed to fetch adjustments' });
         }
     });
+    // Get stock movements with filters
+    fastify.get('/stock/movements', async (request, reply) => {
+        try {
+            const { warehouseId, woodTypeId, thickness, movementType, days } = request.query;
+            const filters = {
+                warehouseId,
+                woodTypeId,
+                thickness,
+                movementType: movementType
+            };
+            if (days) {
+                const daysNum = parseInt(days);
+                if (!isNaN(daysNum)) {
+                    filters.startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
+                    filters.endDate = new Date();
+                }
+            }
+            const { getStockMovements } = await import('../services/stockMovementService.js');
+            const movements = await getStockMovements(filters);
+            return movements;
+        }
+        catch (error) {
+            console.error('Error fetching stock movements:', error);
+            return reply.status(500).send({ error: 'Failed to fetch stock movements' });
+        }
+    });
+    // Get stock movements for a specific wood type
+    fastify.get('/stock/movements/:woodTypeId', async (request, reply) => {
+        try {
+            const { woodTypeId } = request.params;
+            const { days, warehouseId, movementType, thickness } = request.query;
+            const filters = {
+                woodTypeId,
+                warehouseId,
+                thickness,
+                movementType: movementType
+            };
+            if (days) {
+                const daysNum = parseInt(days);
+                if (!isNaN(daysNum)) {
+                    filters.startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
+                    filters.endDate = new Date();
+                }
+            }
+            const { getStockMovements } = await import('../services/stockMovementService.js');
+            const movements = await getStockMovements(filters);
+            return movements;
+        }
+        catch (error) {
+            console.error('Error fetching stock movements for wood type:', error);
+            return reply.status(500).send({ error: 'Failed to fetch stock movements' });
+        }
+    });
     // ===== NOTIFICATION SETTINGS =====
     // Get all active users (for user selection)
     fastify.get('/notification-settings/users', async (request, reply) => {

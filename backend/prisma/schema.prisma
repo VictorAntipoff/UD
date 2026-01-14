@@ -161,6 +161,7 @@ model WoodType {
   stock                Stock[]
   transferItems        TransferItem[]
   stockAdjustments     StockAdjustment[]
+  stockMovements       StockMovement[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
@@ -777,6 +778,7 @@ model Warehouse {
   transfersFrom       Transfer[]            @relation("TransferFrom")
   transfersTo         Transfer[]            @relation("TransferTo")
   stockAdjustments    StockAdjustment[]
+  stockMovements      StockMovement[]
   dryingProcesses     DryingProcess[]
   dryingProcessItems  DryingProcessItem[]   // NEW: For multi-wood drying
   woodReceipts        WoodReceipt[]
@@ -927,6 +929,60 @@ model StockAdjustment {
   @@index([woodTypeId])
   @@index([adjustedAt])
   @@index([adjustedById])
+}
+
+model StockMovement {
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+
+  // Stock identification
+  warehouseId     String
+  woodTypeId      String
+  thickness       String        // "1\"", "2\"", "Custom"
+
+  // Movement details
+  movementType    MovementType
+  quantityChange  Int           // Signed: positive = increase, negative = decrease
+  fromStatus      WoodStatus?   // Status before change (for status changes)
+  toStatus        WoodStatus?   // Status after change (for status changes)
+
+  // Reference to source transaction
+  referenceType   ReferenceType
+  referenceId     String
+  referenceNumber String?       // LOT number, transfer number, etc.
+
+  // User tracking
+  userId          String?
+  userName        String?
+
+  // Additional context
+  details         String?
+
+  // Relations
+  warehouse       Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  woodType        WoodType      @relation(fields: [woodTypeId], references: [id])
+
+  @@index([warehouseId, woodTypeId, thickness])
+  @@index([movementType])
+  @@index([createdAt])
+  @@index([referenceId])
+  @@map("stock_movements")
+}
+
+enum MovementType {
+  RECEIPT_SYNC
+  TRANSFER_OUT
+  TRANSFER_IN
+  DRYING_START
+  DRYING_END
+  MANUAL_ADJUSTMENT
+}
+
+enum ReferenceType {
+  RECEIPT
+  TRANSFER
+  DRYING_PROCESS
+  STOCK_ADJUSTMENT
 }
 
 // ===== NOTIFICATION SYSTEM =====

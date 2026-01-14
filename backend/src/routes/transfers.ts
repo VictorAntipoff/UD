@@ -779,6 +779,22 @@ async function transferRoutes(fastify: FastifyInstance) {
                 statusInTransitOut: { decrement: item.quantity }
               }
             });
+
+            // Log stock movement OUT
+            const { createStockMovement } = await import('../services/stockMovementService.js');
+            await createStockMovement({
+              warehouseId: transfer.fromWarehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              movementType: 'TRANSFER_OUT',
+              quantityChange: -item.quantity,
+              fromStatus: item.woodStatus as any,
+              referenceType: 'TRANSFER',
+              referenceId: transfer.id,
+              referenceNumber: transfer.transferNumber,
+              userId: currentUser.id,
+              details: `Transfer to ${transfer.toWarehouse.name}`
+            }, tx);
           }
 
           // If destination warehouse has stock control, add to stock and remove from in-transit-in
@@ -808,6 +824,22 @@ async function transferRoutes(fastify: FastifyInstance) {
                 statusInTransitIn: { decrement: item.quantity }
               }
             });
+
+            // Log stock movement IN
+            const { createStockMovement } = await import('../services/stockMovementService.js');
+            await createStockMovement({
+              warehouseId: transfer.toWarehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              movementType: 'TRANSFER_IN',
+              quantityChange: item.quantity,
+              toStatus: item.woodStatus as any,
+              referenceType: 'TRANSFER',
+              referenceId: transfer.id,
+              referenceNumber: transfer.transferNumber,
+              userId: currentUser.id,
+              details: `Transfer from ${transfer.fromWarehouse.name}`
+            }, tx);
           }
         }
 
