@@ -129,6 +129,12 @@ const WoodTransfer: FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [approving, setApproving] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [completing, setCompleting] = useState(false);
+  const [notifying, setNotifying] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [tabValue, setTabValue] = useState(0);
@@ -341,7 +347,10 @@ const WoodTransfer: FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (submitting) return; // Prevent double submission
+
     try {
+      setSubmitting(true);
       const payload = {
         ...formData,
         items: lineItems.map(item => ({
@@ -355,29 +364,41 @@ const WoodTransfer: FC = () => {
       fetchTransfers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create transfer');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleApprove = async (id: string) => {
+    if (approving) return; // Prevent double submission
+
     try {
+      setApproving(id);
       await api.post(`/transfers/${id}/approve`);
       setSuccess('Transfer approved successfully');
       fetchTransfers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to approve transfer');
+    } finally {
+      setApproving(null);
     }
   };
 
   const handleReject = async (id: string) => {
+    if (rejecting) return; // Prevent double submission
+
     const reason = window.prompt('Enter rejection reason:');
     if (!reason) return;
 
     try {
+      setRejecting(id);
       await api.post(`/transfers/${id}/reject`, { rejectionReason: reason });
       setSuccess('Transfer rejected');
       fetchTransfers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to reject transfer');
+    } finally {
+      setRejecting(null);
     }
   };
 
@@ -394,9 +415,10 @@ const WoodTransfer: FC = () => {
   };
 
   const handleComplete = async () => {
-    if (!selectedTransfer) return;
+    if (!selectedTransfer || completing) return; // Prevent double submission
 
     try {
+      setCompleting(true);
       await api.post(`/transfers/${selectedTransfer.id}/complete`, {
         notifyUserId: selectedNotifyUserId || undefined
       });
@@ -405,6 +427,8 @@ const WoodTransfer: FC = () => {
       fetchTransfers();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to complete transfer');
+    } finally {
+      setCompleting(false);
     }
   };
 
@@ -426,7 +450,10 @@ const WoodTransfer: FC = () => {
       return;
     }
 
+    if (notifying) return; // Prevent double submission
+
     try {
+      setNotifying(true);
       await api.post(`/transfers/${selectedTransfer.id}/notify`, {
         userId: selectedNotifyUserId
       });
@@ -434,6 +461,8 @@ const WoodTransfer: FC = () => {
       handleCloseNotify();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to send notification');
+    } finally {
+      setNotifying(false);
     }
   };
 
@@ -466,9 +495,10 @@ const WoodTransfer: FC = () => {
   };
 
   const handleSubmitEdit = async () => {
-    if (!selectedTransfer) return;
+    if (!selectedTransfer || editing) return; // Prevent double submission
 
     try {
+      setEditing(true);
       // Validate stock availability for IN_TRANSIT transfers if source has stock control
       if (selectedTransfer.status === 'IN_TRANSIT' && selectedTransfer.fromWarehouse.stockControlEnabled) {
         for (const item of editItems) {
@@ -547,6 +577,8 @@ const WoodTransfer: FC = () => {
       }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update transfer');
+    } finally {
+      setEditing(false);
     }
   };
 
@@ -870,19 +902,21 @@ const WoodTransfer: FC = () => {
                           variant="contained"
                           size="small"
                           color="success"
-                          startIcon={<CheckIcon />}
+                          startIcon={approving === transfer.id ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
                           onClick={() => handleApprove(transfer.id)}
+                          disabled={approving === transfer.id || rejecting === transfer.id}
                         >
-                          Approve
+                          {approving === transfer.id ? 'Approving...' : 'Approve'}
                         </Button>
                         <Button
                           variant="outlined"
                           size="small"
                           color="error"
-                          startIcon={<CloseIcon />}
+                          startIcon={rejecting === transfer.id ? <CircularProgress size={16} color="inherit" /> : <CloseIcon />}
                           onClick={() => handleReject(transfer.id)}
+                          disabled={approving === transfer.id || rejecting === transfer.id}
                         >
-                          Reject
+                          {rejecting === transfer.id ? 'Rejecting...' : 'Reject'}
                         </Button>
                       </>
                     )}
@@ -1685,8 +1719,9 @@ const WoodTransfer: FC = () => {
               onClick={handleSubmit}
               variant="contained"
               size="large"
-              startIcon={<AddIcon />}
+              startIcon={submitting ? <CircularProgress size={20} color="inherit" /> : <AddIcon />}
               disabled={
+                submitting ||
                 !formData.fromWarehouseId ||
                 !formData.toWarehouseId ||
                 lineItems.some(item => !item.woodTypeId || !item.quantity) ||
@@ -1701,7 +1736,7 @@ const WoodTransfer: FC = () => {
                   ))
               }
             >
-              Create Transfer
+              {submitting ? 'Creating...' : 'Create Transfer'}
             </Button>
           </DialogActions>
         </Dialog>
@@ -2249,9 +2284,10 @@ const WoodTransfer: FC = () => {
               variant="contained"
               color="warning"
               size="large"
-              startIcon={<EditIcon />}
+              startIcon={editing ? <CircularProgress size={20} color="inherit" /> : <EditIcon />}
               disabled={
-                selectedTransfer?.status === 'IN_TRANSIT' &&
+                editing ||
+                (selectedTransfer?.status === 'IN_TRANSIT' &&
                 selectedTransfer?.fromWarehouse.stockControlEnabled &&
                 editItems.some(item => {
                   const isNewItem = !item.id || item.id.startsWith('temp-');
@@ -2272,10 +2308,10 @@ const WoodTransfer: FC = () => {
                     return additionalQuantity > availableStock;
                   }
                   return false;
-                })
+                }))
               }
             >
-              Save Changes
+              {editing ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogActions>
         </Dialog>
@@ -2352,9 +2388,10 @@ const WoodTransfer: FC = () => {
               variant="contained"
               color="success"
               size="large"
-              startIcon={<CheckIcon />}
+              startIcon={completing ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
+              disabled={completing}
             >
-              Complete Transfer
+              {completing ? 'Completing...' : 'Complete Transfer'}
             </Button>
           </DialogActions>
         </Dialog>
@@ -2428,10 +2465,10 @@ const WoodTransfer: FC = () => {
               variant="contained"
               color="primary"
               size="large"
-              startIcon={<PersonIcon />}
-              disabled={!selectedNotifyUserId}
+              startIcon={notifying ? <CircularProgress size={20} color="inherit" /> : <PersonIcon />}
+              disabled={!selectedNotifyUserId || notifying}
             >
-              Send Notification
+              {notifying ? 'Sending...' : 'Send Notification'}
             </Button>
           </DialogActions>
         </Dialog>

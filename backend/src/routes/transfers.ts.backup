@@ -486,7 +486,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             });
           }
 
-          const statusField = getStatusFieldName(item.woodStatus) as keyof typeof stock;
+          const statusField = `status${item.woodStatus.charAt(0) + item.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}` as keyof typeof stock;
           const availableQuantity = stock[statusField] as number;
 
           if (availableQuantity < item.quantity) {
@@ -537,7 +537,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         // If source warehouse has stock control, deduct from source
         if (transfer.fromWarehouse.stockControlEnabled) {
           for (const item of transfer.items) {
-            const statusField = getStatusFieldName(item.woodStatus);
+            const statusField = `status${item.woodStatus.charAt(0) + item.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
 
             await tx.stock.updateMany({
               where: {
@@ -1318,7 +1318,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           });
         }
 
-        const statusField = getStatusFieldName(data.woodStatus) as keyof typeof stock;
+        const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}` as keyof typeof stock;
         const availableQuantity = stock[statusField] as number;
 
         if (availableQuantity < data.quantity) {
@@ -1346,7 +1346,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         });
 
         // Adjust stock for IN_TRANSIT transfer
-        const statusField = getStatusFieldName(data.woodStatus);
+        const statusField = `status${data.woodStatus.charAt(0) + data.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
 
         // Deduct from source warehouse (if stock control enabled)
         if (transfer.fromWarehouse.stockControlEnabled) {
@@ -1476,7 +1476,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           });
         }
 
-        const statusField = getStatusFieldName(existingItem.woodStatus) as keyof typeof stock;
+        const statusField = `status${existingItem.woodStatus.charAt(0) + existingItem.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}` as keyof typeof stock;
         const availableQuantity = stock[statusField] as number;
 
         if (availableQuantity < additionalQuantity) {
@@ -1507,7 +1507,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       const result = await prisma.$transaction(async (tx) => {
         // If transfer is IN_TRANSIT, adjust stock based on changes
         if (existingItem.transfer.status === 'IN_TRANSIT') {
-          const statusField = getStatusFieldName(existingItem.woodStatus);
+          const statusField = `status${existingItem.woodStatus.charAt(0) + existingItem.woodStatus.slice(1).toLowerCase().replace(/_/g, '')}`;
           const woodTypeChanged = data.woodTypeId && data.woodTypeId !== existingItem.woodTypeId;
           const quantityChanged = data.quantity && data.quantity !== existingItem.quantity;
 
