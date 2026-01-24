@@ -1401,11 +1401,31 @@ const ReceiptProcessing = () => {
         const draftResponse = await api.get(`/factory/drafts?receipt_id=${receiptId}`);
         const draftData = draftResponse.data.length > 0 ? draftResponse.data[0] : null;
 
+        console.log('Draft data loaded:', {
+          hasDraft: !!draftData,
+          hasMeasurements: !!draftData?.measurements,
+          measurementCount: draftData?.measurements?.length,
+          measurementUnit: draftData?.measurementUnit
+        });
+
         if (draftData && draftData.measurements) {
           // Restore the measurement unit from the draft
+          const draftMeasurementUnit = (draftData.measurementUnit as 'imperial' | 'metric') || 'imperial';
           if (draftData.measurementUnit) {
-            setMeasurementUnit(draftData.measurementUnit as 'imperial' | 'metric');
+            setMeasurementUnit(draftMeasurementUnit);
           }
+
+          // Helper function to calculate m3 with specific unit
+          const calculateM3WithUnit = (thickness: number, width: number, length: number, unit: 'imperial' | 'metric'): number => {
+            if (unit === 'imperial') {
+              const thicknessM = thickness * 0.0254;
+              const widthM = width * 0.0254;
+              const lengthM = length * 0.3048;
+              return thicknessM * widthM * lengthM;
+            } else {
+              return (thickness / 100) * (width / 100) * (length / 100);
+            }
+          };
 
           const processedMeasurements = draftData.measurements.map((m: any) => ({
             id: m.id || Math.random(),
@@ -1413,10 +1433,11 @@ const ReceiptProcessing = () => {
             width: parseFloat(m.width) || 0,
             length: parseFloat(m.length) || 0,
             qty: parseInt(m.qty) || 1,
-            m3: parseFloat(m.m3) || calculateM3(
+            m3: parseFloat(m.m3) || calculateM3WithUnit(
               parseFloat(m.thickness) || 0,
               parseFloat(m.width) || 0,
-              parseFloat(m.length) || 0
+              parseFloat(m.length) || 0,
+              draftMeasurementUnit
             ),
             isCustom: m.isCustom !== undefined ? m.isCustom : false,
             isComplimentary: m.isComplimentary !== undefined ? m.isComplimentary : false,
