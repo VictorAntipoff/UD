@@ -91,7 +91,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           },
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -133,7 +133,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -286,7 +286,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -512,7 +512,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -617,7 +617,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         include: {
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           }
         }
@@ -646,7 +646,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -748,7 +748,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -936,7 +936,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           },
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -1009,7 +1009,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           }
         }
@@ -1063,7 +1063,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -1145,7 +1145,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           }
         }
@@ -1191,7 +1191,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -1341,7 +1341,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             remarks: data.remarks || null
           },
           include: {
-            woodType: true
+            WoodType: true
           }
         });
 
@@ -1437,7 +1437,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               toWarehouse: true
             }
           },
-          woodType: true
+          WoodType: true
         }
       });
 
@@ -1653,7 +1653,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             remarks: data.remarks !== undefined ? data.remarks : undefined
           },
           include: {
-            woodType: true
+            WoodType: true
           }
         });
 

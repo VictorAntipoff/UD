@@ -35,7 +35,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const calculations = await prisma.woodCalculation.findMany({
         where: { userId: user_id },
         include: {
-          WoodType: true
+          woodType: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -90,7 +90,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           notes: data.notes || ''
         },
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -293,7 +293,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const operations = await prisma.operation.findMany({
         where: status ? { status } : undefined,
         include: {
-          WoodType: true
+          woodType: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -367,7 +367,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const operation = await prisma.operation.findUnique({
         where: { id },
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -430,7 +430,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           notes: data.notes || null
         },
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -494,7 +494,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         where: { id },
         data: updateData,
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -608,7 +608,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           endTime: data.end_time ? new Date(data.end_time) : new Date()
         },
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -671,7 +671,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
     try {
       const processes = await prisma.dryingProcess.findMany({
         include: {
-          WoodType: true,
+          woodType: true,
           readings: {
             orderBy: { readingTime: 'asc' }
           },
@@ -680,7 +680,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           },
           items: {
             include: {
-              WoodType: true,
+              woodType: true,
               sourceWarehouse: true
             }
           }
@@ -703,7 +703,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const process = await prisma.dryingProcess.findUnique({
         where: { id },
         include: {
-          WoodType: true,
+          woodType: true,
           readings: {
             orderBy: { readingTime: 'asc' }
           },
@@ -712,7 +712,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           },
           items: {
             include: {
-              WoodType: true,
+              woodType: true,
               sourceWarehouse: true
             }
           }
@@ -872,11 +872,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
         const completeProcess = await tx.dryingProcess.findUnique({
           where: { id: createdProcess.id },
           include: {
-            WoodType: true,
+            woodType: true,
             readings: true,
             items: {
               include: {
-                WoodType: true,
+                woodType: true,
                 sourceWarehouse: true
               }
             }
@@ -1036,7 +1036,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
             ...(data.notes !== undefined && { notes: data.notes })
           },
           include: {
-            WoodType: true,
+            woodType: true,
             readings: {
               orderBy: { readingTime: 'asc' }
             },
@@ -1088,7 +1088,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         const completeProcess = await tx.dryingProcess.findUnique({
           where: { id },
           include: {
-            WoodType: true,
+            woodType: true,
             readings: {
               orderBy: { readingTime: 'asc' }
             },
@@ -1097,7 +1097,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
             },
             items: {
               include: {
-                WoodType: true,
+                woodType: true,
                 sourceWarehouse: true
               }
             }
@@ -1239,7 +1239,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const process = await prisma.dryingProcess.findUnique({
         where: { id },
         include: {
-          WoodType: true,
+          woodType: true,
           readings: {
             orderBy: {
               readingTime: 'asc'
@@ -1353,11 +1353,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
             infoY += 18;
             doc.fillColor('#64748b').text('Wood Type:', labelCol, infoY);
-            doc.fillColor('#000').text(process.WoodType.name, leftCol, infoY);
+            doc.fillColor('#000').text(process.woodType.name, leftCol, infoY);
 
             infoY += 18;
             doc.fillColor('#64748b').text('Grade:', labelCol, infoY);
-            doc.fillColor('#000').text(process.WoodType.grade, leftCol, infoY);
+            doc.fillColor('#000').text(process.woodType.grade, leftCol, infoY);
 
             infoY += 18;
             doc.fillColor('#64748b').text('Thickness:', labelCol, infoY);
@@ -1930,7 +1930,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         include: {
           operation: {
             include: {
-              WoodType: true
+              woodType: true
             }
           }
         },
@@ -2031,8 +2031,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const receipt = await prisma.woodReceipt.findUnique({
         where: { lotNumber },
         include: {
-          WoodType: true,
-          Warehouse: true
+          woodType: true,
+          warehouse: true
         }
       });
 
@@ -2286,14 +2286,14 @@ async function factoryRoutes(fastify: FastifyInstance) {
         .join(', ');
 
       const warehouseInfo = receipt.warehouse
-        ? ` → ${receipt.Warehouse.name}`
+        ? ` → ${receipt.warehouse.name}`
         : '';
 
       const notifications = userIds.map(userId => ({
         userId,
         type: 'RECEIPT_COMPLETED',
         title: 'Wood Receipt Completed',
-        message: `LOT ${lotNumber} (${receipt.WoodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
+        message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
           `Paid: ${paidVolumeM3.toFixed(2)} m³ (${paidPieces} pcs)` +
           (complimentaryPieces > 0 ? `, Complimentary: ${complimentaryVolumeM3.toFixed(2)} m³ (${complimentaryPieces} pcs). ` : '. ') +
           `Breakdown: ${thicknessBreakdown}`,

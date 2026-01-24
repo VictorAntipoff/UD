@@ -1353,11 +1353,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
             infoY += 18;
             doc.fillColor('#64748b').text('Wood Type:', labelCol, infoY);
-            doc.fillColor('#000').text(process.WoodType.name, leftCol, infoY);
+            doc.fillColor('#000').text(process.woodType.name, leftCol, infoY);
 
             infoY += 18;
             doc.fillColor('#64748b').text('Grade:', labelCol, infoY);
-            doc.fillColor('#000').text(process.WoodType.grade, leftCol, infoY);
+            doc.fillColor('#000').text(process.woodType.grade, leftCol, infoY);
 
             infoY += 18;
             doc.fillColor('#64748b').text('Thickness:', labelCol, infoY);
@@ -2286,14 +2286,14 @@ async function factoryRoutes(fastify: FastifyInstance) {
         .join(', ');
 
       const warehouseInfo = receipt.warehouse
-        ? ` → ${receipt.Warehouse.name}`
+        ? ` → ${receipt.warehouse.name}`
         : '';
 
       const notifications = userIds.map(userId => ({
         userId,
         type: 'RECEIPT_COMPLETED',
         title: 'Wood Receipt Completed',
-        message: `LOT ${lotNumber} (${receipt.WoodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
+        message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
           `Paid: ${paidVolumeM3.toFixed(2)} m³ (${paidPieces} pcs)` +
           (complimentaryPieces > 0 ? `, Complimentary: ${complimentaryVolumeM3.toFixed(2)} m³ (${complimentaryPieces} pcs). ` : '. ') +
           `Breakdown: ${thicknessBreakdown}`,

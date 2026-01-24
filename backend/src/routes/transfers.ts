@@ -91,7 +91,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           },
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -133,7 +133,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -286,7 +286,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -468,7 +468,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       // Check stock availability again if source has stock control
-      if (transfer.fromWarehouse.stockControlEnabled) {
+      if (transfer.FromWarehouse.stockControlEnabled) {
         for (const item of transfer.items) {
           const stock = await prisma.stock.findUnique({
             where: {
@@ -512,7 +512,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -535,7 +535,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         });
 
         // If source warehouse has stock control, deduct from source
-        if (transfer.fromWarehouse.stockControlEnabled) {
+        if (transfer.FromWarehouse.stockControlEnabled) {
           for (const item of transfer.items) {
             const statusField = getStatusFieldName(item.woodStatus);
 
@@ -552,7 +552,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             });
 
             // If destination warehouse has stock control, mark as in-transit-in
-            if (transfer.toWarehouse.stockControlEnabled) {
+            if (transfer.ToWarehouse.stockControlEnabled) {
               await tx.stock.upsert({
                 where: {
                   warehouseId_woodTypeId_thickness: {
@@ -617,7 +617,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         include: {
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           }
         }
@@ -646,7 +646,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -748,7 +748,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -780,7 +780,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           ).join('')}`;
 
           // If source warehouse has stock control, remove from in-transit-out
-          if (transfer.fromWarehouse.stockControlEnabled) {
+          if (transfer.FromWarehouse.stockControlEnabled) {
             await tx.stock.updateMany({
               where: {
                 warehouseId: transfer.fromWarehouseId,
@@ -805,12 +805,12 @@ async function transferRoutes(fastify: FastifyInstance) {
               referenceId: transfer.id,
               referenceNumber: transfer.transferNumber,
               userId: currentUser.id,
-              details: `Transfer to ${transfer.toWarehouse.name}`
+              details: `Transfer to ${transfer.ToWarehouse.name}`
             }, tx);
           }
 
           // If destination warehouse has stock control, add to stock and remove from in-transit-in
-          if (transfer.toWarehouse.stockControlEnabled) {
+          if (transfer.ToWarehouse.stockControlEnabled) {
             await tx.stock.upsert({
               where: {
                 warehouseId_woodTypeId_thickness: {
@@ -850,7 +850,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               referenceId: transfer.id,
               referenceNumber: transfer.transferNumber,
               userId: currentUser.id,
-              details: `Transfer from ${transfer.fromWarehouse.name}`
+              details: `Transfer from ${transfer.FromWarehouse.name}`
             }, tx);
           }
         }
@@ -865,7 +865,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             userName,
             userEmail: currentUser.email,
             action: 'COMPLETED',
-            details: `Transfer completed and stock updated at ${transfer.toWarehouse.name}`
+            details: `Transfer completed and stock updated at ${transfer.ToWarehouse.name}`
           }
         });
 
@@ -876,7 +876,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               userId: notifyUserId,
               type: 'TRANSFER_COMPLETED',
               title: 'Transfer Completed',
-              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}`,
+              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${transfer.FromWarehouse.name} to ${transfer.ToWarehouse.name}`,
               linkUrl: `/dashboard/factory/wood-transfer?transfer=${updatedTransfer.id}`
             }
           });
@@ -936,7 +936,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           },
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
           createdBy: {
@@ -1009,7 +1009,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           }
         }
@@ -1063,7 +1063,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -1145,7 +1145,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           toWarehouse: true,
           items: {
             include: {
-              woodType: true
+              WoodType: true
             }
           }
         }
@@ -1191,7 +1191,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             toWarehouse: true,
             items: {
               include: {
-                woodType: true
+                WoodType: true
               }
             },
             createdBy: {
@@ -1301,7 +1301,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       // Check stock availability if source warehouse has stock control
-      if (transfer.fromWarehouse.stockControlEnabled) {
+      if (transfer.FromWarehouse.stockControlEnabled) {
         const stock = await prisma.stock.findUnique({
           where: {
             warehouseId_woodTypeId_thickness: {
@@ -1341,7 +1341,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             remarks: data.remarks || null
           },
           include: {
-            woodType: true
+            WoodType: true
           }
         });
 
@@ -1349,7 +1349,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         const statusField = getStatusFieldName(data.woodStatus);
 
         // Deduct from source warehouse (if stock control enabled)
-        if (transfer.fromWarehouse.stockControlEnabled) {
+        if (transfer.FromWarehouse.stockControlEnabled) {
           await tx.stock.updateMany({
             where: {
               warehouseId: transfer.fromWarehouseId,
@@ -1364,7 +1364,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
 
         // Add to destination warehouse in-transit (if stock control enabled)
-        if (transfer.toWarehouse.stockControlEnabled) {
+        if (transfer.ToWarehouse.stockControlEnabled) {
           await tx.stock.updateMany({
             where: {
               warehouseId: transfer.toWarehouseId,
@@ -1437,7 +1437,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               toWarehouse: true
             }
           },
-          woodType: true
+          WoodType: true
         }
       });
 
@@ -1455,7 +1455,7 @@ async function transferRoutes(fastify: FastifyInstance) {
 
       // If transfer is IN_TRANSIT and quantity is increasing, check stock availability
       if (existingItem.transfer.status === 'IN_TRANSIT' &&
-          existingItem.transfer.fromWarehouse.stockControlEnabled &&
+          existingItem.transfer.FromWarehouse.stockControlEnabled &&
           data.quantity > existingItem.quantity) {
         const additionalQuantity = data.quantity - existingItem.quantity;
 
@@ -1514,7 +1514,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           // Handle wood type change
           if (woodTypeChanged) {
             // Return the entire quantity of the old wood type to source warehouse
-            if (existingItem.transfer.fromWarehouse.stockControlEnabled) {
+            if (existingItem.transfer.FromWarehouse.stockControlEnabled) {
               await tx.stock.updateMany({
                 where: {
                   warehouseId: existingItem.transfer.fromWarehouseId,
@@ -1564,7 +1564,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             }
 
             // Adjust destination warehouse in-transit stock
-            if (existingItem.transfer.toWarehouse.stockControlEnabled) {
+            if (existingItem.transfer.ToWarehouse.stockControlEnabled) {
               // Remove old wood type from in-transit
               await tx.stock.updateMany({
                 where: {
@@ -1596,7 +1596,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             const quantityDelta = data.quantity - existingItem.quantity;
 
             // Adjust source warehouse stock (only if source has stock control)
-            if (existingItem.transfer.fromWarehouse.stockControlEnabled) {
+            if (existingItem.transfer.FromWarehouse.stockControlEnabled) {
               if (quantityDelta > 0) {
                 // Quantity increased - deduct more from source
                 await tx.stock.updateMany({
@@ -1627,7 +1627,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             }
 
             // Adjust destination warehouse in-transit stock (only if destination has stock control)
-            if (existingItem.transfer.toWarehouse.stockControlEnabled) {
+            if (existingItem.transfer.ToWarehouse.stockControlEnabled) {
               await tx.stock.updateMany({
                 where: {
                   warehouseId: existingItem.transfer.toWarehouseId,
@@ -1653,7 +1653,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             remarks: data.remarks !== undefined ? data.remarks : undefined
           },
           include: {
-            woodType: true
+            WoodType: true
           }
         });
 
@@ -1761,7 +1761,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           userId: userId,
           type: notificationType,
           title: notificationTitle,
-          message: `${currentUserName} sent you notification about transfer ${transfer.transferNumber} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}`,
+          message: `${currentUserName} sent you notification about transfer ${transfer.transferNumber} from ${transfer.FromWarehouse.name} to ${transfer.ToWarehouse.name}`,
           linkUrl: `/dashboard/factory/wood-transfer?transfer=${transfer.id}`
         }
       });
