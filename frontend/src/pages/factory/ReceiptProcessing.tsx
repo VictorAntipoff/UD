@@ -30,6 +30,7 @@ import {
   DialogContentText,
   DialogTitle,
   Checkbox,
+  Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -38,6 +39,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import HistoryIcon from '@mui/icons-material/History';
+import InfoIcon from '@mui/icons-material/Info';
 import PersonIcon from '@mui/icons-material/Person';
 import { alpha } from '@mui/material/styles';
 import { styled } from '@mui/material/styles';
@@ -89,6 +91,7 @@ interface SleeperMeasurement {
   qty: number; // Quantity of pieces with this dimension
   m3: number;
   isCustom?: boolean; // User checkbox to mark custom sizes
+  isComplimentary?: boolean; // Free/bonus wood from supplier
   lastModifiedBy?: string;
   lastModifiedAt?: string;
 }
@@ -907,6 +910,8 @@ const ReceiptProcessing = () => {
   const [receipts, setReceipts] = useState<WoodReceipt[]>([]);
   const [measurements, setMeasurements] = useState<SleeperMeasurement[]>([]);
   const [totalM3, setTotalM3] = useState<number>(0);
+  const [totalPaidM3, setTotalPaidM3] = useState<number>(0);
+  const [totalComplimentaryM3, setTotalComplimentaryM3] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ id: string; email: string } | null>(null);
@@ -973,6 +978,10 @@ const ReceiptProcessing = () => {
     try {
       const response = await api.get('/management/wood-receipts');
       const data = response.data;
+
+      // Debug logging
+      console.log('Fetched receipts:', data.length);
+      console.log('Receipt statuses:', data.map((r: any) => ({ lot: r.lotNumber, status: r.status })));
 
       // Show all receipts (not filtering by status anymore)
       if (data && data.length > 0) {
@@ -1178,7 +1187,11 @@ const ReceiptProcessing = () => {
       if (m.id === id) {
         const newMeasurement = {
           ...m,
-          [field]: field === 'qty' ? (parseInt(value) || 1) : (parseFloat(value) || 0),
+          [field]: field === 'qty'
+            ? (parseInt(value) || 1)
+            : field === 'isComplimentary' || field === 'isCustom'
+              ? (value === 'true')
+              : (parseFloat(value) || 0),
           lastModifiedBy: currentUser?.email || 'Unknown User',
           lastModifiedAt: new Date().toISOString()
         };
@@ -1218,7 +1231,18 @@ const ReceiptProcessing = () => {
   };
 
   useEffect(() => {
-    const total = measurements.reduce((sum, m) => sum + m.m3, 0);
+    const paidTotal = measurements
+      .filter(m => !m.isComplimentary)
+      .reduce((sum, m) => sum + m.m3, 0);
+
+    const complimentaryTotal = measurements
+      .filter(m => m.isComplimentary)
+      .reduce((sum, m) => sum + m.m3, 0);
+
+    const total = paidTotal + complimentaryTotal;
+
+    setTotalPaidM3(paidTotal);
+    setTotalComplimentaryM3(complimentaryTotal);
     setTotalM3(total);
   }, [measurements]);
 
@@ -1358,6 +1382,7 @@ const ReceiptProcessing = () => {
             qty: m.qty || 1,
             m3: m.volumeM3 || 0,
             isCustom: m.isCustom !== undefined ? m.isCustom : false,
+            isComplimentary: m.isComplimentary !== undefined ? m.isComplimentary : false,
             lastModifiedBy: 'System',
             lastModifiedAt: m.createdAt || new Date().toISOString()
           }));
@@ -1394,6 +1419,7 @@ const ReceiptProcessing = () => {
               parseFloat(m.length) || 0
             ),
             isCustom: m.isCustom !== undefined ? m.isCustom : false,
+            isComplimentary: m.isComplimentary !== undefined ? m.isComplimentary : false,
             lastModifiedBy: m.lastModifiedBy || 'Unknown',
             lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
           }));
@@ -2190,6 +2216,14 @@ const ReceiptProcessing = () => {
                             <TableRow sx={{ backgroundColor: '#f8fafc' }}>
                               <TableCell align="center" sx={{ width: { xs: 50, sm: 60 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>No</TableCell>
                               <TableCell align="center" sx={{ width: 70, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>Custom</TableCell>
+                              <TableCell align="center" sx={{ width: 60, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                                  Free
+                                  <Tooltip title="Mark as complimentary/free wood. Excluded from supplier payment but added to stock.">
+                                    <InfoIcon sx={{ fontSize: '1rem', color: '#64748b', cursor: 'help' }} />
+                                  </Tooltip>
+                                </Box>
+                              </TableCell>
                               <TableCell align="center" sx={{ width: { xs: 90, sm: 100 }, fontWeight: 600, fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.7)', px: { xs: 1, sm: 2 } }}>
                                 {measurementUnit === 'imperial' ? 'Thick (in)' : 'Thick (cm)'}
                               </TableCell>
@@ -2209,11 +2243,17 @@ const ReceiptProcessing = () => {
                               <TableRow
                                 key={row.id}
                                 sx={{
-                                  backgroundColor: row.isCustom ? alpha('#f59e0b', 0.05) : 'transparent',
+                                  backgroundColor: row.isComplimentary
+                                    ? alpha('#10b981', 0.05)
+                                    : row.isCustom
+                                      ? alpha('#f59e0b', 0.05)
+                                      : 'transparent',
                                   '&:hover': {
-                                    backgroundColor: row.isCustom
-                                      ? alpha('#f59e0b', 0.08)
-                                      : alpha('#dc2626', 0.04),
+                                    backgroundColor: row.isComplimentary
+                                      ? alpha('#10b981', 0.08)
+                                      : row.isCustom
+                                        ? alpha('#f59e0b', 0.08)
+                                        : alpha('#dc2626', 0.04),
                                   }
                                 }}
                               >
@@ -2246,6 +2286,19 @@ const ReceiptProcessing = () => {
                                       color: row.isCustom ? '#f59e0b' : 'rgba(0, 0, 0, 0.6)',
                                       '&.Mui-checked': { color: '#f59e0b' }
                                     }}
+                                  />
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Checkbox
+                                    checked={row.isComplimentary || false}
+                                    onChange={(e) => handleMeasurementChange(row.id, 'isComplimentary', e.target.checked ? 'true' : 'false')}
+                                    disabled={isReadOnly}
+                                    size="small"
+                                    sx={{
+                                      color: '#10b981',
+                                      '&.Mui-checked': { color: '#10b981' }
+                                    }}
+                                    title="Mark as complimentary/free wood"
                                   />
                                 </TableCell>
                                 <TableCell>
@@ -2406,35 +2459,64 @@ const ReceiptProcessing = () => {
 
                 {/* Total Volume Display */}
                 {measurements.length > 0 && (
-                  <Box
-                    sx={{
-                      mt: 3,
-                      p: 2,
-                      backgroundColor: alpha('#dc2626', 0.1),
-                      borderRadius: 2,
-                      border: '2px solid',
-                      borderColor: '#dc2626',
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: '#dc2626' }}>
-                        Total Volume:
-                      </Typography>
-                      <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626' }}>
-                        {totalM3.toFixed(4)} m³
-                      </Typography>
-                    </Box>
-                    {formData.quantity && (
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
-                        <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)' }}>
-                          Expected: {formData.quantity} m³
+                  <>
+                    {/* Paid Wood Total - This is what supplier gets paid for */}
+                    <Box
+                      sx={{
+                        mt: 3,
+                        p: 2,
+                        backgroundColor: alpha('#dc2626', 0.1),
+                        borderRadius: 2,
+                        border: '2px solid',
+                        borderColor: '#dc2626',
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: '#dc2626' }}>
+                          Paid Wood Total (Supplier Payment):
                         </Typography>
-                        <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)' }}>
-                          Variance: {(parseFloat(formData.quantity) - totalM3).toFixed(4)} m³
+                        <Typography variant="h5" sx={{ fontWeight: 700, color: '#dc2626' }}>
+                          {totalPaidM3.toFixed(4)} m³
+                        </Typography>
+                      </Box>
+                      {formData.quantity && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                          <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)' }}>
+                            Expected: {formData.quantity} m³
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)' }}>
+                            Variance: {(parseFloat(formData.quantity) - totalPaidM3).toFixed(4)} m³
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+
+                    {/* Complimentary Wood Total - Only show if > 0 */}
+                    {totalComplimentaryM3 > 0 && (
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 2,
+                          backgroundColor: alpha('#10b981', 0.1),
+                          borderRadius: 2,
+                          border: '2px solid',
+                          borderColor: '#10b981',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: '#10b981' }}>
+                            Complimentary Wood (Bonus):
+                          </Typography>
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: '#10b981' }}>
+                            {totalComplimentaryM3.toFixed(4)} m³
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" sx={{ fontSize: '0.7rem', color: '#64748b', mt: 0.5, display: 'block' }}>
+                          Not included in supplier payment calculation
                         </Typography>
                       </Box>
                     )}
-                  </Box>
+                  </>
                 )}
 
                 {/* Action buttons for desktop */}

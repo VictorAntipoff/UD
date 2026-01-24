@@ -174,8 +174,8 @@ async function managementRoutes(fastify: FastifyInstance) {
           estimatedPieces: data.total_pieces || null
         },
         include: {
-          WoodType: true,
-          Warehouse: true
+          woodType: true,
+          warehouse: true
         }
       });
 
@@ -198,10 +198,10 @@ async function managementRoutes(fastify: FastifyInstance) {
       // Only lock if warehouse has stock control enabled
       const existingReceipt = await prisma.woodReceipt.findUnique({
         where: { id },
-        include: { Warehouse: true }
+        include: { warehouse: true }
       });
 
-      if (existingReceipt?.receiptConfirmedAt && existingReceipt?.Warehouse?.stockControlEnabled) {
+      if (existingReceipt?.receiptConfirmedAt && existingReceipt?.warehouse?.stockControlEnabled) {
         const errors: string[] = [];
 
         if (data.warehouse_id !== existingReceipt.warehouseId) {
@@ -238,8 +238,8 @@ async function managementRoutes(fastify: FastifyInstance) {
           estimatedPieces: data.total_pieces
         },
         include: {
-          WoodType: true,
-          Warehouse: true
+          woodType: true,
+          warehouse: true
         }
       });
 
@@ -264,10 +264,10 @@ async function managementRoutes(fastify: FastifyInstance) {
       if (hasStockAffectingChanges) {
         const existingReceipt = await prisma.woodReceipt.findUnique({
           where: { id },
-          include: { Warehouse: true }
+          include: { warehouse: true }
         });
 
-        if (existingReceipt?.receiptConfirmedAt && existingReceipt?.Warehouse?.stockControlEnabled) {
+        if (existingReceipt?.receiptConfirmedAt && existingReceipt?.warehouse?.stockControlEnabled) {
           const errors: string[] = [];
 
           if (data.warehouse_id !== undefined && data.warehouse_id !== existingReceipt.warehouseId) {
@@ -308,7 +308,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         where: { id },
         data: updateData,
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -341,7 +341,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           userId,
           type: 'LOT_PENDING_APPROVAL',
           title: 'LOT Pending Approval',
-          message: `LOT ${receipt.lotNumber} (${receipt.WoodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
+          message: `LOT ${receipt.lotNumber} (${receipt.woodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
           linkUrl: `/dashboard/management/wood-receipt`,
           isRead: false
         }));
@@ -390,8 +390,8 @@ async function managementRoutes(fastify: FastifyInstance) {
       const woodReceipts = await prisma.woodReceipt.findMany({
         where: { lotNumber },
         include: {
-          WoodType: true,
-          SleeperMeasurement: true
+          woodType: true,
+          measurements: true
         },
         orderBy: {
           createdAt: 'asc'
@@ -408,7 +408,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       const slicingOperations = await prisma.operation.findMany({
         where: { lotNumber },
         include: {
-          WoodType: true
+          woodType: true
         },
         orderBy: {
           createdAt: 'asc'
@@ -494,7 +494,7 @@ async function managementRoutes(fastify: FastifyInstance) {
 
           return {
             id: receipt.id,
-            woodType: receipt.WoodType.name,
+            woodType: receipt.woodType.name,
             supplier: receipt.supplier,
             receiptDate: receipt.receiptDate,
             purchaseOrder: receipt.purchaseOrder,
@@ -532,7 +532,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           slicing: slicingOperations.map(op => ({
             id: op.id,
             serialNumber: op.serialNumber,
-            woodType: op.WoodType.name,
+            woodType: op.woodType.name,
             status: op.status,
             startTime: op.startTime,
             endTime: op.endTime,
@@ -650,8 +650,8 @@ async function managementRoutes(fastify: FastifyInstance) {
           status: 'PENDING_APPROVAL'
         },
         include: {
-          WoodType: true,
-          Warehouse: true
+          woodType: true,
+          warehouse: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -664,7 +664,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         include: {
           operation: {
             include: {
-              WoodType: true
+              woodType: true
             }
           }
         },
@@ -678,7 +678,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         module: 'WOOD_RECEIPT',
         referenceId: receipt.id,
         lotNumber: receipt.lotNumber,
-        woodType: receipt.WoodType,
+        woodType: receipt.woodType,
         supplier: receipt.supplier,
         receiptDate: receipt.receiptDate,
         estimatedAmount: receipt.estimatedAmount,
@@ -687,7 +687,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         actualVolumeM3: receipt.actualVolumeM3,
         actualPieces: receipt.actualPieces,
         woodFormat: receipt.woodFormat,
-        warehouse: receipt.Warehouse,
+        warehouse: receipt.warehouse,
         status: 'pending',
         createdAt: receipt.createdAt,
         updatedAt: receipt.updatedAt
@@ -792,7 +792,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           receiptConfirmedAt: new Date()
         },
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -841,7 +841,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           notes: notes || currentReceipt?.notes
         },
         include: {
-          WoodType: true
+          woodType: true
         }
       });
 
@@ -863,7 +863,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       // Get the receipt
       const receipt = await prisma.woodReceipt.findUnique({
         where: { id },
-        include: { WoodType: true, Warehouse: true }
+        include: { woodType: true, warehouse: true }
       });
 
       if (!receipt) {
@@ -1168,7 +1168,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           },
           stock: {
             include: {
-              WoodType: true
+              woodType: true
             }
           },
           _count: {
@@ -1373,7 +1373,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       const stock = await prisma.stock.findMany({
         where: { warehouseId: id },
         include: {
-          WoodType: true,
+          woodType: true,
           warehouse: {
             select: {
               code: true,
@@ -1404,7 +1404,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           }
         },
         include: {
-          WoodType: true,
+          woodType: true,
           warehouse: {
             select: {
               code: true,
@@ -1480,7 +1480,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           }
         },
         include: {
-          WoodType: true,
+          woodType: true,
           warehouse: {
             select: {
               code: true,
@@ -1538,8 +1538,8 @@ async function managementRoutes(fastify: FastifyInstance) {
             minimumStockLevel: data.minimumStockLevel
           },
           include: {
-            WoodType: true,
-            Warehouse: true
+            woodType: true,
+            warehouse: true
           }
         });
       } else {
@@ -1558,8 +1558,8 @@ async function managementRoutes(fastify: FastifyInstance) {
             statusInTransitIn: 0
           },
           include: {
-            WoodType: true,
-            Warehouse: true
+            woodType: true,
+            warehouse: true
           }
         });
       }
@@ -1649,8 +1649,8 @@ async function managementRoutes(fastify: FastifyInstance) {
             adjustedById: userId
           },
           include: {
-            WoodType: true,
-            Warehouse: true,
+            woodType: true,
+            warehouse: true,
             adjustedBy: {
               select: {
                 email: true,
@@ -1679,8 +1679,8 @@ async function managementRoutes(fastify: FastifyInstance) {
       const adjustments = await prisma.stockAdjustment.findMany({
         where: whereClause,
         include: {
-          WoodType: true,
-          Warehouse: true,
+          woodType: true,
+          warehouse: true,
           adjustedBy: {
             select: {
               email: true,

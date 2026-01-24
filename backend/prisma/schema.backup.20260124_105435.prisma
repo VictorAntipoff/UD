@@ -548,21 +548,19 @@ model Setting {
 }
 
 model SleeperMeasurement {
-  id              String      @id
-  receiptId       String
-  thickness       Float
-  width           Float
-  length          Float
-  qty             Int
-  volumeM3        Float
-  isCustom        Boolean     @default(false)
-  isComplimentary Boolean     @default(false)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime
-  WoodReceipt     WoodReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  id          String      @id
+  receiptId   String
+  thickness   Float
+  width       Float
+  length      Float
+  qty         Int
+  volumeM3    Float
+  isCustom    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime
+  WoodReceipt WoodReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
 
   @@index([receiptId])
-  @@index([isComplimentary])
 }
 
 model Stock {

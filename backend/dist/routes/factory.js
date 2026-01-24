@@ -1726,12 +1726,23 @@ async function factoryRoutes(fastify) {
             const measurements = draft.measurements;
             const totalPieces = measurements.reduce((sum, m) => sum + (parseInt(m.qty) || 1), 0);
             const totalVolumeM3 = measurements.reduce((sum, m) => sum + (parseFloat(m.m3) || 0), 0);
+            // Calculate paid vs complimentary breakdown
+            const paidMeasurements = measurements.filter(m => !m.isComplimentary);
+            const complimentaryMeasurements = measurements.filter(m => m.isComplimentary);
+            const paidPieces = paidMeasurements.reduce((sum, m) => sum + (parseInt(m.qty) || 1), 0);
+            const paidVolumeM3 = paidMeasurements.reduce((sum, m) => sum + (parseFloat(m.m3) || 0), 0);
+            const complimentaryPieces = complimentaryMeasurements.reduce((sum, m) => sum + (parseInt(m.qty) || 1), 0);
+            const complimentaryVolumeM3 = complimentaryMeasurements.reduce((sum, m) => sum + (parseFloat(m.m3) || 0), 0);
             console.log('📊 Receipt Completion Calculation:', {
                 lotNumber,
                 totalPieces,
                 totalVolumeM3,
+                paidPieces,
+                paidVolumeM3,
+                complimentaryPieces,
+                complimentaryVolumeM3,
                 measurementCount: measurements.length,
-                measurements: measurements.map(m => ({ qty: m.qty, m3: m.m3 }))
+                measurements: measurements.map(m => ({ qty: m.qty, m3: m.m3, isComplimentary: m.isComplimentary }))
             });
             // Get measurement unit from draft (for fallback)
             const measurementUnit = draft.measurementUnit || 'imperial';
@@ -1848,7 +1859,8 @@ async function factoryRoutes(fastify) {
                             length: parseFloat(m.length) || 0,
                             qty: parseInt(m.qty) || 1,
                             volumeM3: parseFloat(m.m3) || 0,
-                            isCustom: m.isCustom === true
+                            isCustom: m.isCustom === true,
+                            isComplimentary: m.isComplimentary === true
                         }))
                     });
                     console.log('✅ Measurements saved successfully');
@@ -1881,7 +1893,9 @@ async function factoryRoutes(fastify) {
                             userId: userId,
                             userName: completingUser.email || completingUser.id,
                             action: 'COMPLETED',
-                            details: `Receipt completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³)`,
+                            details: `Receipt completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³). ` +
+                                `Paid: ${paidVolumeM3.toFixed(2)} m³ (${paidPieces} pcs)` +
+                                (complimentaryPieces > 0 ? `, Complimentary: ${complimentaryVolumeM3.toFixed(2)} m³ (${complimentaryPieces} pcs)` : ''),
                             timestamp: new Date()
                         }
                     });
@@ -1920,7 +1934,10 @@ async function factoryRoutes(fastify) {
                 userId,
                 type: 'RECEIPT_COMPLETED',
                 title: 'Wood Receipt Completed',
-                message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³). Breakdown: ${thicknessBreakdown}`,
+                message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
+                    `Paid: ${paidVolumeM3.toFixed(2)} m³ (${paidPieces} pcs)` +
+                    (complimentaryPieces > 0 ? `, Complimentary: ${complimentaryVolumeM3.toFixed(2)} m³ (${complimentaryPieces} pcs). ` : '. ') +
+                    `Breakdown: ${thicknessBreakdown}`,
                 linkUrl: `/dashboard/factory/receipt-processing?lot=${lotNumber}`,
                 isRead: false
             }));
