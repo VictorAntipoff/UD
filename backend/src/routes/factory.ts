@@ -690,10 +690,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       return processes.map(p => ({
         ...p,
+        woodType: (p as any).WoodType,
         readings: (p as any).DryingReading || [],
         recharges: (p as any).ElectricityRecharge || [],
         items: (p as any).DryingProcessItem?.map((item: any) => ({
           ...item,
+          woodType: item.WoodType,
           sourceWarehouse: item.Warehouse
         })) || []
       }));

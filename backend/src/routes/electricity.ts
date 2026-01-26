@@ -26,7 +26,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
     try {
       const recharges = await prisma.electricityRecharge.findMany({
         include: {
-          dryingProcess: {
+          DryingProcess: {
             select: {
               batchNumber: true,
               status: true
@@ -37,7 +37,11 @@ async function electricityRoutes(fastify: FastifyInstance) {
           rechargeDate: 'desc'
         }
       });
-      return recharges;
+      // Map PascalCase to camelCase for frontend
+      return recharges.map(r => ({
+        ...r,
+        dryingProcess: (r as any).DryingProcess
+      }));
     } catch (error) {
       console.error('Error fetching electricity recharges:', error);
       return reply.status(500).send({ error: 'Failed to fetch electricity recharges' });
