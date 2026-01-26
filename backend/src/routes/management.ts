@@ -1519,7 +1519,7 @@ async function managementRoutes(fastify: FastifyInstance) {
     try {
       const lowStockItems = await prisma.stock.findMany({
         where: {
-          warehouse: {
+          Warehouse: {
             status: 'ACTIVE',
             stockControlEnabled: true
           },
@@ -1529,7 +1529,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         },
         include: {
           WoodType: true,
-          warehouse: {
+          Warehouse: {
             select: {
               code: true,
               name: true
@@ -1544,6 +1544,8 @@ async function managementRoutes(fastify: FastifyInstance) {
         return item.minimumStockLevel && totalAvailable < item.minimumStockLevel;
       }).map(item => ({
         ...item,
+        woodType: (item as any).WoodType,
+        warehouse: (item as any).Warehouse,
         currentStock: item.statusNotDried + item.statusDried,
         shortfall: item.minimumStockLevel! - (item.statusNotDried + item.statusDried)
       }));
@@ -1729,7 +1731,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         include: {
           WoodType: true,
           Warehouse: true,
-          adjustedBy: {
+          User: {
             select: {
               email: true,
               firstName: true,
@@ -1741,7 +1743,13 @@ async function managementRoutes(fastify: FastifyInstance) {
         take: 100 // Limit to last 100 adjustments
       });
 
-      return adjustments;
+      // Map to camelCase for frontend
+      return adjustments.map(adj => ({
+        ...adj,
+        woodType: (adj as any).WoodType,
+        warehouse: (adj as any).Warehouse,
+        adjustedBy: (adj as any).User
+      }));
     } catch (error) {
       console.error('Error fetching adjustments:', error);
       return reply.status(500).send({ error: 'Failed to fetch adjustments' });

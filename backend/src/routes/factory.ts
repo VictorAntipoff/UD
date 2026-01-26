@@ -669,6 +669,49 @@ async function factoryRoutes(fastify: FastifyInstance) {
   // Get all drying processes
   fastify.get('/drying-processes', async (request, reply) => {
     try {
+      // Auto-fix orphaned "Under Drying" stock on each fetch
+      try {
+        const activeProcesses = await prisma.dryingProcess.findMany({
+          where: { status: 'IN_PROGRESS' },
+          include: { DryingProcessItem: true }
+        });
+
+        const expectedUnderDrying = new Map<string, number>();
+        for (const process of activeProcesses) {
+          if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
+            for (const item of process.DryingProcessItem) {
+              const key = `${item.sourceWarehouseId}-${item.woodTypeId}-${item.thickness}`;
+              expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + item.pieceCount);
+            }
+          } else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
+            const key = `${process.sourceWarehouseId}-${process.woodTypeId}-${process.stockThickness}`;
+            expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + process.pieceCount);
+          }
+        }
+
+        const stockWithUnderDrying = await prisma.stock.findMany({
+          where: { statusUnderDrying: { gt: 0 } }
+        });
+
+        for (const stock of stockWithUnderDrying) {
+          const key = `${stock.warehouseId}-${stock.woodTypeId}-${stock.thickness}`;
+          const expected = expectedUnderDrying.get(key) || 0;
+          const orphaned = stock.statusUnderDrying - expected;
+          if (orphaned > 0) {
+            await prisma.stock.update({
+              where: { id: stock.id },
+              data: {
+                statusUnderDrying: { decrement: orphaned },
+                statusNotDried: { increment: orphaned }
+              }
+            });
+            console.log(`Auto-fixed orphaned stock: ${orphaned} pieces moved from UnderDrying to NotDried`);
+          }
+        }
+      } catch (fixError) {
+        console.error('Error auto-fixing orphaned stock:', fixError);
+      }
+
       const processes = await prisma.dryingProcess.findMany({
         include: {
           WoodType: true,
@@ -714,16 +757,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
         where: { id },
         include: {
           WoodType: true,
-          readings: {
+          DryingReading: {
             orderBy: { readingTime: 'asc' }
           },
-          recharges: {
+          ElectricityRecharge: {
             orderBy: { rechargeDate: 'asc' }
           },
-          items: {
+          DryingProcessItem: {
             include: {
               WoodType: true,
-              sourceWarehouse: true
+              Warehouse: true
             }
           }
         }
@@ -733,7 +776,18 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Drying process not found' });
       }
 
-      return process;
+      // Map to camelCase for frontend
+      return {
+        ...process,
+        woodType: (process as any).WoodType,
+        readings: (process as any).DryingReading || [],
+        recharges: (process as any).ElectricityRecharge || [],
+        items: (process as any).DryingProcessItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType,
+          sourceWarehouse: item.Warehouse
+        })) || []
+      };
     } catch (error) {
       console.error('Error fetching drying process:', error);
       return reply.status(500).send({ error: 'Failed to fetch drying process' });
@@ -804,6 +858,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         // Create the drying process
         const createdProcess = await tx.dryingProcess.create({
           data: {
+            id: crypto.randomUUID(),
             batchNumber,
             // OLD FIELDS - only for backward compatibility
             ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
@@ -820,7 +875,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
             status: 'IN_PROGRESS',
             useStock: isMultiWood || data.useStock || false,
             createdById: user.userId,
-            createdByName: userName
+            createdByName: userName,
+            updatedAt: new Date()
           }
         });
 
@@ -843,11 +899,13 @@ async function factoryRoutes(fastify: FastifyInstance) {
             // Create drying process item
             await tx.dryingProcessItem.create({
               data: {
+                id: crypto.randomUUID(),
                 dryingProcessId: createdProcess.id,
                 woodTypeId: item.woodTypeId,
                 thickness: item.thickness,
                 pieceCount: item.pieceCount,
-                sourceWarehouseId: item.warehouseId
+                sourceWarehouseId: item.warehouseId,
+                updatedAt: new Date()
               }
             });
 
@@ -883,17 +941,27 @@ async function factoryRoutes(fastify: FastifyInstance) {
           where: { id: createdProcess.id },
           include: {
             WoodType: true,
-            readings: true,
-            items: {
+            DryingReading: true,
+            DryingProcessItem: {
               include: {
                 WoodType: true,
-                sourceWarehouse: true
+                Warehouse: true
               }
             }
           }
         });
 
-        return completeProcess;
+        // Map to camelCase for frontend
+        return {
+          ...completeProcess,
+          woodType: (completeProcess as any)?.WoodType,
+          readings: (completeProcess as any)?.DryingReading || [],
+          items: (completeProcess as any)?.DryingProcessItem?.map((item: any) => ({
+            ...item,
+            woodType: item.WoodType,
+            sourceWarehouse: item.Warehouse
+          })) || []
+        };
       }, {
         maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
         timeout: 30000, // Transaction timeout 30 seconds
@@ -1099,22 +1167,33 @@ async function factoryRoutes(fastify: FastifyInstance) {
           where: { id },
           include: {
             WoodType: true,
-            readings: {
+            DryingReading: {
               orderBy: { readingTime: 'asc' }
             },
-            recharges: {
+            ElectricityRecharge: {
               orderBy: { rechargeDate: 'asc' }
             },
-            items: {
+            DryingProcessItem: {
               include: {
                 WoodType: true,
-                sourceWarehouse: true
+                Warehouse: true
               }
             }
           }
         });
 
-        return completeProcess;
+        // Map to camelCase for frontend
+        return {
+          ...completeProcess,
+          woodType: (completeProcess as any)?.WoodType,
+          readings: (completeProcess as any)?.DryingReading || [],
+          recharges: (completeProcess as any)?.ElectricityRecharge || [],
+          items: (completeProcess as any)?.DryingProcessItem?.map((item: any) => ({
+            ...item,
+            woodType: item.WoodType,
+            sourceWarehouse: item.Warehouse
+          })) || []
+        };
       }, {
         maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
         timeout: 30000, // Transaction timeout 30 seconds
@@ -1132,14 +1211,140 @@ async function factoryRoutes(fastify: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
 
-      await prisma.dryingProcess.delete({
-        where: { id }
+      // Use transaction to restore stock before deleting
+      await prisma.$transaction(async (tx) => {
+        // Get the process with its items
+        const process = await tx.dryingProcess.findUnique({
+          where: { id },
+          include: {
+            DryingProcessItem: true
+          }
+        });
+
+        if (!process) {
+          throw new Error('Drying process not found');
+        }
+
+        // Only restore stock if process is still IN_PROGRESS (not completed)
+        if (process.status === 'IN_PROGRESS') {
+          // Restore stock for multi-wood items
+          if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
+            for (const item of process.DryingProcessItem) {
+              // Find the stock record and restore: UnderDrying -> NotDried
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: item.sourceWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                },
+                data: {
+                  statusUnderDrying: { decrement: item.pieceCount },
+                  statusNotDried: { increment: item.pieceCount }
+                }
+              });
+            }
+          }
+          // Restore stock for old format (single wood)
+          else if (process.useStock && process.sourceWarehouseId && process.stockThickness && process.woodTypeId && process.pieceCount) {
+            await tx.stock.updateMany({
+              where: {
+                warehouseId: process.sourceWarehouseId,
+                woodTypeId: process.woodTypeId,
+                thickness: process.stockThickness
+              },
+              data: {
+                statusUnderDrying: { decrement: process.pieceCount },
+                statusNotDried: { increment: process.pieceCount }
+              }
+            });
+          }
+        }
+
+        // Delete the process (cascade will delete items and readings)
+        await tx.dryingProcess.delete({
+          where: { id }
+        });
+      }, {
+        maxWait: 30000,
+        timeout: 30000
       });
 
       return { success: true };
     } catch (error) {
       console.error('Error deleting drying process:', error);
       return reply.status(500).send({ error: 'Failed to delete drying process' });
+    }
+  });
+
+  // Fix orphaned "Under Drying" stock (admin only)
+  // This fixes stock that was left in "Under Drying" status when drying processes were deleted without proper cleanup
+  fastify.post('/drying-processes/fix-orphaned-stock', async (request, reply) => {
+    try {
+      // Get all active (IN_PROGRESS) drying processes with their items
+      const activeProcesses = await prisma.dryingProcess.findMany({
+        where: { status: 'IN_PROGRESS' },
+        include: { DryingProcessItem: true }
+      });
+
+      // Build a map of what SHOULD be under drying
+      const expectedUnderDrying = new Map<string, number>();
+
+      for (const process of activeProcesses) {
+        // Multi-wood format
+        if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
+          for (const item of process.DryingProcessItem) {
+            const key = `${item.warehouseId}-${item.woodTypeId}-${item.thickness}`;
+            expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + item.pieceCount);
+          }
+        }
+        // Old format
+        else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
+          const key = `${process.sourceWarehouseId}-${process.woodTypeId}-${process.stockThickness}`;
+          expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + process.pieceCount);
+        }
+      }
+
+      // Get all stock with Under Drying > 0
+      const stockWithUnderDrying = await prisma.stock.findMany({
+        where: { statusUnderDrying: { gt: 0 } }
+      });
+
+      const fixes: any[] = [];
+
+      for (const stock of stockWithUnderDrying) {
+        const key = `${stock.warehouseId}-${stock.woodTypeId}-${stock.thickness}`;
+        const expected = expectedUnderDrying.get(key) || 0;
+        const actual = stock.statusUnderDrying;
+        const orphaned = actual - expected;
+
+        if (orphaned > 0) {
+          // Move orphaned stock back to Not Dried
+          await prisma.stock.update({
+            where: { id: stock.id },
+            data: {
+              statusUnderDrying: { decrement: orphaned },
+              statusNotDried: { increment: orphaned }
+            }
+          });
+          fixes.push({
+            stockId: stock.id,
+            warehouseId: stock.warehouseId,
+            woodTypeId: stock.woodTypeId,
+            thickness: stock.thickness,
+            orphanedCount: orphaned,
+            action: 'Moved from UnderDrying to NotDried'
+          });
+        }
+      }
+
+      return {
+        success: true,
+        message: fixes.length > 0 ? `Fixed ${fixes.length} orphaned stock records` : 'No orphaned stock found',
+        fixes
+      };
+    } catch (error) {
+      console.error('Error fixing orphaned stock:', error);
+      return reply.status(500).send({ error: 'Failed to fix orphaned stock' });
     }
   });
 
