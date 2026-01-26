@@ -1943,6 +1943,44 @@ const ReceiptProcessing = () => {
                                     >
                                       {receipt.receiptDate ? new Date(receipt.receiptDate).toLocaleDateString() : 'N/A'}
                                     </Typography>
+                                    <Box
+                                      sx={{
+                                        display: { xs: 'none', md: 'block' },
+                                        width: '1px',
+                                        height: '20px',
+                                        backgroundColor: '#e2e8f0',
+                                        flexShrink: 0
+                                      }}
+                                    />
+                                    <Chip
+                                      label={
+                                        receipt.status === 'CREATED' ? 'Created' :
+                                        receipt.status === 'PENDING' ? 'Pending' :
+                                        receipt.status === 'PENDING_APPROVAL' ? 'Awaiting Approval' :
+                                        receipt.status === 'RECEIVED' ? 'Received' :
+                                        receipt.status
+                                      }
+                                      size="small"
+                                      sx={{
+                                        height: '20px',
+                                        fontSize: '0.6875rem',
+                                        fontWeight: 600,
+                                        backgroundColor:
+                                          receipt.status === 'CREATED' ? '#f1f5f9' :
+                                          receipt.status === 'PENDING' ? '#fef3c7' :
+                                          receipt.status === 'PENDING_APPROVAL' ? '#ede9fe' :
+                                          receipt.status === 'RECEIVED' ? '#dbeafe' :
+                                          '#f1f5f9',
+                                        color:
+                                          receipt.status === 'CREATED' ? '#64748b' :
+                                          receipt.status === 'PENDING' ? '#92400e' :
+                                          receipt.status === 'PENDING_APPROVAL' ? '#7c3aed' :
+                                          receipt.status === 'RECEIVED' ? '#1e40af' :
+                                          '#64748b',
+                                        display: { xs: 'none', md: 'inline-flex' },
+                                        '& .MuiChip-label': { px: 1 }
+                                      }}
+                                    />
                                   </Box>
                                 </MenuItem>
                               );
