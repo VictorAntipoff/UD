@@ -514,10 +514,10 @@ model Project {
 }
 
 model ReceiptDraft {
-  id              String   @id
+  id              String   @id @default(uuid())
   receiptId       String
   measurements    Json
-  updatedAt       DateTime
+  updatedAt       DateTime @default(now()) @updatedAt
   updatedBy       String
   createdAt       DateTime @default(now())
   measurementUnit String?  @default("imperial")
@@ -526,7 +526,7 @@ model ReceiptDraft {
 }
 
 model ReceiptHistory {
-  id        String   @id
+  id        String   @id @default(uuid())
   receiptId String
   userId    String
   userName  String

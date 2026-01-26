@@ -14,6 +14,41 @@ function getStatusFieldName(woodStatus: string): string {
   ).join('')}`;
 }
 
+// Prisma include object for Transfer with correct PascalCase relation names
+const transferInclude = {
+  Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+  Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+  TransferItem: {
+    include: { WoodType: true }
+  },
+  User_Transfer_createdByIdToUser: {
+    select: { id: true, email: true, firstName: true, lastName: true }
+  },
+  User_Transfer_approvedByIdToUser: {
+    select: { id: true, email: true, firstName: true, lastName: true }
+  },
+  TransferHistory: {
+    orderBy: { timestamp: 'asc' as const }
+  }
+};
+
+// Map Prisma PascalCase transfer response to camelCase for frontend
+function mapTransfer(t: any) {
+  if (!t) return t;
+  return {
+    ...t,
+    fromWarehouse: t.Warehouse_Transfer_fromWarehouseIdToWarehouse,
+    toWarehouse: t.Warehouse_Transfer_toWarehouseIdToWarehouse,
+    items: t.TransferItem?.map((item: any) => ({
+      ...item,
+      woodType: item.WoodType
+    })) || [],
+    createdBy: t.User_Transfer_createdByIdToUser,
+    approvedBy: t.User_Transfer_approvedByIdToUser,
+    history: t.TransferHistory || []
+  };
+}
+
 // Helper function to log transfer history
 async function logTransferHistory(
   transferId: string,
@@ -26,6 +61,7 @@ async function logTransferHistory(
 ) {
   await prisma.transferHistory.create({
     data: {
+      id: crypto.randomUUID(),
       transferId,
       transferNumber,
       userId,
@@ -73,7 +109,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfers = await prisma.transfer.findMany({
         where: whereClause,
         include: {
-          fromWarehouse: {
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: {
             select: {
               id: true,
               code: true,
@@ -81,7 +117,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               stockControlEnabled: true
             }
           },
-          toWarehouse: {
+          Warehouse_Transfer_toWarehouseIdToWarehouse: {
             select: {
               id: true,
               code: true,
@@ -89,12 +125,12 @@ async function transferRoutes(fastify: FastifyInstance) {
               stockControlEnabled: true
             }
           },
-          items: {
+          TransferItem: {
             include: {
               WoodType: true
             }
           },
-          createdBy: {
+          User_Transfer_createdByIdToUser: {
             select: {
               id: true,
               email: true,
@@ -102,7 +138,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               lastName: true
             }
           },
-          approvedBy: {
+          User_Transfer_approvedByIdToUser: {
             select: {
               id: true,
               email: true,
@@ -114,7 +150,18 @@ async function transferRoutes(fastify: FastifyInstance) {
         orderBy: { createdAt: 'desc' }
       });
 
-      return transfers;
+      // Map PascalCase relations to camelCase for frontend
+      return transfers.map(t => ({
+        ...t,
+        fromWarehouse: (t as any).Warehouse_Transfer_fromWarehouseIdToWarehouse,
+        toWarehouse: (t as any).Warehouse_Transfer_toWarehouseIdToWarehouse,
+        items: (t as any).TransferItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType
+        })) || [],
+        createdBy: (t as any).User_Transfer_createdByIdToUser,
+        approvedBy: (t as any).User_Transfer_approvedByIdToUser
+      }));
     } catch (error) {
       console.error('Error fetching transfers:', error);
       return reply.status(500).send({ error: 'Failed to fetch transfers' });
@@ -129,14 +176,14 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: true,
-          toWarehouse: true,
-          items: {
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+          TransferItem: {
             include: {
               WoodType: true
             }
           },
-          createdBy: {
+          User_Transfer_createdByIdToUser: {
             select: {
               id: true,
               email: true,
@@ -144,7 +191,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               lastName: true
             }
           },
-          approvedBy: {
+          User_Transfer_approvedByIdToUser: {
             select: {
               id: true,
               email: true,
@@ -152,7 +199,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               lastName: true
             }
           },
-          history: {
+          TransferHistory: {
             orderBy: { timestamp: 'asc' }
           }
         }
@@ -162,7 +209,18 @@ async function transferRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Transfer not found' });
       }
 
-      return transfer;
+      return {
+        ...transfer,
+        fromWarehouse: (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse,
+        toWarehouse: (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse,
+        items: (transfer as any).TransferItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType
+        })) || [],
+        createdBy: (transfer as any).User_Transfer_createdByIdToUser,
+        approvedBy: (transfer as any).User_Transfer_approvedByIdToUser,
+        history: (transfer as any).TransferHistory || []
+      };
     } catch (error) {
       console.error('Error fetching transfer:', error);
       return reply.status(500).send({ error: 'Failed to fetch transfer' });
@@ -271,7 +329,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             createdById: userId,
             approvedById: initialStatus === 'APPROVED' ? userId : null,
             approvedAt: initialStatus === 'APPROVED' ? new Date() : null,
-            items: {
+            TransferItem: {
               create: data.items.map((item: any) => ({
                 woodTypeId: item.woodTypeId,
                 thickness: item.thickness,
@@ -281,23 +339,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               }))
             }
           },
-          include: {
-            fromWarehouse: true,
-            toWarehouse: true,
-            items: {
-              include: {
-                WoodType: true
-              }
-            },
-            createdBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-              }
-            }
-          }
+          include: transferInclude
         });
 
         // If source warehouse has stock control AND transfer is auto-approved, deduct from source
@@ -357,17 +399,18 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
 
         // Log history
-        const user = transfer.createdBy;
+        const user = (transfer as any).User_Transfer_createdByIdToUser;
         const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
         await tx.transferHistory.create({
           data: {
+            id: crypto.randomUUID(),
             transferId: transfer.id,
             transferNumber: transfer.transferNumber,
             userId: user.id,
             userName,
             userEmail: user.email,
             action: 'CREATED',
-            details: `Transfer created from ${fromWarehouse.name} to ${toWarehouse.name} with ${transfer.items.length} item(s)`
+            details: `Transfer created from ${fromWarehouse.name} to ${toWarehouse.name} with ${(transfer as any).TransferItem.length} item(s)`
           }
         });
 
@@ -375,6 +418,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         if (initialStatus === 'APPROVED') {
           await tx.transferHistory.create({
             data: {
+              id: crypto.randomUUID(),
               transferId: transfer.id,
               transferNumber: transfer.transferNumber,
               userId: user.id,
@@ -425,7 +469,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         timeout: 15000, // 15 seconds transaction timeout
       });
 
-      return result;
+      return mapTransfer(result);
     } catch (error) {
       console.error('Error creating transfer:', error);
       return reply.status(500).send({ error: 'Failed to create transfer' });
@@ -442,9 +486,9 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: true,
-          toWarehouse: true,
-          items: true
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+          TransferItem: true
         }
       });
 
@@ -468,8 +512,8 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       // Check stock availability again if source has stock control
-      if (transfer.FromWarehouse.stockControlEnabled) {
-        for (const item of transfer.items) {
+      if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
+        for (const item of (transfer as any).TransferItem) {
           const stock = await prisma.stock.findUnique({
             where: {
               warehouseId_woodTypeId_thickness: {
@@ -507,36 +551,12 @@ async function transferRoutes(fastify: FastifyInstance) {
             approvedById: userId,
             approvedAt: new Date()
           },
-          include: {
-            fromWarehouse: true,
-            toWarehouse: true,
-            items: {
-              include: {
-                WoodType: true
-              }
-            },
-            createdBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-              }
-            },
-            approvedBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-              }
-            }
-          }
+          include: transferInclude
         });
 
         // If source warehouse has stock control, deduct from source
-        if (transfer.FromWarehouse.stockControlEnabled) {
-          for (const item of transfer.items) {
+        if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
+          for (const item of (transfer as any).TransferItem) {
             const statusField = getStatusFieldName(item.woodStatus);
 
             await tx.stock.updateMany({
@@ -552,7 +572,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             });
 
             // If destination warehouse has stock control, mark as in-transit-in
-            if (transfer.ToWarehouse.stockControlEnabled) {
+            if ((transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
               await tx.stock.upsert({
                 where: {
                   warehouseId_woodTypeId_thickness: {
@@ -581,10 +601,11 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
 
         // Log approval history
-        const approver = updatedTransfer.approvedBy!;
+        const approver = (updatedTransfer as any).User_Transfer_approvedByIdToUser!;
         const approverName = `${approver.firstName || ''} ${approver.lastName || ''}`.trim() || approver.email;
         await tx.transferHistory.create({
           data: {
+            id: crypto.randomUUID(),
             transferId: updatedTransfer.id,
             transferNumber: updatedTransfer.transferNumber,
             userId: approver.id,
@@ -598,7 +619,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         return updatedTransfer;
       });
 
-      return result;
+      return mapTransfer(result);
     } catch (error) {
       console.error('Error approving transfer:', error);
       return reply.status(500).send({ error: 'Failed to approve transfer' });
@@ -615,7 +636,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          items: {
+          TransferItem: {
             include: {
               WoodType: true
             }
@@ -641,38 +662,15 @@ async function transferRoutes(fastify: FastifyInstance) {
           approvedById: userId,
           approvedAt: new Date()
         },
-        include: {
-          fromWarehouse: true,
-          toWarehouse: true,
-          items: {
-            include: {
-              WoodType: true
-            }
-          },
-          createdBy: {
-            select: {
-              id: true,
-              email: true,
-              firstName: true,
-              lastName: true
-            }
-          },
-          approvedBy: {
-            select: {
-              id: true,
-              email: true,
-              firstName: true,
-              lastName: true
-            }
-          }
-        }
+        include: transferInclude
       });
 
       // Log rejection history
-      const rejector = updatedTransfer.approvedBy!;
+      const rejector = (updatedTransfer as any).User_Transfer_approvedByIdToUser!;
       const rejectorName = `${rejector.firstName || ''} ${rejector.lastName || ''}`.trim() || rejector.email;
       await prisma.transferHistory.create({
         data: {
+          id: crypto.randomUUID(),
           transferId: updatedTransfer.id,
           transferNumber: updatedTransfer.transferNumber,
           userId: rejector.id,
@@ -683,7 +681,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
       });
 
-      return updatedTransfer;
+      return mapTransfer(updatedTransfer);
     } catch (error) {
       console.error('Error rejecting transfer:', error);
       return reply.status(500).send({ error: 'Failed to reject transfer' });
@@ -710,9 +708,9 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: true,
-          toWarehouse: true,
-          items: true
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+          TransferItem: true
         }
       });
 
@@ -743,35 +741,11 @@ async function transferRoutes(fastify: FastifyInstance) {
             status: 'COMPLETED',
             completedAt: new Date()
           },
-          include: {
-            fromWarehouse: true,
-            toWarehouse: true,
-            items: {
-              include: {
-                WoodType: true
-              }
-            },
-            createdBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-              }
-            },
-            approvedBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-              }
-            }
-          }
+          include: transferInclude
         });
 
         // Update stock for each item
-        for (const item of transfer.items) {
+        for (const item of (transfer as any).TransferItem) {
           // Convert wood status to proper camelCase field name
           // e.g. NOT_DRIED -> statusNotDried, UNDER_DRYING -> statusUnderDrying
           const statusField = `status${item.woodStatus.split('_').map((word, index) =>
@@ -780,7 +754,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           ).join('')}`;
 
           // If source warehouse has stock control, remove from in-transit-out
-          if (transfer.FromWarehouse.stockControlEnabled) {
+          if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
             await tx.stock.updateMany({
               where: {
                 warehouseId: transfer.fromWarehouseId,
@@ -805,12 +779,12 @@ async function transferRoutes(fastify: FastifyInstance) {
               referenceId: transfer.id,
               referenceNumber: transfer.transferNumber,
               userId: currentUser.id,
-              details: `Transfer to ${transfer.ToWarehouse.name}`
+              details: `Transfer to ${(transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.name}`
             }, tx);
           }
 
           // If destination warehouse has stock control, add to stock and remove from in-transit-in
-          if (transfer.ToWarehouse.stockControlEnabled) {
+          if ((transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
             await tx.stock.upsert({
               where: {
                 warehouseId_woodTypeId_thickness: {
@@ -850,7 +824,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               referenceId: transfer.id,
               referenceNumber: transfer.transferNumber,
               userId: currentUser.id,
-              details: `Transfer from ${transfer.FromWarehouse.name}`
+              details: `Transfer from ${(transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.name}`
             }, tx);
           }
         }
@@ -859,13 +833,14 @@ async function transferRoutes(fastify: FastifyInstance) {
         const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
         await tx.transferHistory.create({
           data: {
+            id: crypto.randomUUID(),
             transferId: updatedTransfer.id,
             transferNumber: updatedTransfer.transferNumber,
             userId: currentUser.id,
             userName,
             userEmail: currentUser.email,
             action: 'COMPLETED',
-            details: `Transfer completed and stock updated at ${transfer.ToWarehouse.name}`
+            details: `Transfer completed and stock updated at ${(transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.name}`
           }
         });
 
@@ -876,7 +851,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               userId: notifyUserId,
               type: 'TRANSFER_COMPLETED',
               title: 'Transfer Completed',
-              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${transfer.FromWarehouse.name} to ${transfer.ToWarehouse.name}`,
+              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${(transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.name} to ${(transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.name}`,
               linkUrl: `/dashboard/factory/wood-transfer?transfer=${updatedTransfer.id}`
             }
           });
@@ -885,7 +860,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         return updatedTransfer;
       });
 
-      return result;
+      return mapTransfer(result);
     } catch (error) {
       console.error('Error completing transfer:', error);
       return reply.status(500).send({ error: 'Failed to complete transfer' });
@@ -921,37 +896,11 @@ async function transferRoutes(fastify: FastifyInstance) {
             in: warehouseIds
           }
         },
-        include: {
-          fromWarehouse: {
-            select: {
-              code: true,
-              name: true
-            }
-          },
-          toWarehouse: {
-            select: {
-              code: true,
-              name: true
-            }
-          },
-          items: {
-            include: {
-              WoodType: true
-            }
-          },
-          createdBy: {
-            select: {
-              id: true,
-              email: true,
-              firstName: true,
-              lastName: true,
-            }
-          }
-        },
+        include: transferInclude,
         orderBy: { createdAt: 'asc' }
       });
 
-      return pendingTransfers;
+      return pendingTransfers.map(mapTransfer);
     } catch (error) {
       console.error('Error fetching pending approvals:', error);
       return reply.status(500).send({ error: 'Failed to fetch pending approvals' });
@@ -1005,9 +954,9 @@ async function transferRoutes(fastify: FastifyInstance) {
       const existingTransfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: true,
-          toWarehouse: true,
-          items: {
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+          TransferItem: {
             include: {
               WoodType: true
             }
@@ -1058,31 +1007,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             fromWarehouseId: data.fromWarehouseId || undefined,
             toWarehouseId: data.toWarehouseId || undefined
           },
-          include: {
-            fromWarehouse: true,
-            toWarehouse: true,
-            items: {
-              include: {
-                WoodType: true
-              }
-            },
-            createdBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true
-              }
-            },
-            approvedBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true
-              }
-            }
-          }
+          include: transferInclude
         });
 
         // Log history only if changes were made
@@ -1090,6 +1015,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
           await tx.transferHistory.create({
             data: {
+              id: crypto.randomUUID(),
               transferId: updatedTransfer.id,
               transferNumber: updatedTransfer.transferNumber,
               userId: currentUser.id,
@@ -1104,7 +1030,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         return updatedTransfer;
       });
 
-      return result;
+      return mapTransfer(result);
     } catch (error) {
       console.error('Error editing transfer:', error);
       return reply.status(500).send({ error: 'Failed to edit transfer' });
@@ -1141,9 +1067,9 @@ async function transferRoutes(fastify: FastifyInstance) {
       const existingTransfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: true,
-          toWarehouse: true,
-          items: {
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+          TransferItem: {
             include: {
               WoodType: true
             }
@@ -1186,31 +1112,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             fromWarehouseId: data.fromWarehouseId || undefined,
             toWarehouseId: data.toWarehouseId || undefined
           },
-          include: {
-            fromWarehouse: true,
-            toWarehouse: true,
-            items: {
-              include: {
-                WoodType: true
-              }
-            },
-            createdBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true
-              }
-            },
-            approvedBy: {
-              select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true
-              }
-            }
-          }
+          include: transferInclude
         });
 
         // Log the edit in history
@@ -1218,6 +1120,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
           await tx.transferHistory.create({
             data: {
+              id: crypto.randomUUID(),
               transferId: updatedTransfer.id,
               transferNumber: updatedTransfer.transferNumber,
               userId: currentUser.id,
@@ -1232,7 +1135,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         return updatedTransfer;
       });
 
-      return result;
+      return mapTransfer(result);
     } catch (error) {
       console.error('Error editing transfer:', error);
       return reply.status(500).send({ error: 'Failed to edit transfer' });
@@ -1269,8 +1172,8 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: true,
-          toWarehouse: true
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true
         }
       });
 
@@ -1301,7 +1204,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       // Check stock availability if source warehouse has stock control
-      if (transfer.FromWarehouse.stockControlEnabled) {
+      if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
         const stock = await prisma.stock.findUnique({
           where: {
             warehouseId_woodTypeId_thickness: {
@@ -1349,7 +1252,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         const statusField = getStatusFieldName(data.woodStatus);
 
         // Deduct from source warehouse (if stock control enabled)
-        if (transfer.FromWarehouse.stockControlEnabled) {
+        if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
           await tx.stock.updateMany({
             where: {
               warehouseId: transfer.fromWarehouseId,
@@ -1364,7 +1267,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
 
         // Add to destination warehouse in-transit (if stock control enabled)
-        if (transfer.ToWarehouse.stockControlEnabled) {
+        if ((transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
           await tx.stock.updateMany({
             where: {
               warehouseId: transfer.toWarehouseId,
@@ -1381,6 +1284,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
         await tx.transferHistory.create({
           data: {
+            id: crypto.randomUUID(),
             transferId: id,
             transferNumber: transfer.transferNumber,
             userId: currentUser.id,
@@ -1433,8 +1337,8 @@ async function transferRoutes(fastify: FastifyInstance) {
         include: {
           transfer: {
             include: {
-              fromWarehouse: true,
-              toWarehouse: true
+              Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+              Warehouse_Transfer_toWarehouseIdToWarehouse: true
             }
           },
           WoodType: true
@@ -1455,7 +1359,7 @@ async function transferRoutes(fastify: FastifyInstance) {
 
       // If transfer is IN_TRANSIT and quantity is increasing, check stock availability
       if (existingItem.transfer.status === 'IN_TRANSIT' &&
-          existingItem.transfer.FromWarehouse.stockControlEnabled &&
+          (existingItem.transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled &&
           data.quantity > existingItem.quantity) {
         const additionalQuantity = data.quantity - existingItem.quantity;
 
@@ -1472,7 +1376,7 @@ async function transferRoutes(fastify: FastifyInstance) {
 
         if (!stock) {
           return reply.status(400).send({
-            error: `Stock not found in source warehouse for ${existingItem.woodType.name}`
+            error: `Stock not found in source warehouse for ${(existingItem as any).WoodType.name}`
           });
         }
 
@@ -1491,7 +1395,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       const newWoodType = data.woodTypeId ? await prisma.woodType.findUnique({ where: { id: data.woodTypeId } }) : null;
 
       if (data.woodTypeId && data.woodTypeId !== existingItem.woodTypeId) {
-        changes.push(`Wood type changed from ${existingItem.woodType.name} to ${newWoodType?.name}`);
+        changes.push(`Wood type changed from ${(existingItem as any).WoodType.name} to ${newWoodType?.name}`);
       }
       if (data.quantity && data.quantity !== existingItem.quantity) {
         changes.push(`Quantity changed from ${existingItem.quantity} to ${data.quantity}`);
@@ -1514,7 +1418,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           // Handle wood type change
           if (woodTypeChanged) {
             // Return the entire quantity of the old wood type to source warehouse
-            if (existingItem.transfer.FromWarehouse.stockControlEnabled) {
+            if ((existingItem.transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
               await tx.stock.updateMany({
                 where: {
                   warehouseId: existingItem.transfer.fromWarehouseId,
@@ -1564,7 +1468,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             }
 
             // Adjust destination warehouse in-transit stock
-            if (existingItem.transfer.ToWarehouse.stockControlEnabled) {
+            if ((existingItem.transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
               // Remove old wood type from in-transit
               await tx.stock.updateMany({
                 where: {
@@ -1596,7 +1500,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             const quantityDelta = data.quantity - existingItem.quantity;
 
             // Adjust source warehouse stock (only if source has stock control)
-            if (existingItem.transfer.FromWarehouse.stockControlEnabled) {
+            if ((existingItem.transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
               if (quantityDelta > 0) {
                 // Quantity increased - deduct more from source
                 await tx.stock.updateMany({
@@ -1627,7 +1531,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             }
 
             // Adjust destination warehouse in-transit stock (only if destination has stock control)
-            if (existingItem.transfer.ToWarehouse.stockControlEnabled) {
+            if ((existingItem.transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
               await tx.stock.updateMany({
                 where: {
                   warehouseId: existingItem.transfer.toWarehouseId,
@@ -1662,13 +1566,14 @@ async function transferRoutes(fastify: FastifyInstance) {
           const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
           await tx.transferHistory.create({
             data: {
+              id: crypto.randomUUID(),
               transferId: id,
               transferNumber: existingItem.transfer.transferNumber,
               userId: currentUser.id,
               userName,
               userEmail: currentUser.email,
               action: 'ITEM_EDITED',
-              details: `Item edit (${existingItem.woodType.name}): ${changes.join(', ')}`
+              details: `Item edit (${(existingItem as any).WoodType.name}): ${changes.join(', ')}`
             }
           });
         }
@@ -1708,10 +1613,10 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          fromWarehouse: {
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: {
             select: { name: true }
           },
-          toWarehouse: {
+          Warehouse_Transfer_toWarehouseIdToWarehouse: {
             select: { name: true }
           }
         }
@@ -1761,7 +1666,7 @@ async function transferRoutes(fastify: FastifyInstance) {
           userId: userId,
           type: notificationType,
           title: notificationTitle,
-          message: `${currentUserName} sent you notification about transfer ${transfer.transferNumber} from ${transfer.FromWarehouse.name} to ${transfer.ToWarehouse.name}`,
+          message: `${currentUserName} sent you notification about transfer ${transfer.transferNumber} from ${(transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.name} to ${(transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.name}`,
           linkUrl: `/dashboard/factory/wood-transfer?transfer=${transfer.id}`
         }
       });

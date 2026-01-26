@@ -672,23 +672,31 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const processes = await prisma.dryingProcess.findMany({
         include: {
           WoodType: true,
-          readings: {
+          DryingReading: {
             orderBy: { readingTime: 'asc' }
           },
-          recharges: {
+          ElectricityRecharge: {
             orderBy: { rechargeDate: 'asc' }
           },
-          items: {
+          DryingProcessItem: {
             include: {
               WoodType: true,
-              sourceWarehouse: true
+              Warehouse: true
             }
           }
         },
         orderBy: { createdAt: 'desc' }
       });
 
-      return processes;
+      return processes.map(p => ({
+        ...p,
+        readings: (p as any).DryingReading || [],
+        recharges: (p as any).ElectricityRecharge || [],
+        items: (p as any).DryingProcessItem?.map((item: any) => ({
+          ...item,
+          sourceWarehouse: item.Warehouse
+        })) || []
+      }));
     } catch (error) {
       console.error('Error fetching drying processes:', error);
       return reply.status(500).send({ error: 'Failed to fetch drying processes' });
@@ -1719,10 +1727,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const draft = await prisma.receiptDraft.create({
         data: {
+          id: crypto.randomUUID(),
           receiptId: data.receipt_id,
           measurements: data.measurements,
           measurementUnit: data.measurement_unit || 'imperial',
-          updatedBy: data.updated_by
+          updatedBy: data.updated_by,
+          updatedAt: new Date()
         }
       });
 
@@ -1750,6 +1760,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
             const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
             await prisma.receiptHistory.create({
               data: {
+                id: crypto.randomUUID(),
                 receiptId: data.receipt_id,
                 userId: data.updated_by,
                 userName: user.email || user.id,
@@ -1766,8 +1777,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       return draft;
     } catch (error) {
-      console.error('Error creating draft:', error);
-      return reply.status(500).send({ error: 'Failed to create draft' });
+      console.error('Error creating draft - Full details:', {
+        error: error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        receiptId: (request.body as any)?.receipt_id
+      });
+      return reply.status(500).send({
+        error: 'Failed to create draft',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
@@ -1820,6 +1839,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
               const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
               await prisma.receiptHistory.create({
                 data: {
+                  id: crypto.randomUUID(),
                   receiptId: existingDraft.receiptId,
                   userId: data.updated_by,
                   userName: user.email || user.id,
@@ -1895,6 +1915,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const history = await prisma.receiptHistory.create({
         data: {
+          id: crypto.randomUUID(),
           receiptId: data.receipt_id,
           userId: data.user_id,
           userName: data.user_name,
@@ -2245,6 +2266,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         try {
           await prisma.receiptHistory.create({
             data: {
+              id: crypto.randomUUID(),
               receiptId: lotNumber,
               userId: userId,
               userName: completingUser.email || completingUser.id,

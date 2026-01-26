@@ -113,6 +113,9 @@ async function managementRoutes(fastify: FastifyInstance) {
 
         return {
           ...receipt,
+          woodType: (receipt as any).WoodType,
+          warehouse: (receipt as any).Warehouse,
+          measurements: (receipt as any).SleeperMeasurement,
           actualVolumeM3,
           actualPieces
         };
@@ -161,6 +164,7 @@ async function managementRoutes(fastify: FastifyInstance) {
 
       const receipt = await prisma.woodReceipt.create({
         data: {
+          id: crypto.randomUUID(),
           woodTypeId: data.wood_type_id,
           warehouseId: data.warehouse_id || null,
           supplier: data.supplier,
@@ -171,7 +175,8 @@ async function managementRoutes(fastify: FastifyInstance) {
           notes: data.notes || null,
           estimatedAmount: data.total_amount || 0,
           estimatedVolumeM3: data.total_volume_m3 || null,
-          estimatedPieces: data.total_pieces || null
+          estimatedPieces: data.total_pieces || null,
+          updatedAt: new Date()
         },
         include: {
           WoodType: true,
@@ -514,8 +519,9 @@ async function managementRoutes(fastify: FastifyInstance) {
             // Last user who worked on this receipt
             lastWorkedBy: lastWorkedBy,
             lastWorkedAt: lastWorkedAt,
-            // Include the measurements for PDF generation
-            measurements: draft?.measurements || null
+            // Include the measurements for display and PDF generation
+            measurements: draft?.measurements || null,
+            measurementUnit: draft?.measurementUnit || 'imperial'
           };
         })
       );
@@ -662,7 +668,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           status: 'pending'
         },
         include: {
-          operation: {
+          Operation: {
             include: {
               WoodType: true
             }
@@ -697,9 +703,9 @@ async function managementRoutes(fastify: FastifyInstance) {
       const transformedOperationApprovals = operationApprovals.map(approval => ({
         id: approval.id,
         type: 'OPERATION_APPROVAL',
-        module: approval.operation.serialNumber.startsWith('WS-') ? 'WOOD_SLICER' : 'WOOD_CALCULATOR',
+        module: approval.Operation.serialNumber.startsWith('WS-') ? 'WOOD_SLICER' : 'WOOD_CALCULATOR',
         referenceId: approval.operationId,
-        operation: approval.operation,
+        operation: approval.Operation,
         approverRole: approval.approverRole,
         status: approval.status,
         createdAt: approval.createdAt,
@@ -749,7 +755,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       // Get the receipt first to get lotNumber
       const existingReceipt = await prisma.woodReceipt.findUnique({
         where: { id },
-        include: { woodType: true }
+        include: { WoodType: true }
       });
 
       if (!existingReceipt) {
@@ -802,6 +808,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         try {
           await prisma.receiptHistory.create({
             data: {
+              id: crypto.randomUUID(),
               receiptId: existingReceipt.lotNumber,
               userId: user.userId,
               userName: user.email || user.userId,
@@ -1111,9 +1118,9 @@ async function managementRoutes(fastify: FastifyInstance) {
       const warehouses = await prisma.warehouse.findMany({
         where: whereClause,
         include: {
-          assignedUsers: {
+          WarehouseUser: {
             include: {
-              user: {
+              User: {
                 select: {
                   id: true,
                   email: true,
@@ -1126,9 +1133,9 @@ async function managementRoutes(fastify: FastifyInstance) {
           },
           _count: {
             select: {
-              stock: true,
-              transfersFrom: true,
-              transfersTo: true
+              Stock: true,
+              Transfer_Transfer_fromWarehouseIdToWarehouse: true,
+              Transfer_Transfer_toWarehouseIdToWarehouse: true
             }
           }
         },
@@ -1138,7 +1145,19 @@ async function managementRoutes(fastify: FastifyInstance) {
         ]
       });
 
-      return warehouses;
+      // Map PascalCase relation names to camelCase for frontend compatibility
+      return warehouses.map(w => ({
+        ...w,
+        assignedUsers: (w as any).WarehouseUser?.map((wu: any) => ({
+          ...wu,
+          user: wu.User
+        })) || [],
+        _count: {
+          stock: (w as any)._count?.Stock || 0,
+          transfersFrom: (w as any)._count?.Transfer_Transfer_fromWarehouseIdToWarehouse || 0,
+          transfersTo: (w as any)._count?.Transfer_Transfer_toWarehouseIdToWarehouse || 0
+        }
+      }));
     } catch (error) {
       console.error('Error fetching warehouses:', error);
       return reply.status(500).send({ error: 'Failed to fetch warehouses' });
@@ -1153,9 +1172,9 @@ async function managementRoutes(fastify: FastifyInstance) {
       const warehouse = await prisma.warehouse.findUnique({
         where: { id },
         include: {
-          assignedUsers: {
+          WarehouseUser: {
             include: {
-              user: {
+              User: {
                 select: {
                   id: true,
                   email: true,
@@ -1166,16 +1185,16 @@ async function managementRoutes(fastify: FastifyInstance) {
               }
             }
           },
-          stock: {
+          Stock: {
             include: {
               WoodType: true
             }
           },
           _count: {
             select: {
-              transfersFrom: true,
-              transfersTo: true,
-              stockAdjustments: true
+              Transfer_Transfer_fromWarehouseIdToWarehouse: true,
+              Transfer_Transfer_toWarehouseIdToWarehouse: true,
+              StockAdjustment: true
             }
           }
         }
@@ -1185,7 +1204,20 @@ async function managementRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Warehouse not found' });
       }
 
-      return warehouse;
+      // Map PascalCase to camelCase for frontend
+      return {
+        ...warehouse,
+        assignedUsers: (warehouse as any).WarehouseUser?.map((wu: any) => ({
+          ...wu,
+          user: wu.User
+        })) || [],
+        stock: (warehouse as any).Stock || [],
+        _count: {
+          transfersFrom: (warehouse as any)._count?.Transfer_Transfer_fromWarehouseIdToWarehouse || 0,
+          transfersTo: (warehouse as any)._count?.Transfer_Transfer_toWarehouseIdToWarehouse || 0,
+          stockAdjustments: (warehouse as any)._count?.StockAdjustment || 0
+        }
+      };
     } catch (error) {
       console.error('Error fetching warehouse:', error);
       return reply.status(500).send({ error: 'Failed to fetch warehouse' });
@@ -1330,6 +1362,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       if (userIds && userIds.length > 0) {
         await prisma.warehouseUser.createMany({
           data: userIds.map(userId => ({
+            id: crypto.randomUUID(),
             warehouseId: id,
             userId
           }))
@@ -1340,9 +1373,9 @@ async function managementRoutes(fastify: FastifyInstance) {
       const warehouse = await prisma.warehouse.findUnique({
         where: { id },
         include: {
-          assignedUsers: {
+          WarehouseUser: {
             include: {
-              user: {
+              User: {
                 select: {
                   id: true,
                   email: true,
@@ -1356,7 +1389,14 @@ async function managementRoutes(fastify: FastifyInstance) {
         }
       });
 
-      return warehouse;
+      // Map to frontend format
+      return warehouse ? {
+        ...warehouse,
+        assignedUsers: (warehouse as any).WarehouseUser?.map((wu: any) => ({
+          ...wu,
+          user: wu.User
+        })) || []
+      } : warehouse;
     } catch (error) {
       console.error('Error updating assigned users:', error);
       return reply.status(500).send({ error: 'Failed to update assigned users' });
@@ -1374,7 +1414,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         where: { warehouseId: id },
         include: {
           WoodType: true,
-          warehouse: {
+          Warehouse: {
             select: {
               code: true,
               name: true
@@ -1382,12 +1422,16 @@ async function managementRoutes(fastify: FastifyInstance) {
           }
         },
         orderBy: [
-          { woodType: { name: 'asc' } },
+          { WoodType: { name: 'asc' } },
           { thickness: 'asc' }
         ]
       });
 
-      return stock;
+      return stock.map(s => ({
+        ...s,
+        woodType: (s as any).WoodType,
+        warehouse: (s as any).Warehouse
+      }));
     } catch (error) {
       console.error('Error fetching stock:', error);
       return reply.status(500).send({ error: 'Failed to fetch stock' });
@@ -1399,13 +1443,13 @@ async function managementRoutes(fastify: FastifyInstance) {
     try {
       const stock = await prisma.stock.findMany({
         where: {
-          warehouse: {
+          Warehouse: {
             status: 'ACTIVE'
           }
         },
         include: {
           WoodType: true,
-          warehouse: {
+          Warehouse: {
             select: {
               code: true,
               name: true,
@@ -1414,9 +1458,9 @@ async function managementRoutes(fastify: FastifyInstance) {
           }
         },
         orderBy: [
-          { woodType: { name: 'asc' } },
+          { WoodType: { name: 'asc' } },
           { thickness: 'asc' },
-          { warehouse: { name: 'asc' } }
+          { Warehouse: { name: 'asc' } }
         ]
       });
 
@@ -1425,7 +1469,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         const key = `${item.woodTypeId}_${item.thickness}`;
         if (!acc[key]) {
           acc[key] = {
-            woodType: item.woodType,
+            woodType: (item as any).WoodType,
             thickness: item.thickness,
             totalNotDried: 0,
             totalUnderDrying: 0,
@@ -1442,7 +1486,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         acc[key].totalDamaged += item.statusDamaged;
         acc[key].totalInTransit += item.statusInTransitOut + item.statusInTransitIn;
         acc[key].warehouses.push({
-          warehouse: item.warehouse,
+          warehouse: (item as any).Warehouse,
           quantities: {
             notDried: item.statusNotDried,
             underDrying: item.statusUnderDrying,
@@ -1457,7 +1501,11 @@ async function managementRoutes(fastify: FastifyInstance) {
       }, {});
 
       return {
-        detailed: stock,
+        detailed: stock.map(s => ({
+          ...s,
+          woodType: (s as any).WoodType,
+          warehouse: (s as any).Warehouse
+        })),
         summary: Object.values(summary)
       };
     } catch (error) {

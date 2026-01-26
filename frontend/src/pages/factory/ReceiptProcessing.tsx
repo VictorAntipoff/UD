@@ -340,107 +340,108 @@ const MobileMeasurements = ({
 
 const pdfStyles = StyleSheet.create({
   page: {
-    padding: '40 60',
+    padding: '25 20',
     fontFamily: 'Helvetica',
-    fontSize: 10,
+    fontSize: 7.5,
     color: '#2c3e50'
   },
   header: {
-    marginBottom: 20,
-    borderBottom: 1,
-    borderColor: '#e2e8f0',
-    paddingBottom: 15
+    marginBottom: 14,
+    borderBottom: 0.5,
+    borderColor: '#cbd5e1',
+    paddingBottom: 10
   },
   logo: {
-    width: 120,
-    marginBottom: 10
+    width: 80,
+    marginBottom: 6
   },
   title: {
-    fontSize: 20,
+    fontSize: 14,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 5
+    marginBottom: 3
   },
   subtitle: {
-    fontSize: 10,
+    fontSize: 7.5,
     color: '#64748b',
-    marginBottom: 15
+    marginBottom: 10
   },
   metadata: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    fontSize: 9,
+    fontSize: 7,
     color: '#64748b'
   },
   section: {
-    marginBottom: 12
+    marginBottom: 10
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 8.5,
     fontFamily: 'Helvetica-Bold',
     color: '#2c3e50',
-    marginBottom: 6,
+    marginBottom: 4,
     backgroundColor: '#f8fafc',
-    padding: '4 6',
-    borderRadius: 4
+    padding: '3 5',
+    borderRadius: 2
   },
   row: {
     flexDirection: 'row',
-    marginBottom: 3,
-    fontSize: 10
+    marginBottom: 2,
+    fontSize: 7.5
   },
   label: {
-    width: '30%',
+    width: '25%',
     color: '#64748b'
   },
   value: {
-    width: '70%',
+    width: '75%',
     color: '#2c3e50'
   },
   table: {
-    marginTop: 6
+    marginTop: 4
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f8fafc',
-    borderBottomColor: '#e2e8f0',
-    borderBottomWidth: 1,
-    padding: '4 6',
-    fontSize: 9,
+    backgroundColor: '#f1f5f9',
+    borderBottomColor: '#cbd5e1',
+    borderBottomWidth: 0.5,
+    padding: '3 5',
+    fontSize: 7,
     fontFamily: 'Helvetica-Bold',
-    color: '#64748b'
+    color: '#475569'
   },
   tableRow: {
     flexDirection: 'row',
     borderBottomColor: '#e2e8f0',
-    borderBottomWidth: 1,
-    padding: '3 6'
+    borderBottomWidth: 0.5,
+    padding: '2.5 5',
+    fontSize: 7
   },
   tableCell: {
     flex: 1
   },
   result: {
-    marginTop: 12,
-    padding: 8,
+    marginTop: 10,
+    padding: 6,
     backgroundColor: '#f8fafc',
-    borderRadius: 4,
+    borderRadius: 3,
     borderLeft: 2,
     borderLeftColor: '#3b82f6'
   },
   resultText: {
     fontFamily: 'Helvetica-Bold',
     color: '#2c3e50',
-    fontSize: 12
+    fontSize: 9
   },
   footer: {
     position: 'absolute',
-    bottom: 40,
-    left: 60,
-    right: 60,
+    bottom: 30,
+    left: 20,
+    right: 20,
     textAlign: 'center',
     color: '#94a3b8',
-    fontSize: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
+    fontSize: 6.5,
+    paddingTop: 6,
+    borderTopWidth: 0.5,
     borderTopColor: '#e2e8f0'
   },
   dimensionValue: {
@@ -459,11 +460,13 @@ interface ReceiptPDFProps {
   formData: ReceiptForm;
   measurements: SleeperMeasurement[];
   totalM3: number;
+  totalPaidM3: number;
+  totalComplimentaryM3: number;
   changeHistory: ChangeHistory[];
   measurementUnit: 'imperial' | 'metric';
 }
 
-const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measurementUnit }: ReceiptPDFProps) => {
+const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplimentaryM3, changeHistory, measurementUnit }: ReceiptPDFProps) => {
   // Dynamic summary title based on wood format
   const summaryTitle = formData.woodFormat === 'PLANKS' ? 'Plank Summary' : 'Sleeper Size Summary';
 
@@ -528,7 +531,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measuremen
         <Text style={pdfStyles.sectionTitle}>{formData.woodFormat === 'PLANKS' ? 'Plank Measurements' : 'Sleeper Measurements'}</Text>
         <View style={pdfStyles.table}>
           <View style={pdfStyles.tableHeader}>
-            <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
+            <View style={[pdfStyles.tableCell, { flex: 0.4 }]}>
               <Text>No.</Text>
             </View>
             <View style={pdfStyles.tableCell}>
@@ -540,16 +543,21 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measuremen
             <View style={pdfStyles.tableCell}>
               <Text>{measurementUnit === 'imperial' ? 'Length (ft)' : 'Length (cm)'}</Text>
             </View>
-            <View style={[pdfStyles.tableCell, { flex: 0.6 }]}>
+            <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
               <Text>Qty</Text>
             </View>
             <View style={pdfStyles.tableCell}>
               <Text>Volume (m³)</Text>
             </View>
+            {measurements.some(m => m.isComplimentary) && (
+              <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
+                <Text>Type</Text>
+              </View>
+            )}
           </View>
           {measurements.map((m: SleeperMeasurement, index: number) => (
-            <View key={m.id} style={pdfStyles.tableRow}>
-              <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
+            <View key={m.id} style={[pdfStyles.tableRow, m.isComplimentary ? { backgroundColor: '#f0fdf4' } : {}]}>
+              <View style={[pdfStyles.tableCell, { flex: 0.4 }]}>
                 <Text>{String(index + 1).padStart(3, '0')}</Text>
               </View>
               <View style={pdfStyles.tableCell}>
@@ -561,12 +569,23 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measuremen
               <View style={pdfStyles.tableCell}>
                 <Text>{formatNumber(m.length)}</Text>
               </View>
-              <View style={[pdfStyles.tableCell, { flex: 0.6 }]}>
+              <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
                 <Text>{m.qty || 1}</Text>
               </View>
               <View style={pdfStyles.tableCell}>
                 <Text>{m.m3.toFixed(4)}</Text>
               </View>
+              {measurements.some(ms => ms.isComplimentary) && (
+                <View style={[pdfStyles.tableCell, { flex: 0.5 }]}>
+                  {m.isComplimentary ? (
+                    <View style={{ backgroundColor: '#16a34a', padding: '1 3', borderRadius: 4, alignSelf: 'flex-start' }}>
+                      <Text style={{ fontSize: 5, color: '#ffffff', fontFamily: 'Helvetica-Bold' }}>FREE</Text>
+                    </View>
+                  ) : (
+                    <Text style={{ fontSize: 6, color: '#94a3b8' }}>Paid</Text>
+                  )}
+                </View>
+              )}
             </View>
           ))}
         </View>
@@ -587,57 +606,70 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measuremen
             </View>
           </View>
           {getSleeperSizeSummary(measurements, measurementUnit).map((size, index) => (
-            <View key={index} style={pdfStyles.tableRow}>
+            <View key={index} style={[pdfStyles.tableRow, size.isComplimentary ? { backgroundColor: '#f0fdf4' } : {}]}>
               <View style={pdfStyles.tableCell}>
-                {size.size === 'Custom' ? (
-                  <View style={{
-                    backgroundColor: '#fbbf24',
-                    padding: '2 8',
-                    borderRadius: 10,
-                    alignSelf: 'flex-start',
-                    marginVertical: 2
-                  }}>
-                    <Text style={{
-                      fontSize: 7,
-                      fontFamily: 'Helvetica-Bold',
-                      color: '#ffffff',
-                      letterSpacing: 0.5
-                    }}>CUSTOM</Text>
+                {size.size.includes('Custom') ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <View style={{
+                      backgroundColor: '#fbbf24',
+                      padding: '1 5',
+                      borderRadius: 6,
+                      alignSelf: 'flex-start'
+                    }}>
+                      <Text style={{
+                        fontSize: 5,
+                        fontFamily: 'Helvetica-Bold',
+                        color: '#ffffff',
+                        letterSpacing: 0.3
+                      }}>CUSTOM</Text>
+                    </View>
+                    {size.isComplimentary && (
+                      <View style={{ backgroundColor: '#16a34a', padding: '1 3', borderRadius: 4 }}>
+                        <Text style={{ fontSize: 5, color: '#ffffff', fontFamily: 'Helvetica-Bold' }}>FREE</Text>
+                      </View>
+                    )}
                   </View>
                 ) : (
-                  <Text>{size.size}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                    <Text style={size.isComplimentary ? { color: '#16a34a' } : {}}>{size.size.replace(' (Free)', '')}</Text>
+                    {size.isComplimentary && (
+                      <View style={{ backgroundColor: '#16a34a', padding: '1 3', borderRadius: 4 }}>
+                        <Text style={{ fontSize: 5, color: '#ffffff', fontFamily: 'Helvetica-Bold' }}>FREE</Text>
+                      </View>
+                    )}
+                  </View>
                 )}
               </View>
               <View style={pdfStyles.tableCell}>
                 <Text>{size.count}</Text>
               </View>
               <View style={pdfStyles.tableCell}>
-                <Text>{size.totalVolume.toFixed(4)}</Text>
+                <Text style={size.isComplimentary ? { color: '#16a34a' } : {}}>{size.totalVolume.toFixed(4)}</Text>
               </View>
             </View>
           ))}
         </View>
       </View>
 
-      <View style={{ flexDirection: 'row', marginTop: 12, gap: 15 }}>
+      <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }}>
         {/* Pieces Section */}
-        <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 8, borderRadius: 3, border: '1px solid #e2e8f0' }}>
-          <Text style={{ fontSize: 9, fontWeight: 'bold', marginBottom: 6, color: '#475569' }}>PIECES SUMMARY</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ fontSize: 8, color: '#64748b' }}>Total Pieces:</Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 6, borderRadius: 2, border: '0.5px solid #e2e8f0' }}>
+          <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', marginBottom: 4, color: '#475569', letterSpacing: 0.3 }}>PIECES SUMMARY</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>Total Pieces:</Text>
+            <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e293b' }}>
               {measurements.reduce((sum, m) => sum + (m.qty || 1), 0)}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ fontSize: 8, color: '#64748b' }}>Expected:</Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>Expected:</Text>
+            <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e293b' }}>
               {formData.expectedPieces && formData.expectedPieces.trim() !== '' ? formData.expectedPieces : 'N/A'}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 3, borderTop: '1px solid #cbd5e1' }}>
-            <Text style={{ fontSize: 8, color: '#64748b' }}>Variance:</Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#dc2626' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 2, borderTop: '0.5px solid #cbd5e1' }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>Variance:</Text>
+            <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#dc2626' }}>
               {formData.expectedPieces && formData.expectedPieces.trim() !== ''
                 ? `${(parseInt(formData.expectedPieces) - measurements.reduce((sum, m) => sum + (m.qty || 1), 0))}`
                 : 'N/A'}
@@ -646,43 +678,59 @@ const ReceiptPDF = ({ formData, measurements, totalM3, changeHistory, measuremen
         </View>
 
         {/* Volume Section */}
-        <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 8, borderRadius: 3, border: '1px solid #e2e8f0' }}>
-          <Text style={{ fontSize: 9, fontWeight: 'bold', marginBottom: 6, color: '#475569' }}>VOLUME SUMMARY</Text>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ fontSize: 8, color: '#64748b' }}>Total Volume:</Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+        <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 6, borderRadius: 2, border: '0.5px solid #e2e8f0' }}>
+          <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', marginBottom: 4, color: '#475569', letterSpacing: 0.3 }}>VOLUME SUMMARY</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>Total Volume:</Text>
+            <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e293b' }}>
               {totalM3.toFixed(4)} m³
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 }}>
-            <Text style={{ fontSize: 8, color: '#64748b' }}>Expected:</Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#1e293b' }}>
+          {totalComplimentaryM3 > 0 && (
+            <>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={{ fontSize: 6.5, color: '#64748b' }}>Paid Volume:</Text>
+                <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e293b' }}>
+                  {totalPaidM3.toFixed(4)} m³
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+                <Text style={{ fontSize: 6.5, color: '#16a34a' }}>Free Volume:</Text>
+                <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#16a34a' }}>
+                  {totalComplimentaryM3.toFixed(4)} m³
+                </Text>
+              </View>
+            </>
+          )}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>Expected:</Text>
+            <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#1e293b' }}>
               {formData.quantity && formData.quantity.trim() !== '' ? `${formData.quantity} m³` : 'N/A'}
             </Text>
           </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 3, borderTop: '1px solid #cbd5e1' }}>
-            <Text style={{ fontSize: 8, color: '#64748b' }}>Variance:</Text>
-            <Text style={{ fontSize: 8, fontWeight: 'bold', color: '#dc2626' }}>
-              {formData.quantity && formData.quantity.trim() !== '' ? `${(parseFloat(formData.quantity) - totalM3).toFixed(4)} m³` : 'N/A'}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingTop: 2, borderTop: '0.5px solid #cbd5e1' }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>Variance:</Text>
+            <Text style={{ fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#dc2626' }}>
+              {formData.quantity && formData.quantity.trim() !== '' ? `${(parseFloat(formData.quantity) - totalPaidM3).toFixed(4)} m³` : 'N/A'}
             </Text>
           </View>
         </View>
       </View>
 
       <View style={pdfStyles.footer}>
-        <View style={{ marginBottom: 8 }}>
+        <View style={{ marginBottom: 5 }}>
           {creator && (
-            <Text style={{ fontSize: 8, color: '#64748b', marginBottom: 3 }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b', marginBottom: 2 }}>
               Created by: {creator.userName} on {new Date(creator.timestamp).toLocaleDateString()}
             </Text>
           )}
           {submitter && submitter !== creator && (
-            <Text style={{ fontSize: 8, color: '#64748b' }}>
+            <Text style={{ fontSize: 6.5, color: '#64748b' }}>
               Submitted by: {submitter.userName} on {new Date(submitter.timestamp).toLocaleDateString()}
             </Text>
           )}
         </View>
-        <Text style={{ fontSize: 9, color: '#94a3b8' }}>
+        <Text style={{ fontSize: 6.5, color: '#94a3b8' }}>
           {APP_NAME} {APP_VERSION} • Generated by Wood Processing System
         </Text>
       </View>
@@ -707,17 +755,18 @@ const shouldDefaultToCustom = (thickness: number | string, unit: 'imperial' | 'm
 };
 
 const getSleeperSizeSummary = (measurements: SleeperMeasurement[], unit: 'imperial' | 'metric' = 'imperial') => {
-  const sizeMap = new Map<string, { count: number; totalVolume: number }>();
+  const sizeMap = new Map<string, { count: number; totalVolume: number; isComplimentary: boolean }>();
 
   measurements.forEach(m => {
     // Check if measurement is custom
     let sizeKey: string;
     if (m.isCustom) {
-      sizeKey = 'Custom';
+      sizeKey = m.isComplimentary ? 'Custom (Free)' : 'Custom';
     } else {
-      sizeKey = unit === 'imperial'
+      const baseKey = unit === 'imperial'
         ? `${m.thickness}" × ${m.width}" × ${m.length}'`
         : `${m.thickness}cm × ${m.width}cm × ${m.length}cm`;
+      sizeKey = m.isComplimentary ? `${baseKey} (Free)` : baseKey;
     }
     const qty = m.qty || 1;
 
@@ -725,12 +774,14 @@ const getSleeperSizeSummary = (measurements: SleeperMeasurement[], unit: 'imperi
       const existing = sizeMap.get(sizeKey)!;
       sizeMap.set(sizeKey, {
         count: existing.count + qty,
-        totalVolume: existing.totalVolume + m.m3
+        totalVolume: existing.totalVolume + m.m3,
+        isComplimentary: m.isComplimentary || false
       });
     } else {
       sizeMap.set(sizeKey, {
         count: qty,
-        totalVolume: m.m3
+        totalVolume: m.m3,
+        isComplimentary: m.isComplimentary || false
       });
     }
   });
@@ -738,7 +789,8 @@ const getSleeperSizeSummary = (measurements: SleeperMeasurement[], unit: 'imperi
   return Array.from(sizeMap.entries()).map(([size, data]) => ({
     size,
     count: data.count,
-    totalVolume: data.totalVolume
+    totalVolume: data.totalVolume,
+    isComplimentary: data.isComplimentary
   }));
 };
 
@@ -2162,7 +2214,10 @@ const ReceiptProcessing = () => {
                                 formData={formData}
                                 measurements={measurements}
                                 totalM3={totalM3}
+                                totalPaidM3={totalPaidM3}
+                                totalComplimentaryM3={totalComplimentaryM3}
                                 changeHistory={changeHistory}
+                                measurementUnit={measurementUnit}
                               />}
                             >
                               {({ url, loading }) => (
@@ -2568,7 +2623,7 @@ const ReceiptProcessing = () => {
                       </Button>
                     )}
                     <BlobProvider
-                      document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} changeHistory={changeHistory} measurementUnit={measurementUnit} />}
+                      document={<ReceiptPDF formData={formData} measurements={measurements} totalM3={totalM3} totalPaidM3={totalPaidM3} totalComplimentaryM3={totalComplimentaryM3} changeHistory={changeHistory} measurementUnit={measurementUnit} />}
                     >
                       {({ url, loading }) => (
                         <Button

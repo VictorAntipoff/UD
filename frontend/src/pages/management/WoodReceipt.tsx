@@ -29,7 +29,8 @@ import {
   ListItemAvatar,
   ListItemText,
   Avatar,
-  Checkbox
+  Checkbox,
+  Tooltip
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -45,6 +46,9 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import SendIcon from '@mui/icons-material/Send';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import SyncIcon from '@mui/icons-material/Sync';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import InventoryIcon from '@mui/icons-material/Inventory';
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
@@ -143,7 +147,7 @@ const WoodReceipt = () => {
     supplier: '',
     purchase_date: new Date().toISOString().split('T')[0],
     purchase_order: '',
-    wood_format: 'SLEEPERS',
+    wood_format: '',
     total_volume_m3: '',
     total_pieces: '',
     notes: '',
@@ -179,6 +183,7 @@ const WoodReceipt = () => {
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [sendingNotification, setSendingNotification] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -277,7 +282,8 @@ const WoodReceipt = () => {
         notes: newReceipt.notes || null,
         total_amount: 0,
         total_volume_m3: newReceipt.total_volume_m3 ? parseFloat(newReceipt.total_volume_m3) : null,
-        total_pieces: newReceipt.total_pieces ? parseInt(newReceipt.total_pieces) : null
+        total_pieces: newReceipt.total_pieces ? parseInt(newReceipt.total_pieces) : null,
+        wood_format: newReceipt.wood_format
       };
 
       await api.post('/management/wood-receipts', receiptData);
@@ -291,7 +297,7 @@ const WoodReceipt = () => {
         supplier: '',
         purchase_date: new Date().toISOString().split('T')[0],
         purchase_order: '',
-        wood_format: 'SLEEPERS',
+        wood_format: '',
         total_volume_m3: '',
         total_pieces: '',
         notes: '',
@@ -319,7 +325,7 @@ const WoodReceipt = () => {
       supplier: '',
       purchase_date: new Date().toISOString().split('T')[0],
       purchase_order: '',
-      wood_format: 'SLEEPERS',
+      wood_format: '',
       total_volume_m3: '',
       total_pieces: '',
       notes: '',
@@ -453,8 +459,8 @@ const WoodReceipt = () => {
         wood_format: editingReceipt.wood_format,
         status: editingReceipt.status as ReceiptStatus,
         notes: editingReceipt.notes || null,
-        ...(editingReceipt.total_volume_m3 ? { total_volume_m3: parseFloat(editingReceipt.total_volume_m3.toString()) } : {}),
-        ...(editingReceipt.total_pieces ? { total_pieces: parseInt(editingReceipt.total_pieces.toString()) } : {})
+        total_volume_m3: editingReceipt.total_volume_m3 ? parseFloat(editingReceipt.total_volume_m3.toString()) : null,
+        total_pieces: editingReceipt.total_pieces ? parseInt(editingReceipt.total_pieces.toString()) : null
       };
 
       console.log('Updating receipt with data:', updateData);
@@ -1567,7 +1573,8 @@ const WoodReceipt = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {receipts.map((receipt) => (
+              {/* Active LOTs (non-completed) - always visible */}
+              {receipts.filter(r => r.status !== 'COMPLETED').map((receipt) => (
                 <TableRow key={receipt.id}>
                   <TableCell>
                     <Box
@@ -1648,7 +1655,10 @@ const WoodReceipt = () => {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={receipt.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                      label={
+                        receipt.status === 'PENDING_APPROVAL' ? 'Awaiting Approval' :
+                        receipt.status.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+                      }
                       size="small"
                       sx={{
                         fontSize: '0.6875rem',
@@ -1659,7 +1669,8 @@ const WoodReceipt = () => {
                         backgroundColor: receipt.status === 'CREATED' ? '#64748b' :
                           receipt.status === 'CONFIRMED' ? '#f59e0b' :
                           receipt.status === 'APPROVED' ? '#10b981' :
-                          receipt.status === 'PENDING' ? '#fbbf24' :
+                          receipt.status === 'PENDING' ? '#f59e0b' :
+                          receipt.status === 'PENDING_APPROVAL' ? '#7c3aed' :
                           receipt.status === 'RECEIVED' ? '#3b82f6' :
                           receipt.status === 'PROCESSING' ? '#8b5cf6' :
                           receipt.status === 'COMPLETED' ? '#10b981' :
@@ -1788,6 +1799,152 @@ const WoodReceipt = () => {
                   </TableCell>
                 </TableRow>
               ))}
+
+              {/* Completed LOTs toggle */}
+              {receipts.filter(r => r.status === 'COMPLETED').length > 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} sx={{ p: 0, border: 'none' }}>
+                    <Box
+                      onClick={() => setShowCompleted(!showCompleted)}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 1,
+                        py: 1,
+                        cursor: 'pointer',
+                        backgroundColor: '#f1f5f9',
+                        borderTop: '2px solid #e2e8f0',
+                        transition: 'all 0.2s ease',
+                        '&:hover': { backgroundColor: '#e2e8f0' }
+                      }}
+                    >
+                      {showCompleted ? <ExpandLessIcon sx={{ fontSize: '1rem', color: '#64748b' }} /> : <ExpandMoreIcon sx={{ fontSize: '1rem', color: '#64748b' }} />}
+                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
+                        {showCompleted ? 'Hide' : 'Show'} Completed LOTs ({receipts.filter(r => r.status === 'COMPLETED').length})
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {/* Completed LOTs - collapsible */}
+              {showCompleted && receipts.filter(r => r.status === 'COMPLETED').map((receipt) => (
+                <TableRow key={receipt.id} sx={{ opacity: 0.75 }}>
+                  <TableCell>
+                    <Box
+                      onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: '#dc2626',
+                        color: '#fff',
+                        px: 1.5,
+                        py: 0.5,
+                        borderRadius: 1,
+                        fontWeight: 600,
+                        fontSize: '0.75rem',
+                        letterSpacing: '0.025em',
+                        cursor: receipt.lot_number ? 'pointer' : 'default',
+                        transition: 'all 0.2s ease',
+                        '&:hover': receipt.lot_number ? {
+                          backgroundColor: '#b91c1c',
+                          boxShadow: '0 2px 4px rgba(220, 38, 38, 0.3)',
+                        } : {},
+                      }}
+                    >
+                      {receipt.lot_number || 'N/A'}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.8125rem' }}>
+                      {receipt.wood_type?.name}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ color: '#475569', fontSize: '0.8125rem' }}>
+                      {receipt.supplier}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ color: '#64748b', fontSize: '0.8125rem', fontWeight: 500 }}>
+                      {receipt.purchase_order || 'N/A'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
+                        {(() => {
+                          const volume = receipt.actualVolumeM3 || receipt.estimatedVolumeM3 || receipt.total_volume_m3;
+                          return volume ? parseFloat(volume.toString()).toFixed(4) : '0';
+                        })()}
+                      </Typography>
+                      <Typography sx={{ color: '#10b981', fontSize: '0.625rem', fontWeight: 600, mt: 0.25 }}>
+                        ACTUAL
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Box>
+                      <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
+                        {receipt.actualPieces || receipt.estimatedPieces || receipt.total_pieces || '0'}
+                      </Typography>
+                      <Typography sx={{ color: '#10b981', fontSize: '0.625rem', fontWeight: 600, mt: 0.25 }}>
+                        ACTUAL
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label="Completed"
+                      size="small"
+                      sx={{
+                        fontSize: '0.6875rem',
+                        fontWeight: 600,
+                        height: '24px',
+                        px: 1.25,
+                        borderRadius: 1,
+                        backgroundColor: '#10b981',
+                        color: '#fff',
+                        border: 'none',
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell align="right">
+                    <IconButton
+                      size="small"
+                      onClick={() => handleEditClick(receipt)}
+                      sx={{
+                        backgroundColor: '#dc2626',
+                        color: '#fff',
+                        width: 32,
+                        height: 32,
+                        '&:hover': { backgroundColor: '#b91c1c' },
+                        transition: 'all 0.2s ease',
+                      }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                    {isAdmin && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleReopenLot(receipt)}
+                        sx={{
+                          backgroundColor: '#10b981',
+                          color: '#fff',
+                          ml: 1,
+                          width: 32,
+                          height: 32,
+                          '&:hover': { backgroundColor: '#059669' },
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        <LockOpenIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
         </TableContainer>
@@ -1869,7 +2026,19 @@ const WoodReceipt = () => {
                 </MenuItem>
                 {warehouses.filter(w => w.status === 'ACTIVE').map((warehouse) => (
                   <MenuItem key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name} ({warehouse.code})
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {warehouse.name} ({warehouse.code})
+                      {warehouse.stockControlEnabled && (
+                        <Tooltip title="Stock Control Enabled">
+                          <InventoryIcon sx={{ fontSize: 16, color: '#16a34a' }} />
+                        </Tooltip>
+                      )}
+                      {warehouse.requiresApproval && (
+                        <Tooltip title="Requires Transfer Approval">
+                          <LockIcon sx={{ fontSize: 16, color: '#f59e0b' }} />
+                        </Tooltip>
+                      )}
+                    </Box>
                   </MenuItem>
                 ))}
               </TextField>
@@ -1885,6 +2054,25 @@ const WoodReceipt = () => {
                 helperText={!newReceipt.supplier ? "Supplier is required" : ""}
                 sx={textFieldSx}
               />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                select
+                fullWidth
+                label="Wood Format"
+                value={newReceipt.wood_format}
+                onChange={(e) => setNewReceipt(prev => ({ ...prev, wood_format: e.target.value }))}
+                required
+                error={!newReceipt.wood_format}
+                helperText={!newReceipt.wood_format ? "Wood Format is required" : "Sleepers require slicing, Planks skip slicing stage"}
+                sx={textFieldSx}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select Wood Format</em>
+                </MenuItem>
+                <MenuItem value="SLEEPERS">Sleepers (Requires Slicing)</MenuItem>
+                <MenuItem value="PLANKS">Planks (Ready to Use)</MenuItem>
+              </TextField>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
@@ -1958,21 +2146,6 @@ const WoodReceipt = () => {
             </Grid>
             <Grid item xs={12}>
               <TextField
-                select
-                fullWidth
-                label="Wood Type"
-                value={newReceipt.wood_format}
-                onChange={(e) => setNewReceipt(prev => ({ ...prev, wood_format: e.target.value }))}
-                required
-                helperText="Sleepers require slicing, Planks skip slicing stage"
-                sx={textFieldSx}
-              >
-                <MenuItem value="SLEEPERS">Sleepers (Requires Slicing)</MenuItem>
-                <MenuItem value="PLANKS">Planks (Ready to Use)</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
                 fullWidth
                 label="Notes"
                 value={newReceipt.notes || ''}
@@ -2006,7 +2179,8 @@ const WoodReceipt = () => {
             disabled={loading ||
               !newReceipt.wood_type_id ||
               !newReceipt.supplier ||
-              !newReceipt.purchase_date
+              !newReceipt.purchase_date ||
+              !newReceipt.wood_format
             }
             variant="contained"
             sx={{
@@ -2111,7 +2285,19 @@ const WoodReceipt = () => {
                   </MenuItem>
                   {warehouses.filter(w => w.status === 'ACTIVE').map((warehouse) => (
                     <MenuItem key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name} ({warehouse.code})
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {warehouse.name} ({warehouse.code})
+                        {warehouse.stockControlEnabled && (
+                          <Tooltip title="Stock Control Enabled">
+                            <InventoryIcon sx={{ fontSize: 16, color: '#16a34a' }} />
+                          </Tooltip>
+                        )}
+                        {warehouse.requiresApproval && (
+                          <Tooltip title="Requires Transfer Approval">
+                            <LockIcon sx={{ fontSize: 16, color: '#f59e0b' }} />
+                          </Tooltip>
+                        )}
+                      </Box>
                     </MenuItem>
                   ))}
                 </TextField>
@@ -2517,6 +2703,96 @@ const WoodReceipt = () => {
                             </Grid>
                           )}
                         </Grid>
+
+                        {/* Measurements Summary Table */}
+                        {receipt.measurements && Array.isArray(receipt.measurements) && receipt.measurements.length > 0 && (
+                          <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #fecaca' }}>
+                            <Typography variant="caption" sx={{ color: '#991b1b', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.5px', mb: 1, display: 'block' }}>
+                              {receipt.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'} Measurements ({receipt.measurements.length} entries)
+                            </Typography>
+                            <Box sx={{
+                              border: '1px solid #e2e8f0',
+                              borderRadius: 1,
+                              overflow: 'hidden',
+                              fontSize: '0.75rem'
+                            }}>
+                              {/* Table Header */}
+                              <Box sx={{
+                                display: 'grid',
+                                gridTemplateColumns: '0.4fr 1fr 1fr 1fr 0.6fr 1fr 0.5fr',
+                                backgroundColor: '#f1f5f9',
+                                p: '6px 8px',
+                                gap: 0.5,
+                                borderBottom: '1px solid #e2e8f0'
+                              }}>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>#</Typography>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>
+                                  {receipt.measurementUnit === 'metric' ? 'T (cm)' : 'T (in)'}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>
+                                  {receipt.measurementUnit === 'metric' ? 'W (cm)' : 'W (in)'}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>
+                                  {receipt.measurementUnit === 'metric' ? 'L (cm)' : 'L (ft)'}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>Qty</Typography>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>Vol (m³)</Typography>
+                                <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#475569' }}>Type</Typography>
+                              </Box>
+                              {/* Table Rows */}
+                              {receipt.measurements.map((m: any, idx: number) => (
+                                <Box key={idx} sx={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '0.4fr 1fr 1fr 1fr 0.6fr 1fr 0.5fr',
+                                  p: '4px 8px',
+                                  gap: 0.5,
+                                  borderBottom: idx < receipt.measurements.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                  backgroundColor: m.isComplimentary ? '#f0fdf4' : 'transparent',
+                                  '&:hover': { backgroundColor: m.isComplimentary ? '#dcfce7' : '#f8fafc' }
+                                }}>
+                                  <Typography sx={{ fontSize: '0.7rem', color: '#64748b' }}>{idx + 1}</Typography>
+                                  <Typography sx={{ fontSize: '0.7rem', color: '#1e293b', fontWeight: 500 }}>{parseFloat(m.thickness).toFixed(2)}</Typography>
+                                  <Typography sx={{ fontSize: '0.7rem', color: '#1e293b', fontWeight: 500 }}>{parseFloat(m.width).toFixed(2)}</Typography>
+                                  <Typography sx={{ fontSize: '0.7rem', color: '#1e293b', fontWeight: 500 }}>{parseFloat(m.length).toFixed(2)}</Typography>
+                                  <Typography sx={{ fontSize: '0.7rem', color: '#1e293b', fontWeight: 600 }}>{m.qty || 1}</Typography>
+                                  <Typography sx={{ fontSize: '0.7rem', color: '#1e293b', fontWeight: 500 }}>{parseFloat(m.m3).toFixed(4)}</Typography>
+                                  <Typography sx={{ fontSize: '0.6rem', color: m.isComplimentary ? '#16a34a' : '#94a3b8', fontWeight: m.isComplimentary ? 700 : 400 }}>
+                                    {m.isComplimentary ? 'FREE' : 'Paid'}
+                                  </Typography>
+                                </Box>
+                              ))}
+                              {/* Summary Row */}
+                              <Box sx={{
+                                display: 'grid',
+                                gridTemplateColumns: '0.4fr 1fr 1fr 1fr 0.6fr 1fr 0.5fr',
+                                p: '6px 8px',
+                                gap: 0.5,
+                                backgroundColor: '#f8fafc',
+                                borderTop: '2px solid #e2e8f0'
+                              }}>
+                                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e293b', gridColumn: 'span 4' }}>Total</Typography>
+                                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e293b' }}>
+                                  {receipt.measurements.reduce((sum: number, m: any) => sum + (parseInt(m.qty) || 1), 0)}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: '#1e293b' }}>
+                                  {receipt.measurements.reduce((sum: number, m: any) => sum + (parseFloat(m.m3) || 0), 0).toFixed(4)}
+                                </Typography>
+                                <Typography sx={{ fontSize: '0.6rem' }}></Typography>
+                              </Box>
+                              {/* Paid vs Free breakdown */}
+                              {receipt.measurements.some((m: any) => m.isComplimentary) && (
+                                <Box sx={{ display: 'flex', gap: 2, p: '4px 8px', backgroundColor: '#f0fdf4', borderTop: '1px solid #e2e8f0' }}>
+                                  <Typography sx={{ fontSize: '0.65rem', color: '#475569' }}>
+                                    Paid: <strong>{receipt.measurements.filter((m: any) => !m.isComplimentary).reduce((sum: number, m: any) => sum + (parseFloat(m.m3) || 0), 0).toFixed(4)} m³</strong>
+                                  </Typography>
+                                  <Typography sx={{ fontSize: '0.65rem', color: '#16a34a' }}>
+                                    Free: <strong>{receipt.measurements.filter((m: any) => m.isComplimentary).reduce((sum: number, m: any) => sum + (parseFloat(m.m3) || 0), 0).toFixed(4)} m³</strong>
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                          </Box>
+                        )}
                       </Paper>
                     ))}
                   </Box>

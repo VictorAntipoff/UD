@@ -179,6 +179,7 @@ const Dashboard = () => {
     const colors: any = {
       'CREATED': '#64748b',
       'PENDING': '#f59e0b',
+      'PENDING_APPROVAL': '#7c3aed',
       'RECEIVED': '#3b82f6',
       'SLICING': '#8b5cf6',
       'COMPLETED': '#10b981',
@@ -191,6 +192,7 @@ const Dashboard = () => {
     const labels: any = {
       'CREATED': 'Created',
       'PENDING': 'Pending',
+      'PENDING_APPROVAL': 'Awaiting Approval',
       'RECEIVED': 'Received',
       'SLICING': 'Slicing',
       'COMPLETED': 'Completed',
