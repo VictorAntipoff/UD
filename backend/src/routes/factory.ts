@@ -1013,19 +1013,23 @@ async function factoryRoutes(fastify: FastifyInstance) {
         const processWithReadings = await prisma.dryingProcess.findUnique({
           where: { id },
           include: {
-            readings: {
+            DryingReading: {
               orderBy: { readingTime: 'asc' }
             },
-            recharges: {
+            ElectricityRecharge: {
               orderBy: { rechargeDate: 'asc' }
             },
-            items: true
+            DryingProcessItem: true
           }
         });
 
-        if (processWithReadings && processWithReadings.readings.length > 0) {
+        // Map PascalCase to local variables for easier access
+        const readings = (processWithReadings as any)?.DryingReading || [];
+        const recharges = (processWithReadings as any)?.ElectricityRecharge || [];
+
+        if (processWithReadings && readings.length > 0) {
           // Set endTime to last reading time (not button click time)
-          const lastReading = processWithReadings.readings[processWithReadings.readings.length - 1];
+          const lastReading = readings[readings.length - 1];
           autoEndTime = lastReading.readingTime.toISOString();
 
           // Get settings for cost calculation
@@ -1050,10 +1054,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
           // Calculate electricity consumption with recharge awareness
           let totalElectricityUsed = 0;
-          const firstReading = processWithReadings.readings[0].electricityMeter;
+          const firstReading = readings[0].electricityMeter;
 
-          for (let i = 0; i < processWithReadings.readings.length; i++) {
-            const currentReading = processWithReadings.readings[i];
+          for (let i = 0; i < readings.length; i++) {
+            const currentReading = readings[i];
             const currentTime = new Date(currentReading.readingTime);
 
             let prevReading: number;
@@ -1063,12 +1067,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
               prevReading = processWithReadings.startingElectricityUnits || firstReading;
               prevTime = new Date(processWithReadings.startTime);
             } else {
-              prevReading = processWithReadings.readings[i - 1].electricityMeter;
-              prevTime = new Date(processWithReadings.readings[i - 1].readingTime);
+              prevReading = readings[i - 1].electricityMeter;
+              prevTime = new Date(readings[i - 1].readingTime);
             }
 
             // Find recharges between prev and current reading
-            const rechargesBetween = processWithReadings.recharges.filter(r =>
+            const rechargesBetween = recharges.filter((r: any) =>
               new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
             );
 
@@ -1125,10 +1129,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
           },
           include: {
             WoodType: true,
-            readings: {
+            DryingReading: {
               orderBy: { readingTime: 'asc' }
             },
-            recharges: {
+            ElectricityRecharge: {
               orderBy: { rechargeDate: 'asc' }
             }
           }

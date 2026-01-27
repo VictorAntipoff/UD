@@ -26,8 +26,9 @@ interface CreateMovementParams {
 export async function createStockMovement(params: CreateMovementParams, tx?: any) {
   const client = tx || prisma;
 
-  return await client.stockMovement.create({
+  return await client.stock_movements.create({
     data: {
+      id: crypto.randomUUID(),
       warehouseId: params.warehouseId,
       woodTypeId: params.woodTypeId,
       thickness: params.thickness,
@@ -86,17 +87,17 @@ export async function getStockMovements(filters: GetMovementsFilters) {
     }
   }
 
-  return await prisma.stockMovement.findMany({
+  return await prisma.stock_movements.findMany({
     where,
     include: {
-      warehouse: {
+      Warehouse: {
         select: {
           id: true,
           name: true,
           code: true
         }
       },
-      woodType: {
+      WoodType: {
         select: {
           id: true,
           name: true

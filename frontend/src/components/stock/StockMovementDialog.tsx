@@ -37,8 +37,8 @@ interface StockMovement {
   toStatus: string | null;
   referenceNumber: string | null;
   details: string | null;
-  warehouse: { name: string; code: string };
-  woodType: { name: string };
+  Warehouse: { name: string; code: string };
+  WoodType: { name: string };
 }
 
 interface Warehouse {
@@ -238,10 +238,10 @@ export function StockMovementDialog({ open, onClose, woodTypeId, woodTypeName, t
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" sx={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                          {movement.warehouse.name}
+                          {movement.Warehouse?.name}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
-                          {movement.warehouse.code}
+                          {movement.Warehouse?.code}
                         </Typography>
                       </TableCell>
                       <TableCell>
