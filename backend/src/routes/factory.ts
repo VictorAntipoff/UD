@@ -1391,6 +1391,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const reading = await prisma.dryingReading.create({
         data: {
+          id: crypto.randomUUID(),
           dryingProcessId: id,
           electricityMeter: data.electricityMeter,
           humidity: data.humidity,
@@ -1399,7 +1400,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           createdById: user.userId,
           createdByName: userName,
           updatedById: user.userId,
-          updatedByName: userName
+          updatedByName: userName,
+          updatedAt: new Date()
         }
       });
 
@@ -1417,10 +1419,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
         if (subscriptions.length > 0) {
           const notifications = subscriptions.map(sub => ({
+            id: crypto.randomUUID(),
             userId: sub.userId,
             type: 'DRYING_READING_ADDED',
             title: 'New Drying Reading Added',
-            message: `${userName} added a new reading to ${process.name} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
+            message: `${userName} added a new reading to ${process.batchNumber} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
             linkUrl: `/dashboard/factory/drying-process`,
             isRead: false
           }));
