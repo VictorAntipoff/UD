@@ -2390,16 +2390,19 @@ async function factoryRoutes(fastify: FastifyInstance) {
                   }
                 },
                 update: {
-                  statusNotDried: { increment: qty }
+                  statusNotDried: { increment: qty },
+                  updatedAt: new Date()
                 },
                 create: {
+                  id: crypto.randomUUID(),
                   warehouseId: receipt.warehouseId,
                   woodTypeId: receipt.woodTypeId,
                   thickness: thickness,
                   statusNotDried: qty,
                   statusUnderDrying: 0,
                   statusDried: 0,
-                  statusDamaged: 0
+                  statusDamaged: 0,
+                  updatedAt: new Date()
                 }
               });
               console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);

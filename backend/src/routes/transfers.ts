@@ -389,7 +389,8 @@ async function transferRoutes(fastify: FastifyInstance) {
                   updatedAt: new Date()
                 },
                 update: {
-                  statusInTransitIn: { increment: item.quantity }
+                  statusInTransitIn: { increment: item.quantity },
+                  updatedAt: new Date()
                 }
               });
             }
@@ -600,7 +601,8 @@ async function transferRoutes(fastify: FastifyInstance) {
                   updatedAt: new Date()
                 },
                 update: {
-                  statusInTransitIn: { increment: item.quantity }
+                  statusInTransitIn: { increment: item.quantity },
+                  updatedAt: new Date()
                 }
               });
             }
@@ -816,7 +818,8 @@ async function transferRoutes(fastify: FastifyInstance) {
               },
               update: {
                 [statusField]: { increment: item.quantity },
-                statusInTransitIn: { decrement: item.quantity }
+                statusInTransitIn: { decrement: item.quantity },
+                updatedAt: new Date()
               }
             });
 
