@@ -634,10 +634,15 @@ async function managementRoutes(fastify: FastifyInstance) {
 
       const lotCost = await prisma.lotCost.upsert({
         where: { lotNumber },
-        update: data,
+        update: {
+          ...data,
+          updatedAt: new Date()
+        },
         create: {
+          id: crypto.randomUUID(),
           lotNumber,
-          ...data
+          ...data,
+          updatedAt: new Date()
         }
       });
 

@@ -3004,7 +3004,7 @@ const ReceiptProcessing = () => {
                           />
                         </TableCell>
                         <TableCell sx={{ fontSize: '0.875rem' }}>
-                          {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(3) : '-'}
+                          {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(4) : '-'}
                         </TableCell>
                         <TableCell>
                           <Button

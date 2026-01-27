@@ -590,7 +590,8 @@ const WoodReceipt = () => {
     const receiptDate = woodReceipt.receiptDate
       ? format(new Date(woodReceipt.receiptDate), 'PP')
       : 'N/A';
-    const totalM3 = woodReceipt.actualVolumeM3 || 0;
+    // Round to 4 decimals to match Odoo calculations
+    const totalM3 = Math.round((woodReceipt.actualVolumeM3 || 0) * 10000) / 10000;
     const totalPieces = woodReceipt.actualPieces || 0;
     const status = woodReceipt.status || 'N/A';
 
@@ -772,7 +773,7 @@ const WoodReceipt = () => {
     doc.text('Total Volume:', rightX, infoY);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text(`${totalM3.toFixed(3)} m³`, rightValueX, infoY);
+    doc.text(`${totalM3.toFixed(4)} m³`, rightValueX, infoY);
 
     infoY += 5.5;
     doc.setFont('helvetica', 'normal');
@@ -802,13 +803,13 @@ const WoodReceipt = () => {
       allReceipts.forEach((receipt: any) => {
         const isDraft = receipt.status !== 'COMPLETED';
         const volumeText = receipt.actualVolumeM3
-          ? `${receipt.actualVolumeM3.toFixed(3)} m³${isDraft ? ' (Draft)' : ''}`
+          ? `${receipt.actualVolumeM3.toFixed(4)} m³${isDraft ? ' (Draft)' : ''}`
           : 'N/A';
         const piecesText = receipt.actualPieces
           ? `${receipt.actualPieces}${isDraft ? ' (Draft)' : ''}`
           : 'N/A';
         const estVolumeText = receipt.estimatedVolumeM3
-          ? `${receipt.estimatedVolumeM3.toFixed(3)} m³`
+          ? `${receipt.estimatedVolumeM3.toFixed(4)} m³`
           : 'N/A';
         const estPiecesText = receipt.estimatedPieces?.toString() || 'N/A';
 
@@ -889,14 +890,14 @@ const WoodReceipt = () => {
           const widthM = width * 0.0254;
           const lengthM = length * 0.3048;
           const volumeM3 = thicknessM * widthM * lengthM * qty;
-          volumeDisplay = volumeM3.toFixed(3);
+          volumeDisplay = volumeM3.toFixed(4);
         } else {
           // Metric
           thicknessDisplay = `${thickness}cm`;
           widthDisplay = `${width}cm`;
           lengthDisplay = `${length}cm`;
           const volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
-          volumeDisplay = volumeM3.toFixed(3);
+          volumeDisplay = volumeM3.toFixed(4);
         }
 
         measurementRows.push([
@@ -1286,7 +1287,7 @@ const WoodReceipt = () => {
         doc.setFontSize(6.5);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(100, 116, 139); // Gray
-        const calcText = `Total cost ÷ ${totalM3.toFixed(2)} m³`;
+        const calcText = `Total cost ÷ ${totalM3.toFixed(4)} m³`;
         const calcWidth = doc.getTextWidth(calcText);
         doc.text(calcText, boxCenterX - (calcWidth / 2), startY + 17.5);
 
@@ -2620,7 +2621,7 @@ const WoodReceipt = () => {
                               Est. Volume
                             </Typography>
                             <Typography variant="body1" sx={{ fontWeight: 700, color: '#dc2626', mt: 0.5 }}>
-                              {receipt.estimatedVolumeM3 ? receipt.estimatedVolumeM3.toFixed(3) : 'N/A'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
+                              {receipt.estimatedVolumeM3 ? receipt.estimatedVolumeM3.toFixed(4) : 'N/A'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
                             </Typography>
                           </Grid>
                           <Grid item xs={3}>
@@ -2636,7 +2637,7 @@ const WoodReceipt = () => {
                               {receipt.status === 'COMPLETED' ? 'Actual Volume' : 'Current Volume'}
                             </Typography>
                             <Typography variant="body1" sx={{ fontWeight: 700, color: receipt.status === 'COMPLETED' ? '#059669' : '#ea580c', mt: 0.5 }}>
-                              {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(3) : '0.000'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
+                              {receipt.actualVolumeM3 ? receipt.actualVolumeM3.toFixed(4) : '0.0000'} <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b' }}>CBM</Typography>
                               {receipt.status !== 'COMPLETED' && (
                                 <Typography component="span" sx={{ ml: 1, fontSize: '0.65rem', color: '#ea580c', fontWeight: 600, textTransform: 'uppercase' }}>
                                   (Draft)
@@ -3002,7 +3003,7 @@ const WoodReceipt = () => {
                             TOTAL SLEEPER VOLUME
                           </Typography>
                           <Typography variant="h5" sx={{ fontWeight: 700, color: '#1e40af', mt: 1 }}>
-                            {totalSleeperVolume.toFixed(3)} m³
+                            {totalSleeperVolume.toFixed(4)} m³
                           </Typography>
                           <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
                             Input material
@@ -3024,7 +3025,7 @@ const WoodReceipt = () => {
                             TOTAL PLANK VOLUME
                           </Typography>
                           <Typography variant="h5" sx={{ fontWeight: 700, color: '#15803d', mt: 1 }}>
-                            {totalPlankVolume.toFixed(3)} m³
+                            {totalPlankVolume.toFixed(4)} m³
                           </Typography>
                           <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
                             {totalPlanks} planks produced
@@ -3049,7 +3050,7 @@ const WoodReceipt = () => {
                             {wastePercentage.toFixed(2)}%
                           </Typography>
                           <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
-                            {wasteVolume.toFixed(3)} m³ waste
+                            {wasteVolume.toFixed(4)} m³ waste
                           </Typography>
                         </Paper>
                       </Box>
@@ -3556,7 +3557,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#92400e', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
@@ -3580,7 +3581,7 @@ const WoodReceipt = () => {
                                 })()}
                               </Typography>
                               <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
-                                Total for LOT ({(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(2)} m³)
+                                Total for LOT ({(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(4)} m³)
                               </Typography>
                               {(costData.purchasePriceType === 'PER_M3' || costData.transportPriceType === 'PER_M3' ||
                                 costData.slicingExpensesType === 'PER_M3' || costData.otherExpensesType === 'PER_M3') &&
@@ -3598,7 +3599,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e40af', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
@@ -3632,7 +3633,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#15803d', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
@@ -3672,7 +3673,7 @@ const WoodReceipt = () => {
                               </Typography>
                               <Typography variant="h5" sx={{ fontWeight: 700, color: '#0c4a6e', mt: 0.5 }}>
                                 TZS {(() => {
-                                  const totalM3 = traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0;
+                                  const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   if (totalM3 === 0) return '0.00';
 
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
@@ -3700,7 +3701,7 @@ const WoodReceipt = () => {
                                 })()}
                               </Typography>
                               <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
-                                Total cost (inc. VAT) ÷ {(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(2)} m³
+                                Total cost (inc. VAT) ÷ {(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(4)} m³
                               </Typography>
                             </Box>
                             <Box sx={{
