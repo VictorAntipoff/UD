@@ -14,18 +14,18 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           status: 'IN_PROGRESS'
         },
         include: {
-          woodType: true,
-          items: {
+          WoodType: true,
+          DryingProcessItem: {
             include: {
-              woodType: true
+              WoodType: true
             }
           },
-          readings: {
+          DryingReading: {
             orderBy: {
               readingTime: 'asc'
             }
           },
-          recharges: {
+          ElectricityRecharge: {
             orderBy: {
               rechargeDate: 'asc'
             }
@@ -38,20 +38,26 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Calculate estimates for each process
       const processesWithEstimates = processes.map((process: any) => {
-        const latestReading = process.readings[process.readings.length - 1];
+        // Map PascalCase to camelCase for internal processing
+        const readings = process.DryingReading || [];
+        const items = process.DryingProcessItem || [];
+        const recharges = process.ElectricityRecharge || [];
+        const woodType = process.WoodType;
+
+        const latestReading = readings[readings.length - 1];
         const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
         const targetHumidity = 12; // Default target
 
         // Calculate drying rate and estimate
-        const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+        const estimate = calculateDryingEstimate(readings, currentHumidity, targetHumidity);
 
         // Calculate electricity usage (with recharge support) - SAME AS factory.ts
         let totalElectricityUsed = 0;
         const currentElectricity = latestReading?.electricityMeter || 0;
-        const firstReading = process.readings[0]?.electricityMeter;
+        const firstReading = readings[0]?.electricityMeter;
 
-        for (let i = 0; i < process.readings.length; i++) {
-          const currentReading = process.readings[i];
+        for (let i = 0; i < readings.length; i++) {
+          const currentReading = readings[i];
           const currentTime = new Date(currentReading.readingTime);
 
           let prevReading: number;
@@ -61,12 +67,12 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
             prevReading = process.startingElectricityUnits || firstReading;
             prevTime = new Date(process.startTime);
           } else {
-            prevReading = process.readings[i - 1].electricityMeter;
-            prevTime = new Date(process.readings[i - 1].readingTime);
+            prevReading = readings[i - 1].electricityMeter;
+            prevTime = new Date(readings[i - 1].readingTime);
           }
 
           // Find recharges between prev and current reading
-          const rechargesBetween = process.recharges.filter((r: any) =>
+          const rechargesBetween = recharges.filter((r: any) =>
             new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
           );
 
@@ -95,14 +101,14 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         let thicknessDesc = null;
         let pieceCountDesc = null;
 
-        if (process.items && process.items.length > 0) {
+        if (items && items.length > 0) {
           // New multi-wood format
-          woodTypeDesc = process.items.map((item: any) => item.woodType?.name || 'Unknown').join(', ');
-          thicknessDesc = process.items.map((item: any) => item.thickness).join(', ');
-          pieceCountDesc = process.items.reduce((sum: number, item: any) => sum + item.pieceCount, 0);
-        } else if (process.woodType) {
+          woodTypeDesc = items.map((item: any) => item.WoodType?.name || 'Unknown').join(', ');
+          thicknessDesc = items.map((item: any) => item.thickness).join(', ');
+          pieceCountDesc = items.reduce((sum: number, item: any) => sum + item.pieceCount, 0);
+        } else if (woodType) {
           // Old single-wood format
-          woodTypeDesc = process.woodType.name;
+          woodTypeDesc = woodType.name;
           thicknessDesc = process.thickness ? `${process.thickness}"` : null;
           pieceCountDesc = process.pieceCount;
         }
@@ -145,7 +151,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           status: 'IN_PROGRESS'
         },
         include: {
-          woodType: true
+          WoodType: true
         },
         orderBy: {
           startTime: 'desc'
@@ -155,7 +161,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       return batches.map((batch: any) => ({
         id: batch.id,
         batchNumber: batch.batchNumber,
-        woodType: batch.woodType?.name || 'Unknown'
+        woodType: batch.WoodType?.name || 'Unknown'
       }));
     } catch (error) {
       console.error('Error fetching active batches:', error);
@@ -180,8 +186,8 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           ]
         },
         include: {
-          woodType: true,
-          readings: {
+          WoodType: true,
+          DryingReading: {
             orderBy: {
               readingTime: 'desc'
             },
@@ -194,14 +200,18 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: 'Batch not found' });
       }
 
-      const latestReading = process.readings[0];
+      // Map PascalCase to camelCase
+      const readings = (process as any).DryingReading || [];
+      const woodType = (process as any).WoodType;
+
+      const latestReading = readings[0];
       const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
       const targetHumidity = 12;
 
-      const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+      const estimate = calculateDryingEstimate(readings, currentHumidity, targetHumidity);
 
       // Calculate total electricity used
-      const firstReading = process.readings[process.readings.length - 1];
+      const firstReading = readings[readings.length - 1];
       const electricityUsed = latestReading && firstReading
         ? latestReading.electricityMeter - (process.startingElectricityUnits || firstReading.electricityMeter)
         : 0;
@@ -212,7 +222,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         id: process.id,
         batchNumber: process.batchNumber,
-        woodType: process.woodType?.name || 'Unknown',
+        woodType: woodType?.name || 'Unknown',
         thickness: process.thickness ? `${process.thickness}"` : null,
         status: process.status,
         currentHumidity: currentHumidity.toFixed(1),
@@ -223,7 +233,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         totalDuration: totalDuration.toFixed(1),
         dryingRate: estimate.dryingRate,
         electricityUsed: electricityUsed.toFixed(1),
-        recentReadings: process.readings.slice(0, 5).map((r: any) => ({
+        recentReadings: readings.slice(0, 5).map((r: any) => ({
           humidity: r.humidity,
           electricityMeter: r.electricityMeter,
           readingTime: r.readingTime
@@ -252,7 +262,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           ]
         },
         include: {
-          readings: {
+          DryingReading: {
             orderBy: {
               readingTime: 'desc'
             },
@@ -265,11 +275,14 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(404).send({ error: 'Batch not found' });
       }
 
-      const latestReading = process.readings[0];
+      // Map PascalCase to camelCase
+      const readings = (process as any).DryingReading || [];
+
+      const latestReading = readings[0];
       const currentHumidity = latestReading?.humidity || process.startingHumidity || 0;
       const targetHumidity = 12;
 
-      const estimate = calculateDryingEstimate(process.readings, currentHumidity, targetHumidity);
+      const estimate = calculateDryingEstimate(readings, currentHumidity, targetHumidity);
 
       return estimate;
     } catch (error) {
@@ -331,6 +344,7 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
       // Create reading
       const reading = await prisma.dryingReading.create({
         data: {
+          id: crypto.randomUUID(),
           dryingProcessId: process.id,
           humidity: data.humidity || latestReading?.humidity || process.startingHumidity || 0,
           electricityMeter: data.electricityMeter || latestReading?.electricityMeter || process.startingElectricityUnits || 0,
@@ -341,7 +355,8 @@ const telegramRoutes: FastifyPluginAsync = async (fastify) => {
           source: 'TELEGRAM_BOT',
           notes: data.notes || 'Added via Telegram bot',
           createdByName: 'Telegram Bot',
-          readingTime: data.photoTimestamp ? new Date(data.photoTimestamp) : new Date()
+          readingTime: data.photoTimestamp ? new Date(data.photoTimestamp) : new Date(),
+          updatedAt: new Date()
         }
       });
 

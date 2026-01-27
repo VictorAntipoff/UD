@@ -343,6 +343,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         }
 
         const notifications = userIds.map(userId => ({
+          id: crypto.randomUUID(),
           userId,
           type: 'LOT_PENDING_APPROVAL',
           title: 'LOT Pending Approval',
@@ -780,13 +781,16 @@ async function managementRoutes(fastify: FastifyInstance) {
         // Create new measurements
         await prisma.sleeperMeasurement.createMany({
           data: measurements.map(m => ({
+            id: crypto.randomUUID(),
             receiptId: id,
             thickness: parseFloat(m.thickness) || 0,
             width: parseFloat(m.width) || 0,
             length: parseFloat(m.length) || 0,
             qty: parseInt(m.qty) || 1,
             volumeM3: parseFloat(m.m3) || 0,
-            isCustom: m.isCustom === true
+            isCustom: m.isCustom === true,
+            isComplimentary: m.isComplimentary === true,
+            updatedAt: new Date()
           }))
         });
       }
@@ -1049,11 +1053,13 @@ async function managementRoutes(fastify: FastifyInstance) {
 
       const rule = await prisma.approvalRule.create({
         data: {
+          id: crypto.randomUUID(),
           module: data.module,
           conditionField: data.conditionField,
           operator: data.operator,
           threshold: parseFloat(data.threshold),
-          isActive: data.isActive ?? true
+          isActive: data.isActive ?? true,
+          updatedAt: new Date()
         }
       });
 
@@ -1248,20 +1254,26 @@ async function managementRoutes(fastify: FastifyInstance) {
 
       const warehouse = await prisma.warehouse.create({
         data: {
+          id: crypto.randomUUID(),
           code: data.code,
           name: data.name,
           address: data.address || null,
           contactPerson: data.contactPerson || null,
           stockControlEnabled: data.stockControlEnabled ?? false,
           requiresApproval: data.requiresApproval ?? false,
-          status: 'ACTIVE'
+          status: 'ACTIVE',
+          updatedAt: new Date()
         },
         include: {
-          assignedUsers: true
+          WarehouseUser: true
         }
       });
 
-      return warehouse;
+      // Map to frontend format
+      return {
+        ...warehouse,
+        assignedUsers: (warehouse as any).WarehouseUser || []
+      };
     } catch (error) {
       console.error('Error creating warehouse:', error);
       return reply.status(500).send({ error: 'Failed to create warehouse' });
@@ -1596,6 +1608,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         // Create new record
         stock = await prisma.stock.create({
           data: {
+            id: crypto.randomUUID(),
             warehouseId: data.warehouseId,
             woodTypeId: data.woodTypeId,
             thickness: data.thickness,
@@ -1605,7 +1618,8 @@ async function managementRoutes(fastify: FastifyInstance) {
             statusDried: 0,
             statusDamaged: 0,
             statusInTransitOut: 0,
-            statusInTransitIn: 0
+            statusInTransitIn: 0,
+            updatedAt: new Date()
           },
           include: {
             WoodType: true,
@@ -1647,6 +1661,7 @@ async function managementRoutes(fastify: FastifyInstance) {
       if (!stock) {
         stock = await prisma.stock.create({
           data: {
+            id: crypto.randomUUID(),
             warehouseId: data.warehouseId,
             woodTypeId: data.woodTypeId,
             thickness: data.thickness,
@@ -1655,7 +1670,8 @@ async function managementRoutes(fastify: FastifyInstance) {
             statusDried: 0,
             statusDamaged: 0,
             statusInTransitOut: 0,
-            statusInTransitIn: 0
+            statusInTransitIn: 0,
+            updatedAt: new Date()
           }
         });
       }
@@ -1687,6 +1703,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         }),
         prisma.stockAdjustment.create({
           data: {
+            id: crypto.randomUUID(),
             warehouseId: data.warehouseId,
             woodTypeId: data.woodTypeId,
             thickness: data.thickness,
@@ -1701,7 +1718,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           include: {
             WoodType: true,
             Warehouse: true,
-            adjustedBy: {
+            User: {
               select: {
                 email: true,
                 firstName: true,
@@ -1712,7 +1729,14 @@ async function managementRoutes(fastify: FastifyInstance) {
         })
       ]);
 
-      return result[1]; // Return the adjustment record
+      // Map to frontend format
+      const adjustment = result[1];
+      return {
+        ...adjustment,
+        woodType: (adjustment as any).WoodType,
+        warehouse: (adjustment as any).Warehouse,
+        adjustedBy: (adjustment as any).User
+      };
     } catch (error) {
       console.error('Error adjusting stock:', error);
       return reply.status(500).send({ error: 'Failed to adjust stock' });

@@ -79,7 +79,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
       // Calculate total kWh used from all drying processes
       const processes = await prisma.dryingProcess.findMany({
         include: {
-          readings: {
+          DryingReading: {
             orderBy: { readingTime: 'asc' }
           }
         }
@@ -87,8 +87,9 @@ async function electricityRoutes(fastify: FastifyInstance) {
 
       let totalUsed = 0;
       for (const process of processes) {
-        if (process.readings.length > 0) {
-          const readings = process.readings;
+        // Map PascalCase to camelCase
+        const readings = (process as any).DryingReading || [];
+        if (readings.length > 0) {
 
           // Calculate usage from consecutive readings
           for (let i = 1; i < readings.length; i++) {
@@ -163,6 +164,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
 
       const recharge = await prisma.electricityRecharge.create({
         data: {
+          id: crypto.randomUUID(),
           rechargeDate: new Date(body.rechargeDate),
           token: body.token,
           kwhAmount: body.kwhAmount,
@@ -174,7 +176,8 @@ async function electricityRoutes(fastify: FastifyInstance) {
           debtCollected: body.debtCollected,
           notes: body.notes,
           dryingProcessId: body.dryingProcessId,
-          meterReadingAfter: body.meterReadingAfter
+          meterReadingAfter: body.meterReadingAfter,
+          updatedAt: new Date()
         }
       });
 
@@ -219,6 +222,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
 
       const recharge = await prisma.electricityRecharge.create({
         data: {
+          id: crypto.randomUUID(),
           rechargeDate,
           token,
           kwhAmount,
@@ -228,7 +232,8 @@ async function electricityRoutes(fastify: FastifyInstance) {
           ewuraFee,
           reaFee,
           debtCollected,
-          notes: 'Parsed from SMS'
+          notes: 'Parsed from SMS',
+          updatedAt: new Date()
         }
       });
 

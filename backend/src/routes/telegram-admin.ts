@@ -83,6 +83,7 @@ const telegramAdminRoutes: FastifyPluginAsync = async (fastify) => {
 
       const message = await prisma.telegramMessage.create({
         data: {
+          id: crypto.randomUUID(),
           key: data.key,
           name: data.name,
           content: data.content,
@@ -90,7 +91,8 @@ const telegramAdminRoutes: FastifyPluginAsync = async (fastify) => {
           description: data.description,
           category: data.category,
           isActive: data.isActive ?? true,
-          updatedBy: (request as any).user?.id || 'admin'
+          updatedBy: (request as any).user?.id || 'admin',
+          updatedAt: new Date()
         }
       });
 

@@ -78,6 +78,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const calculation = await prisma.woodCalculation.create({
         data: {
+          id: crypto.randomUUID(),
           userId: data.user_id,
           woodTypeId: data.wood_type_id,
           thickness: data.thickness,
@@ -87,7 +88,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           volumeM3: data.volume_m3,
           planksPerM3: data.planks_per_m3,
           pricePerM3: data.price_per_m3,
-          notes: data.notes || ''
+          notes: data.notes || '',
+          updatedAt: new Date()
         },
         include: {
           WoodType: true
@@ -161,11 +163,13 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const woodType = await prisma.woodType.create({
         data: {
+          id: crypto.randomUUID(),
           name: data.name,
           description: data.description || null,
           density: data.density || null,
           grade: data.grade || 'STANDARD',
-          origin: data.origin || null
+          origin: data.origin || null,
+          updatedAt: new Date()
         }
       });
 
@@ -263,11 +267,13 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const factory = await prisma.factory.create({
         data: {
+          id: crypto.randomUUID(),
           name,
-          userId
+          userId,
+          updatedAt: new Date()
         },
         include: {
-          user: {
+          User: {
             select: {
               id: true,
               email: true,
@@ -417,6 +423,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       const operation = await prisma.operation.create({
         data: {
+          id: crypto.randomUUID(),
           serialNumber: data.serial_number,
           woodTypeId: data.wood_type_id,
           lotNumber: data.lot_number,
@@ -427,7 +434,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           plankSizes: data.plank_sizes || [],
           status: data.status || 'draft',
           wastePercentage: data.waste_percentage || null,
-          notes: data.notes || null
+          notes: data.notes || null,
+          updatedAt: new Date()
         },
         include: {
           WoodType: true
@@ -558,9 +566,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
               if (!existingApproval) {
                 await prisma.approval.create({
                   data: {
+                    id: crypto.randomUUID(),
                     operationId: op.id,
                     approverRole: 'SUPERVISOR',
-                    status: 'pending'
+                    status: 'pending',
+                    updatedAt: new Date()
                   }
                 });
               }
@@ -2209,9 +2219,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
       if (data.status === 'approved' && approval.approverRole === 'SUPERVISOR') {
         await prisma.approval.create({
           data: {
+            id: crypto.randomUUID(),
             operationId: approval.operationId,
             approverRole: 'ADMIN',
-            status: 'pending'
+            status: 'pending',
+            updatedAt: new Date()
           }
         });
 
@@ -2433,6 +2445,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           // Create new measurements
           await tx.sleeperMeasurement.createMany({
             data: measurements.map(m => ({
+              id: crypto.randomUUID(),
               receiptId: receiptRecord.id,
               thickness: parseFloat(m.thickness) || 0,
               width: parseFloat(m.width) || 0,
@@ -2440,7 +2453,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
               qty: parseInt(m.qty) || 1,
               volumeM3: parseFloat(m.m3) || 0,
               isCustom: m.isCustom === true,
-              isComplimentary: m.isComplimentary === true
+              isComplimentary: m.isComplimentary === true,
+              updatedAt: new Date()
             }))
           });
 
@@ -2522,6 +2536,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         : '';
 
       const notifications = userIds.map(userId => ({
+        id: crypto.randomUUID(),
         userId,
         type: 'RECEIPT_COMPLETED',
         title: 'Wood Receipt Completed',

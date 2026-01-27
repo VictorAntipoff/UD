@@ -331,11 +331,13 @@ async function transferRoutes(fastify: FastifyInstance) {
             approvedAt: initialStatus === 'APPROVED' ? new Date() : null,
             TransferItem: {
               create: data.items.map((item: any) => ({
+                id: crypto.randomUUID(),
                 woodTypeId: item.woodTypeId,
                 thickness: item.thickness,
                 quantity: item.quantity,
                 woodStatus: item.woodStatus,
-                remarks: item.remarks || null
+                remarks: item.remarks || null,
+                updatedAt: new Date()
               }))
             }
           },
@@ -374,6 +376,7 @@ async function transferRoutes(fastify: FastifyInstance) {
                   }
                 },
                 create: {
+                  id: crypto.randomUUID(),
                   warehouseId: data.toWarehouseId,
                   woodTypeId: item.woodTypeId,
                   thickness: item.thickness,
@@ -382,7 +385,8 @@ async function transferRoutes(fastify: FastifyInstance) {
                   statusDried: 0,
                   statusDamaged: 0,
                   statusInTransitOut: 0,
-                  statusInTransitIn: item.quantity
+                  statusInTransitIn: item.quantity,
+                  updatedAt: new Date()
                 },
                 update: {
                   statusInTransitIn: { increment: item.quantity }
@@ -451,10 +455,11 @@ async function transferRoutes(fastify: FastifyInstance) {
         }
 
         // Send notification to each selected user
-        for (const userId of notifyUserIds) {
+        for (const notifyUserId of notifyUserIds) {
           await tx.notification.create({
             data: {
-              userId: userId,
+              id: crypto.randomUUID(),
+              userId: notifyUserId,
               type: 'TRANSFER_CREATED',
               title: 'New Transfer Created',
               message: `${userName} created transfer ${transfer.transferNumber} from ${fromWarehouse.name} to ${toWarehouse.name}`,
@@ -582,6 +587,7 @@ async function transferRoutes(fastify: FastifyInstance) {
                   }
                 },
                 create: {
+                  id: crypto.randomUUID(),
                   warehouseId: transfer.toWarehouseId,
                   woodTypeId: item.woodTypeId,
                   thickness: item.thickness,
@@ -590,7 +596,8 @@ async function transferRoutes(fastify: FastifyInstance) {
                   statusDried: 0,
                   statusDamaged: 0,
                   statusInTransitOut: 0,
-                  statusInTransitIn: item.quantity
+                  statusInTransitIn: item.quantity,
+                  updatedAt: new Date()
                 },
                 update: {
                   statusInTransitIn: { increment: item.quantity }
@@ -794,6 +801,7 @@ async function transferRoutes(fastify: FastifyInstance) {
                 }
               },
               create: {
+                id: crypto.randomUUID(),
                 warehouseId: transfer.toWarehouseId,
                 woodTypeId: item.woodTypeId,
                 thickness: item.thickness,
@@ -803,7 +811,8 @@ async function transferRoutes(fastify: FastifyInstance) {
                 statusDamaged: 0,
                 statusInTransitOut: 0,
                 statusInTransitIn: 0,
-                [statusField]: item.quantity
+                [statusField]: item.quantity,
+                updatedAt: new Date()
               },
               update: {
                 [statusField]: { increment: item.quantity },
@@ -848,6 +857,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         if (notifyUserId) {
           await tx.notification.create({
             data: {
+              id: crypto.randomUUID(),
               userId: notifyUserId,
               type: 'TRANSFER_COMPLETED',
               title: 'Transfer Completed',
@@ -1236,12 +1246,14 @@ async function transferRoutes(fastify: FastifyInstance) {
         // Create the transfer item
         const newItem = await tx.transferItem.create({
           data: {
+            id: crypto.randomUUID(),
             transferId: id,
             woodTypeId: data.woodTypeId,
             thickness: data.thickness,
             quantity: data.quantity,
             woodStatus: data.woodStatus,
-            remarks: data.remarks || null
+            remarks: data.remarks || null,
+            updatedAt: new Date()
           },
           include: {
             WoodType: true
@@ -1663,6 +1675,7 @@ async function transferRoutes(fastify: FastifyInstance) {
 
       await prisma.notification.create({
         data: {
+          id: crypto.randomUUID(),
           userId: userId,
           type: notificationType,
           title: notificationTitle,
