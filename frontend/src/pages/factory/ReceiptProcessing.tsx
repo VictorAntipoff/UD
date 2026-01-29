@@ -41,6 +41,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import HistoryIcon from '@mui/icons-material/History';
 import InfoIcon from '@mui/icons-material/Info';
 import PersonIcon from '@mui/icons-material/Person';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { alpha } from '@mui/material/styles';
 import { styled } from '@mui/material/styles';
 import type { WoodReceipt } from '../../types/wood-receipt';
@@ -651,6 +652,52 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
         </View>
       </View>
 
+      {/* Stock Summary Section */}
+      <View style={[pdfStyles.section, { backgroundColor: '#f0f9ff', borderRadius: 2, padding: 6, border: '0.5px solid #bae6fd' }]}>
+        <Text style={[pdfStyles.sectionTitle, { color: '#0c4a6e' }]}>Stock Summary (How this receipt enters inventory)</Text>
+        <View style={pdfStyles.table}>
+          <View style={[pdfStyles.tableHeader, { backgroundColor: '#e0f2fe' }]}>
+            <View style={pdfStyles.tableCell}>
+              <Text style={{ color: '#0c4a6e' }}>Thickness</Text>
+            </View>
+            <View style={pdfStyles.tableCell}>
+              <Text style={{ color: '#0c4a6e' }}>Pieces</Text>
+            </View>
+            <View style={pdfStyles.tableCell}>
+              <Text style={{ color: '#0c4a6e' }}>Status</Text>
+            </View>
+          </View>
+          {getStockSummary(measurements, measurementUnit).map((item, index) => (
+            <View key={index} style={pdfStyles.tableRow}>
+              <View style={pdfStyles.tableCell}>
+                <Text style={{ fontFamily: 'Helvetica-Bold' }}>{item.thickness}</Text>
+              </View>
+              <View style={pdfStyles.tableCell}>
+                <Text>{item.pieces}</Text>
+              </View>
+              <View style={pdfStyles.tableCell}>
+                <View style={{ backgroundColor: '#fef3c7', padding: '1 4', borderRadius: 3, alignSelf: 'flex-start' }}>
+                  <Text style={{ fontSize: 5, fontFamily: 'Helvetica-Bold', color: '#92400e' }}>Not Dried</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+          <View style={[pdfStyles.tableRow, { backgroundColor: '#e0f2fe' }]}>
+            <View style={pdfStyles.tableCell}>
+              <Text style={{ fontFamily: 'Helvetica-Bold' }}>Total</Text>
+            </View>
+            <View style={pdfStyles.tableCell}>
+              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+                {getStockSummary(measurements, measurementUnit).reduce((sum, s) => sum + s.pieces, 0)}
+              </Text>
+            </View>
+            <View style={pdfStyles.tableCell}>
+              <Text></Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
       <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }}>
         {/* Pieces Section */}
         <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 6, borderRadius: 2, border: '0.5px solid #e2e8f0' }}>
@@ -792,6 +839,90 @@ const getSleeperSizeSummary = (measurements: SleeperMeasurement[], unit: 'imperi
     totalVolume: data.totalVolume,
     isComplimentary: data.isComplimentary
   }));
+};
+
+const getStockSummary = (measurements: SleeperMeasurement[], unit: 'imperial' | 'metric' = 'imperial') => {
+  const stockMap = new Map<string, number>();
+
+  measurements.forEach(m => {
+    let thickness: string;
+    if (m.isCustom) {
+      thickness = 'Custom';
+    } else {
+      const thicknessValue = parseFloat(String(m.thickness));
+      if (unit === 'imperial') {
+        const STANDARD_SIZES = [1, 2, 3];
+        thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+          ? `${Math.round(thicknessValue)}"`
+          : 'Custom';
+      } else {
+        thickness = 'Custom';
+      }
+    }
+
+    const qty = m.qty || 1;
+    stockMap.set(thickness, (stockMap.get(thickness) || 0) + qty);
+  });
+
+  return Array.from(stockMap.entries())
+    .map(([thickness, pieces]) => ({ thickness, pieces }))
+    .sort((a, b) => {
+      if (a.thickness === 'Custom') return 1;
+      if (b.thickness === 'Custom') return -1;
+      return a.thickness.localeCompare(b.thickness);
+    });
+};
+
+const StockSummary = ({ measurements, measurementUnit }: { measurements: SleeperMeasurement[]; measurementUnit: 'imperial' | 'metric' }) => {
+  const stockSummary = getStockSummary(measurements, measurementUnit);
+
+  if (stockSummary.length === 0) return null;
+
+  const totalPieces = stockSummary.reduce((sum, s) => sum + s.pieces, 0);
+
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Box sx={{ p: 2, mb: 2, backgroundColor: '#f0f9ff', borderRadius: 2, border: '1px solid #bae6fd' }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.875rem', color: '#0c4a6e', mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          Stock Summary
+          <Typography component="span" sx={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>
+            (How this receipt enters inventory)
+          </Typography>
+        </Typography>
+        <TableContainer
+          component={Paper}
+          elevation={0}
+          sx={{ border: '1px solid', borderColor: '#bae6fd', borderRadius: 1 }}
+        >
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ backgroundColor: '#e0f2fe' }}>
+                <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#0c4a6e' }}>Thickness</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#0c4a6e' }}>Pieces</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 600, fontSize: '0.75rem', color: '#0c4a6e' }}>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {stockSummary.map((item, index) => (
+                <TableRow key={index}>
+                  <TableCell sx={{ fontSize: '0.875rem', fontWeight: 500 }}>{item.thickness}</TableCell>
+                  <TableCell align="center" sx={{ fontSize: '0.875rem' }}>{item.pieces}</TableCell>
+                  <TableCell align="right">
+                    <Chip label="Not Dried" size="small" sx={{ backgroundColor: '#fef3c7', color: '#92400e', fontWeight: 600, fontSize: '0.7rem' }} />
+                  </TableCell>
+                </TableRow>
+              ))}
+              <TableRow sx={{ backgroundColor: '#f0f9ff' }}>
+                <TableCell sx={{ fontWeight: 700, fontSize: '0.875rem' }}>Total</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 700, fontSize: '0.875rem' }}>{totalPieces}</TableCell>
+                <TableCell />
+              </TableRow>
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    </Box>
+  );
 };
 
 const SleeperSizeSummary = ({ measurements, measurementUnit, woodFormat }: { measurements: SleeperMeasurement[]; measurementUnit: 'imperial' | 'metric'; woodFormat?: string }) => {
@@ -1386,6 +1517,44 @@ const ReceiptProcessing = () => {
         variant: 'error',
         autoHideDuration: 5000,
       });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Handle admin approval of PENDING_APPROVAL receipts
+  const handleApprove = async () => {
+    try {
+      setIsSaving(true);
+
+      if (!receipt?.id) {
+        enqueueSnackbar('No receipt selected', { variant: 'error' });
+        return;
+      }
+
+      if (formData.status !== 'PENDING_APPROVAL') {
+        enqueueSnackbar('Receipt is not pending approval', { variant: 'warning' });
+        return;
+      }
+
+      // Call the approve endpoint
+      await api.post(`/management/wood-receipts/${receipt.id}/approve`);
+
+      enqueueSnackbar(`LOT ${formData.receiptNumber} has been approved successfully!`, { variant: 'success' });
+
+      // Refresh the receipts list and current receipt data
+      await fetchReceipts();
+
+      // Update the form data status
+      setFormData(prev => ({ ...prev, status: 'COMPLETED' }));
+
+      // Reload the current receipt to get updated data
+      if (formData.receiptNumber) {
+        await loadDraft(formData.receiptNumber);
+      }
+    } catch (error: any) {
+      console.error('Error approving receipt:', error);
+      enqueueSnackbar(error?.response?.data?.error || 'Failed to approve receipt', { variant: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -2308,6 +2477,27 @@ const ReceiptProcessing = () => {
                             >
                               Complete
                             </Button>
+                            {/* Approve button for mobile - visible to Admin when PENDING_APPROVAL */}
+                            {isAdmin && formData.status === 'PENDING_APPROVAL' && (
+                              <Button
+                                fullWidth
+                                variant="contained"
+                                onClick={handleApprove}
+                                disabled={isSaving}
+                                startIcon={isSaving ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+                                sx={{
+                                  height: '40px',
+                                  fontSize: '0.8125rem',
+                                  bgcolor: '#10b981',
+                                  gridColumn: '1 / -1', // Span full width
+                                  '&:hover': {
+                                    bgcolor: '#059669',
+                                  }
+                                }}
+                              >
+                                {isSaving ? 'Approving...' : 'Approve Receipt'}
+                              </Button>
+                            )}
                           </Box>
                         </Box>
                       </Box>
@@ -2569,6 +2759,7 @@ const ReceiptProcessing = () => {
                 </Box>
 
                 <SleeperSizeSummary measurements={measurements} measurementUnit={measurementUnit} woodFormat={formData.woodFormat} />
+                <StockSummary measurements={measurements} measurementUnit={measurementUnit} />
                 <ChangeHistoryDisplay changeHistory={changeHistory} />
 
                 {/* Total Volume Display */}
@@ -2711,6 +2902,27 @@ const ReceiptProcessing = () => {
                     >
                       {isAdmin ? 'Complete Receipt' : 'Submit for Approval'}
                     </Button>
+                    {/* Approve button - visible only to Admin when status is PENDING_APPROVAL */}
+                    {isAdmin && formData.status === 'PENDING_APPROVAL' && (
+                      <Button
+                        variant="contained"
+                        onClick={handleApprove}
+                        disabled={isSaving}
+                        startIcon={isSaving ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
+                        sx={{
+                          bgcolor: '#10b981',
+                          '&:hover': {
+                            bgcolor: '#059669',
+                          },
+                          '&:disabled': {
+                            bgcolor: '#cbd5e1',
+                            color: '#94a3b8'
+                          }
+                        }}
+                      >
+                        {isSaving ? 'Approving...' : 'Approve Receipt'}
+                      </Button>
+                    )}
                   </Box>
                 )}
               </Grid>

@@ -237,7 +237,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
     try {
       const factories = await prisma.factory.findMany({
         include: {
-          user: {
+          User: {
             select: {
               id: true,
               email: true,
@@ -1472,7 +1472,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         where: { id },
         include: {
           WoodType: true,
-          readings: {
+          DryingReading: {
             orderBy: {
               readingTime: 'asc'
             }
@@ -1484,9 +1484,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Drying process not found' });
       }
 
+      const readings = (process as any).DryingReading || [];
+
       // Calculate electricity usage
-      const electricityUsed = process.readings.length > 0 && process.startingElectricityUnits
-        ? process.readings[process.readings.length - 1].electricityMeter - process.startingElectricityUnits
+      const electricityUsed = readings.length > 0 && process.startingElectricityUnits
+        ? readings[readings.length - 1].electricityMeter - process.startingElectricityUnits
         : 0;
 
       // Calculate running hours
@@ -1494,8 +1496,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
         ? (new Date(process.endTime).getTime() - new Date(process.startTime).getTime()) / (1000 * 60 * 60)
         : (new Date().getTime() - new Date(process.startTime).getTime()) / (1000 * 60 * 60);
 
-      const currentHumidity = process.readings.length > 0
-        ? process.readings[process.readings.length - 1].humidity
+      const currentHumidity = readings.length > 0
+        ? readings[readings.length - 1].humidity
         : process.startingHumidity || 0;
 
       // Calculate costs (TODO: fetch from settings table when available)
@@ -2173,7 +2175,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           status: 'pending'
         },
         include: {
-          operation: {
+          Operation: {
             include: {
               WoodType: true
             }
@@ -2215,7 +2217,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           actionTakenAt: new Date()
         },
         include: {
-          operation: true
+          Operation: true
         }
       });
 

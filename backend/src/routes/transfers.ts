@@ -320,6 +320,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         // Create the transfer
         const transfer = await tx.transfer.create({
           data: {
+            id: crypto.randomUUID(),
             transferNumber,
             fromWarehouseId: data.fromWarehouseId,
             toWarehouseId: data.toWarehouseId,
@@ -329,6 +330,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             createdById: userId,
             approvedById: initialStatus === 'APPROVED' ? userId : null,
             approvedAt: initialStatus === 'APPROVED' ? new Date() : null,
+            updatedAt: new Date(),
             TransferItem: {
               create: data.items.map((item: any) => ({
                 id: crypto.randomUUID(),
@@ -1350,7 +1352,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       const existingItem = await prisma.transferItem.findUnique({
         where: { id: itemId },
         include: {
-          transfer: {
+          Transfer: {
             include: {
               Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
               Warehouse_Transfer_toWarehouseIdToWarehouse: true
@@ -1365,7 +1367,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       // SECURITY: Cannot edit items in completed transfers (only admin can)
-      if (existingItem.transfer.status === 'COMPLETED' && userRole !== 'ADMIN') {
+      if (existingItem.Transfer.status === 'COMPLETED' && userRole !== 'ADMIN') {
         return reply.status(403).send({
           error: 'Cannot edit completed transfer',
           message: 'Only administrators can edit items in completed transfers'
@@ -1373,8 +1375,8 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       // If transfer is IN_TRANSIT and quantity is increasing, check stock availability
-      if (existingItem.transfer.status === 'IN_TRANSIT' &&
-          (existingItem.transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled &&
+      if (existingItem.Transfer.status === 'IN_TRANSIT' &&
+          (existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled &&
           data.quantity > existingItem.quantity) {
         const additionalQuantity = data.quantity - existingItem.quantity;
 
@@ -1382,7 +1384,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         const stock = await prisma.stock.findUnique({
           where: {
             warehouseId_woodTypeId_thickness: {
-              warehouseId: existingItem.transfer.fromWarehouseId,
+              warehouseId: existingItem.Transfer.fromWarehouseId,
               woodTypeId: existingItem.woodTypeId,
               thickness: existingItem.thickness
             }
@@ -1425,7 +1427,7 @@ async function transferRoutes(fastify: FastifyInstance) {
       // Update item, adjust stock if needed, and log history
       const result = await prisma.$transaction(async (tx) => {
         // If transfer is IN_TRANSIT, adjust stock based on changes
-        if (existingItem.transfer.status === 'IN_TRANSIT') {
+        if (existingItem.Transfer.status === 'IN_TRANSIT') {
           const statusField = getStatusFieldName(existingItem.woodStatus);
           const woodTypeChanged = data.woodTypeId && data.woodTypeId !== existingItem.woodTypeId;
           const quantityChanged = data.quantity && data.quantity !== existingItem.quantity;
@@ -1433,10 +1435,10 @@ async function transferRoutes(fastify: FastifyInstance) {
           // Handle wood type change
           if (woodTypeChanged) {
             // Return the entire quantity of the old wood type to source warehouse
-            if ((existingItem.transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
+            if ((existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
               await tx.stock.updateMany({
                 where: {
-                  warehouseId: existingItem.transfer.fromWarehouseId,
+                  warehouseId: existingItem.Transfer.fromWarehouseId,
                   woodTypeId: existingItem.woodTypeId,
                   thickness: existingItem.thickness
                 },
@@ -1453,7 +1455,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               const newStock = await tx.stock.findUnique({
                 where: {
                   warehouseId_woodTypeId_thickness: {
-                    warehouseId: existingItem.transfer.fromWarehouseId,
+                    warehouseId: existingItem.Transfer.fromWarehouseId,
                     woodTypeId: data.woodTypeId,
                     thickness: existingItem.thickness
                   }
@@ -1471,7 +1473,7 @@ async function transferRoutes(fastify: FastifyInstance) {
 
               await tx.stock.updateMany({
                 where: {
-                  warehouseId: existingItem.transfer.fromWarehouseId,
+                  warehouseId: existingItem.Transfer.fromWarehouseId,
                   woodTypeId: data.woodTypeId,
                   thickness: existingItem.thickness
                 },
@@ -1483,11 +1485,11 @@ async function transferRoutes(fastify: FastifyInstance) {
             }
 
             // Adjust destination warehouse in-transit stock
-            if ((existingItem.transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
+            if ((existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
               // Remove old wood type from in-transit
               await tx.stock.updateMany({
                 where: {
-                  warehouseId: existingItem.transfer.toWarehouseId,
+                  warehouseId: existingItem.Transfer.toWarehouseId,
                   woodTypeId: existingItem.woodTypeId,
                   thickness: existingItem.thickness
                 },
@@ -1500,7 +1502,7 @@ async function transferRoutes(fastify: FastifyInstance) {
               const newQuantity = data.quantity || existingItem.quantity;
               await tx.stock.updateMany({
                 where: {
-                  warehouseId: existingItem.transfer.toWarehouseId,
+                  warehouseId: existingItem.Transfer.toWarehouseId,
                   woodTypeId: data.woodTypeId,
                   thickness: existingItem.thickness
                 },
@@ -1515,12 +1517,12 @@ async function transferRoutes(fastify: FastifyInstance) {
             const quantityDelta = data.quantity - existingItem.quantity;
 
             // Adjust source warehouse stock (only if source has stock control)
-            if ((existingItem.transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
+            if ((existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
               if (quantityDelta > 0) {
                 // Quantity increased - deduct more from source
                 await tx.stock.updateMany({
                   where: {
-                    warehouseId: existingItem.transfer.fromWarehouseId,
+                    warehouseId: existingItem.Transfer.fromWarehouseId,
                     woodTypeId: existingItem.woodTypeId,
                     thickness: existingItem.thickness
                   },
@@ -1533,7 +1535,7 @@ async function transferRoutes(fastify: FastifyInstance) {
                 // Quantity decreased - return to source
                 await tx.stock.updateMany({
                   where: {
-                    warehouseId: existingItem.transfer.fromWarehouseId,
+                    warehouseId: existingItem.Transfer.fromWarehouseId,
                     woodTypeId: existingItem.woodTypeId,
                     thickness: existingItem.thickness
                   },
@@ -1546,10 +1548,10 @@ async function transferRoutes(fastify: FastifyInstance) {
             }
 
             // Adjust destination warehouse in-transit stock (only if destination has stock control)
-            if ((existingItem.transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
+            if ((existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
               await tx.stock.updateMany({
                 where: {
-                  warehouseId: existingItem.transfer.toWarehouseId,
+                  warehouseId: existingItem.Transfer.toWarehouseId,
                   woodTypeId: existingItem.woodTypeId,
                   thickness: existingItem.thickness
                 },
@@ -1583,7 +1585,7 @@ async function transferRoutes(fastify: FastifyInstance) {
             data: {
               id: crypto.randomUUID(),
               transferId: id,
-              transferNumber: existingItem.transfer.transferNumber,
+              transferNumber: existingItem.Transfer.transferNumber,
               userId: currentUser.id,
               userName,
               userEmail: currentUser.email,

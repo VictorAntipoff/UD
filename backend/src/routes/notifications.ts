@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
@@ -128,6 +129,7 @@ async function notificationRoutes(fastify: FastifyInstance) {
 
       const notification = await prisma.notification.create({
         data: {
+          id: crypto.randomUUID(),
           userId: data.userId,
           type: data.type,
           title: data.title,
@@ -168,6 +170,7 @@ async function notificationRoutes(fastify: FastifyInstance) {
       // Create notification for recipient
       const notification = await prisma.notification.create({
         data: {
+          id: crypto.randomUUID(),
           userId: data.userId,
           type: 'DIRECT_MESSAGE',
           title: data.title,

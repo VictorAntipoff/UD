@@ -1318,7 +1318,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           requiresApproval: data.requiresApproval
         },
         include: {
-          assignedUsers: true
+          WarehouseUser: true
         }
       });
 
