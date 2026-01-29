@@ -57,9 +57,9 @@ import type { WoodReceipt as WoodReceiptType } from '../../types/wood-receipt';
 import { colors } from '../../theme/colors';
 import { styled } from '@mui/material/styles';
 import { CircularProgress } from '@mui/material';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { pdf } from '@react-pdf/renderer';
 import { format } from 'date-fns';
+import { LotTraceabilityReport } from '../../components/reports/LotTraceabilityReport';
 
 interface PostgrestError {
   code: string;
@@ -572,760 +572,67 @@ const WoodReceipt = () => {
   const generateLotCostingPDF = async () => {
     if (!traceabilityData) return;
 
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
+    try {
+      // Extract data from traceabilityData
+      const lotNumber = traceabilityData.lotNumber || 'N/A';
+      const woodReceipt = traceabilityData.stages?.woodReceipts?.[0] || traceabilityData.stages?.woodReceipt?.[0] || {};
+      const woodType = woodReceipt.woodType || 'N/A';
 
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    let currentPage = 1;
+      // Prepare wood receipts data for the report
+      const woodReceipts = (traceabilityData.stages?.woodReceipts || [woodReceipt]).map((receipt: any) => ({
+        id: receipt.id,
+        woodType: receipt.woodType || 'N/A',
+        supplier: receipt.supplier || 'N/A',
+        receiptDate: receipt.receiptDate,
+        purchaseOrder: receipt.purchaseOrder,
+        status: receipt.status || 'N/A',
+        woodFormat: receipt.woodFormat,
+        estimatedVolumeM3: receipt.estimatedVolumeM3,
+        estimatedPieces: receipt.estimatedPieces,
+        actualVolumeM3: receipt.actualVolumeM3,
+        actualPieces: receipt.actualPieces,
+        paidVolumeM3: receipt.paidVolumeM3,
+        paidPieces: receipt.paidPieces,
+        complimentaryVolumeM3: receipt.complimentaryVolumeM3,
+        complimentaryPieces: receipt.complimentaryPieces,
+        measurements: receipt.measurements
+      }));
 
-    // Extract data FIRST (before helper functions that use it)
-    const lotNumber = traceabilityData.lotNumber || 'N/A';
-    const woodReceipt = traceabilityData.stages?.woodReceipts?.[0] || traceabilityData.stages?.woodReceipt?.[0] || {};
-    const woodType = woodReceipt.woodType || 'N/A';
-    const supplier = woodReceipt.supplier || 'N/A';
-    const receiptDate = woodReceipt.receiptDate
-      ? format(new Date(woodReceipt.receiptDate), 'PP')
-      : 'N/A';
-    // Round to 4 decimals to match Odoo calculations
-    const totalM3 = Math.round((woodReceipt.actualVolumeM3 || 0) * 10000) / 10000;
-    const totalPieces = woodReceipt.actualPieces || 0;
-    const status = woodReceipt.status || 'N/A';
+      // Generate the PDF using react-pdf
+      const blob = await pdf(
+        <LotTraceabilityReport
+          lotNumber={lotNumber}
+          woodReceipts={woodReceipts}
+          slicingOperations={traceabilityData.stages?.slicing || []}
+          dryingProcesses={traceabilityData.stages?.dryingProcesses || []}
+          history={traceabilityData.history || []}
+          costData={costData}
+          user={{
+            email: user?.email || '',
+            name: user?.user_metadata?.full_name || user?.email || ''
+          }}
+          timestamp={new Date().toISOString()}
+        />
+      ).toBlob();
 
-    // Helper function to add header
-    const addHeader = async () => {
-      // Add logo with correct aspect ratio (2486:616 = ~4.04:1)
-      try {
-        // Try multiple logo paths
-        const logoPaths = [
-          '/logo.png',
-          '/src/assets/images/logo.png',
-          'https://www.udesign.co.tz/logo.png'
-        ];
+      // Create download link and trigger download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const receiptDateStr = woodReceipt.receiptDate
+        ? format(new Date(woodReceipt.receiptDate), 'yyyy-MM-dd')
+        : format(new Date(), 'yyyy-MM-dd');
+      link.href = url;
+      link.download = `${lotNumber} (${woodType}) Traceability - ${receiptDateStr}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
-        let logoLoaded = false;
-        for (const path of logoPaths) {
-          try {
-            const logo = new Image();
-            logo.crossOrigin = 'anonymous';
-
-            await new Promise<void>((resolve, reject) => {
-              logo.onload = () => resolve();
-              logo.onerror = () => reject(new Error('Failed to load'));
-              logo.src = path;
-            });
-
-            doc.addImage(logo, 'PNG', 14, 6, 28, 7); // Fixed: 28/7 = 4:1 ratio
-            logoLoaded = true;
-            break;
-          } catch (e) {
-            // Try next path
-            continue;
-          }
-        }
-
-        if (!logoLoaded) {
-          console.warn('Could not load logo from any path, continuing without it');
-        }
-      } catch (error) {
-        console.warn('Error loading logo:', error);
-      }
-
-      // Title
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(220, 38, 38);
-      doc.text('LOT Traceability Report', pageWidth / 2, 11, { align: 'center' });
-
-      // Timestamp and version
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text(`Generated: ${format(new Date(), 'PPpp')}`, pageWidth - 14, 9, { align: 'right' });
-      doc.text('v5.0', pageWidth - 14, 12, { align: 'right' });
-
-      // Gray line
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.3);
-      doc.line(14, 16, pageWidth - 14, 16);
-    };
-
-    // Helper function to add footer
-    const addFooter = (pageNum: number, totalPages: number) => {
-      const footerY = pageHeight - 12;
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.3);
-      doc.line(14, footerY, pageWidth - 14, footerY);
-
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('This is a computer-generated document. No signature required.', pageWidth / 2, footerY + 4, { align: 'center' });
-      doc.text(`Page ${pageNum} of ${totalPages}`, pageWidth - 14, footerY + 4, { align: 'right' });
-    };
-
-    // Helper function to check if new page is needed
-    const checkPageBreak = async (requiredSpace: number): Promise<number> => {
-      if (startY + requiredSpace > pageHeight - 25) {
-        currentPage++;
-        doc.addPage();
-        await addHeader();
-        return 20; // Reset startY to top of new page
-      }
-      return startY;
-    };
-
-    // Helper function to add section header with clean style
-    const addSectionHeader = async (title: string) => {
-      startY = await checkPageBreak(10);
-
-      // Simple red line on the left
-      doc.setDrawColor(220, 38, 38);
-      doc.setLineWidth(2);
-      doc.line(14, startY, 14, startY + 6);
-
-      // Section title
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text(title, 18, startY + 4);
-
-      // Light bottom border
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.5);
-      doc.line(14, startY + 7, pageWidth - 14, startY + 7);
-
-      startY += 11;
-    };
-
-    // Start first page
-    await addHeader();
-    let startY = 20;
-
-    // LOT Information Section
-    await addSectionHeader('LOT Information');
-
-    // LOT info box - clean white background
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(14, startY, pageWidth - 28, 30, 1, 1, 'FD');
-
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-
-    // Left column - cleaner layout
-    const leftX = 18;
-    const valueX = 50;
-    const rightX = 108;
-    const rightValueX = 140;
-    let infoY = startY + 7;
-
-    doc.text('LOT Number:', leftX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(lotNumber, valueX, infoY);
-
-    infoY += 5.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Wood Type:', leftX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(woodType, valueX, infoY);
-
-    infoY += 5.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Supplier:', leftX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(supplier, valueX, infoY);
-
-    infoY += 5.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Status:', leftX, infoY);
-    doc.setFont('helvetica', 'bold');
-    if (status === 'COMPLETED') {
-      doc.setTextColor(22, 163, 74);
-    } else {
-      doc.setTextColor(220, 38, 38);
+      enqueueSnackbar('PDF generated successfully', { variant: 'success' });
+    } catch (error: any) {
+      console.error('Error generating PDF:', error);
+      enqueueSnackbar(`Failed to generate PDF: ${error.message}`, { variant: 'error' });
     }
-    doc.text(status, valueX, infoY);
-
-    // Right column
-    infoY = startY + 7;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Receipt Date:', rightX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(receiptDate, rightValueX, infoY);
-
-    infoY += 5.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Total Volume:', rightX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(`${totalM3.toFixed(4)} m³`, rightValueX, infoY);
-
-    infoY += 5.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Total Pieces:', rightX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(totalPieces.toString(), rightValueX, infoY);
-
-    infoY += 5.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Report Date:', rightX, infoY);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 41, 59);
-    doc.text(format(new Date(), 'PP'), rightValueX, infoY);
-
-    startY += 35;
-
-    // Wood Receipt Information Section
-    await addSectionHeader('Wood Receipt Details');
-
-    const receiptRows: any[] = [];
-    const allReceipts = traceabilityData.stages?.woodReceipts || (woodReceipt.id ? [woodReceipt] : []);
-
-    if (allReceipts.length > 0) {
-      allReceipts.forEach((receipt: any) => {
-        const isDraft = receipt.status !== 'COMPLETED';
-        const volumeText = receipt.actualVolumeM3
-          ? `${receipt.actualVolumeM3.toFixed(4)} m³${isDraft ? ' (Draft)' : ''}`
-          : 'N/A';
-        const piecesText = receipt.actualPieces
-          ? `${receipt.actualPieces}${isDraft ? ' (Draft)' : ''}`
-          : 'N/A';
-        const estVolumeText = receipt.estimatedVolumeM3
-          ? `${receipt.estimatedVolumeM3.toFixed(4)} m³`
-          : 'N/A';
-        const estPiecesText = receipt.estimatedPieces?.toString() || 'N/A';
-
-        receiptRows.push([
-          receipt.woodType || 'N/A',
-          receipt.supplier || 'N/A',
-          receipt.receiptDate ? format(new Date(receipt.receiptDate), 'PP') : 'N/A',
-          estVolumeText,
-          volumeText,
-          estPiecesText,
-          piecesText,
-          receipt.status || 'N/A'
-        ]);
-      });
-
-      autoTable(doc, {
-        startY,
-        head: [['Wood', 'Supplier', 'Date', 'Est.Vol', 'Act.Vol', 'Est.Pcs', 'Act.Pcs', 'Status']],
-        body: receiptRows,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [248, 250, 252],
-          textColor: [30, 41, 59],
-          fontStyle: 'bold',
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        bodyStyles: {
-          textColor: [71, 85, 105],
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        margin: { left: 14, right: 14, bottom: 25 },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 22 },
-          3: { cellWidth: 18 },
-          4: { cellWidth: 20 },
-          5: { cellWidth: 15 },
-          6: { cellWidth: 17 },
-          7: { cellWidth: 'auto' }
-        },
-        didDrawPage: function() {
-          currentPage = doc.getNumberOfPages();
-        }
-      });
-
-      startY = (doc as any).lastAutoTable.finalY + 6;
-    } else {
-      startY += 3;
-    }
-
-    // Plank/Sleeper Measurements Section
-    const measurements = woodReceipt.measurements;
-    if (measurements && Array.isArray(measurements) && measurements.length > 0) {
-      await addSectionHeader(`${woodReceipt.woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper'} Measurements`);
-
-      const measurementRows: any[] = [];
-      measurements.forEach((m: any, index: number) => {
-        const thickness = parseFloat(m.thickness) || 0;
-        const width = parseFloat(m.width) || 0;
-        const length = parseFloat(m.length) || 0;
-        const qty = parseInt(m.qty) || 1;
-
-        // Detect unit system for display
-        let thicknessDisplay, widthDisplay, lengthDisplay, volumeDisplay;
-        if (thickness < 50 && width < 50) {
-          // Imperial
-          thicknessDisplay = `${thickness}"`;
-          widthDisplay = `${width}"`;
-          lengthDisplay = `${length}'`;
-          const thicknessM = thickness * 0.0254;
-          const widthM = width * 0.0254;
-          const lengthM = length * 0.3048;
-          const volumeM3 = thicknessM * widthM * lengthM * qty;
-          volumeDisplay = volumeM3.toFixed(4);
-        } else {
-          // Metric
-          thicknessDisplay = `${thickness}cm`;
-          widthDisplay = `${width}cm`;
-          lengthDisplay = `${length}cm`;
-          const volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
-          volumeDisplay = volumeM3.toFixed(4);
-        }
-
-        measurementRows.push([
-          (index + 1).toString(),
-          thicknessDisplay,
-          widthDisplay,
-          lengthDisplay,
-          qty.toString(),
-          `${volumeDisplay} m³`
-        ]);
-      });
-
-      autoTable(doc, {
-        startY,
-        head: [['#', 'Thickness', 'Width', 'Length', 'Qty', 'Volume']],
-        body: measurementRows,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [248, 250, 252],
-          textColor: [30, 41, 59],
-          fontStyle: 'bold',
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        bodyStyles: {
-          textColor: [71, 85, 105],
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        margin: { left: 14, right: 14, bottom: 25 },
-        columnStyles: {
-          0: { cellWidth: 12, halign: 'center' },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 25 },
-          3: { cellWidth: 25 },
-          4: { cellWidth: 20, halign: 'center' },
-          5: { cellWidth: 'auto', halign: 'right' }
-        },
-        didDrawPage: function() {
-          currentPage = doc.getNumberOfPages();
-        }
-      });
-
-      startY = (doc as any).lastAutoTable.finalY + 6;
-    }
-
-    // Slicing Operations Section
-    const slicingOps = traceabilityData.stages?.slicing || [];
-    if (slicingOps.length > 0) {
-      await addSectionHeader('Slicing Operations');
-
-      const slicingRows: any[] = [];
-      slicingOps.forEach((op: any, index: number) => {
-        slicingRows.push([
-          `OP-${(index + 1).toString().padStart(3, '0')}`,
-          op.startTime ? format(new Date(op.startTime), 'PP p') : 'N/A',
-          op.endTime ? format(new Date(op.endTime), 'PP p') : 'In Progress',
-          op.status || 'N/A'
-        ]);
-      });
-
-      autoTable(doc, {
-        startY,
-        head: [['Serial', 'Start', 'End', 'Status']],
-        body: slicingRows,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [248, 250, 252],
-          textColor: [30, 41, 59],
-          fontStyle: 'bold',
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        bodyStyles: {
-          textColor: [71, 85, 105],
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        margin: { left: 14, right: 14, bottom: 25 },
-        didDrawPage: function() {
-          currentPage = doc.getNumberOfPages();
-        }
-      });
-
-      startY = (doc as any).lastAutoTable.finalY + 6;
-    }
-
-    // Drying Processes Section (if available)
-    const dryingProcesses = traceabilityData.stages?.dryingProcesses || [];
-    if (dryingProcesses.length > 0) {
-      await addSectionHeader('Drying Processes');
-
-      const dryingRows: any[] = [];
-      dryingProcesses.forEach((batch: any) => {
-        dryingRows.push([
-          batch.batchNumber || 'N/A',
-          batch.startDate ? format(new Date(batch.startDate), 'PP p') : 'N/A',
-          batch.endDate ? format(new Date(batch.endDate), 'PP p') : 'In Progress',
-          batch.status || 'N/A'
-        ]);
-      });
-
-      autoTable(doc, {
-        startY,
-        head: [['Batch', 'Start', 'End', 'Status']],
-        body: dryingRows,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [248, 250, 252],
-          textColor: [30, 41, 59],
-          fontStyle: 'bold',
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        bodyStyles: {
-          textColor: [71, 85, 105],
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        margin: { left: 14, right: 14, bottom: 25 },
-        didDrawPage: function() {
-          currentPage = doc.getNumberOfPages();
-        }
-      });
-
-      startY = (doc as any).lastAutoTable.finalY + 6;
-    }
-
-    // Activity History Section
-    const history = traceabilityData.history || [];
-    if (history.length > 0) {
-      await addSectionHeader('Activity History');
-
-      const historyRows: any[] = [];
-      // Limit to last 5 history items to save space
-      history.slice(-5).forEach((item: any) => {
-        historyRows.push([
-          item.timestamp ? format(new Date(item.timestamp), 'PP p') : 'N/A',
-          item.userName || 'N/A',
-          item.action || 'N/A',
-          item.details || ''
-        ]);
-      });
-
-      autoTable(doc, {
-        startY,
-        head: [['Time', 'User', 'Action', 'Details']],
-        body: historyRows,
-        theme: 'grid',
-        headStyles: {
-          fillColor: [248, 250, 252],
-          textColor: [30, 41, 59],
-          fontStyle: 'bold',
-          fontSize: 7.5,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        bodyStyles: {
-          textColor: [71, 85, 105],
-          fontSize: 7,
-          cellPadding: 2.5,
-          lineColor: [226, 232, 240],
-          lineWidth: 0.1
-        },
-        margin: { left: 14, right: 14, bottom: 25 },
-        columnStyles: {
-          0: { cellWidth: 35 },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 30 },
-          3: { cellWidth: 'auto' }
-        },
-        didDrawPage: function() {
-          currentPage = doc.getNumberOfPages();
-        }
-      });
-
-      startY = (doc as any).lastAutoTable.finalY + 6;
-    }
-
-    // Cost Breakdown Section
-    const hasCostData = costData.purchasePrice || costData.transportPrice ||
-                        costData.slicingExpenses || costData.otherExpenses;
-
-    if (hasCostData) {
-      await addSectionHeader('Cost Breakdown');
-
-      // Prepare cost data
-      const costRows: any[] = [];
-
-      if (costData.purchasePrice) {
-        const amount = parseFloat(costData.purchasePrice);
-        const total = costData.purchasePriceType === 'PER_M3' ? amount * totalM3 : amount;
-        const baseAmount = costData.purchasePriceIncVat ? total / 1.18 : total;
-        costRows.push([
-          'Purchase Price',
-          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          costData.purchasePriceType === 'PER_M3' ? 'Per m³' : 'Per Lot',
-          costData.purchasePriceIncVat ? 'Inc VAT' : 'Exc VAT',
-          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        ]);
-      }
-
-      if (costData.transportPrice) {
-        const amount = parseFloat(costData.transportPrice);
-        const total = costData.transportPriceType === 'PER_M3' ? amount * totalM3 : amount;
-        const baseAmount = costData.transportPriceIncVat ? total / 1.18 : total;
-        costRows.push([
-          'Transport Price',
-          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          costData.transportPriceType === 'PER_M3' ? 'Per m³' : 'Per Lot',
-          costData.transportPriceIncVat ? 'Inc VAT' : 'Exc VAT',
-          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        ]);
-      }
-
-      if (costData.slicingExpenses) {
-        const amount = parseFloat(costData.slicingExpenses);
-        const total = costData.slicingExpensesType === 'PER_M3' ? amount * totalM3 : amount;
-        const baseAmount = costData.slicingExpensesIncVat ? total / 1.18 : total;
-        costRows.push([
-          'Slicing Expenses',
-          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          costData.slicingExpensesType === 'PER_M3' ? 'Per m³' : 'Per Lot',
-          costData.slicingExpensesIncVat ? 'Inc VAT' : 'Exc VAT',
-          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        ]);
-      }
-
-      if (costData.otherExpenses) {
-        const amount = parseFloat(costData.otherExpenses);
-        const total = costData.otherExpensesType === 'PER_M3' ? amount * totalM3 : amount;
-        const baseAmount = costData.otherExpensesIncVat ? total / 1.18 : total;
-        costRows.push([
-          'Other Expenses',
-          `TZS ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-          costData.otherExpensesType === 'PER_M3' ? 'Per m³' : 'Per Lot',
-          costData.otherExpensesIncVat ? 'Inc VAT' : 'Exc VAT',
-          `TZS ${baseAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        ]);
-      }
-
-      if (costRows.length > 0) {
-        autoTable(doc, {
-          startY,
-          head: [['Item', 'Unit Price', 'Type', 'VAT', 'Total (Exc VAT)']],
-          body: costRows,
-          theme: 'grid',
-          headStyles: {
-            fillColor: [248, 250, 252],
-            textColor: [30, 41, 59],
-            fontStyle: 'bold',
-            fontSize: 7.5,
-            cellPadding: 2.5,
-            lineColor: [226, 232, 240],
-            lineWidth: 0.1
-          },
-          bodyStyles: {
-            textColor: [71, 85, 105],
-            fontSize: 7.5,
-            cellPadding: 2.5,
-            lineColor: [226, 232, 240],
-            lineWidth: 0.1
-          },
-          margin: { left: 14, right: 14, bottom: 25 },
-          didDrawPage: function() {
-            currentPage = doc.getNumberOfPages();
-          }
-        });
-
-        startY = (doc as any).lastAutoTable.finalY + 6;
-      }
-
-      // Calculate totals
-      const purchasePrice = parseFloat(costData.purchasePrice || '0');
-      const transportPrice = parseFloat(costData.transportPrice || '0');
-      const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
-      const otherExpenses = parseFloat(costData.otherExpenses || '0');
-
-      let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
-      let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
-      let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
-      let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
-
-      if (costData.purchasePriceIncVat) purchaseTotal = purchaseTotal / 1.18;
-      if (costData.transportPriceIncVat) transportTotal = transportTotal / 1.18;
-      if (costData.slicingExpensesIncVat) slicingTotal = slicingTotal / 1.18;
-      if (costData.otherExpensesIncVat) otherTotal = otherTotal / 1.18;
-
-      const subtotal = purchaseTotal + transportTotal + slicingTotal + otherTotal;
-      const vat = subtotal * 0.18;
-      const total = subtotal + vat;
-
-      // Clean Summary boxes
-      startY += 2;
-
-      // Check if we need a new page for summary boxes (need ~20mm)
-      startY = await checkPageBreak(20);
-
-      // White boxes with clean borders
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.5);
-      doc.roundedRect(14, startY, 58, 16, 1, 1, 'FD');
-
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Subtotal (Exc VAT)', 17, startY + 5);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text(`TZS ${subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 17, startY + 12);
-
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(75, startY, 58, 16, 1, 1, 'FD');
-
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('VAT (18%)', 78, startY + 5);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(30, 41, 59);
-      doc.text(`TZS ${vat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 78, startY + 12);
-
-      doc.setFillColor(220, 38, 38);
-      doc.setDrawColor(220, 38, 38);
-      doc.setLineWidth(1);
-      doc.roundedRect(136, startY, 58, 16, 1, 1, 'FD');
-
-      doc.setFontSize(7);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(255, 255, 255);
-      doc.text('TOTAL (Inc VAT)', 139, startY + 5);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`TZS ${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 139, startY + 12);
-
-      startY += 20;
-
-      // Price per m³ box - centered design
-      if (totalM3 > 0) {
-        // Check if we need a new page for price box (need ~25mm)
-        startY = await checkPageBreak(25);
-
-        const pricePerM3 = total / totalM3;
-
-        // Light blue background box
-        doc.setFillColor(240, 249, 255); // Very light blue
-        doc.setDrawColor(14, 165, 233); // Blue border
-        doc.setLineWidth(1.5);
-        doc.roundedRect(14, startY, 180, 20, 2, 2, 'FD');
-
-        const boxCenterX = 14 + 90; // Center of the box (14 + 180/2)
-
-        // Label - centered
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(12, 74, 110); // Dark blue
-        const labelText = 'PRICE PER M³';
-        const labelWidth = doc.getTextWidth(labelText);
-        doc.text(labelText, boxCenterX - (labelWidth / 2), startY + 7);
-
-        // Price value - centered
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(14, 165, 233); // Bright blue
-        const priceText = `TZS ${pricePerM3.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        const priceWidth = doc.getTextWidth(priceText);
-        doc.text(priceText, boxCenterX - (priceWidth / 2), startY + 13);
-
-        // Calculation note - centered
-        doc.setFontSize(6.5);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139); // Gray
-        const calcText = `Total cost ÷ ${totalM3.toFixed(4)} m³`;
-        const calcWidth = doc.getTextWidth(calcText);
-        doc.text(calcText, boxCenterX - (calcWidth / 2), startY + 17.5);
-
-        startY += 24;
-      }
-
-      // Notes section
-      if (costData.notes) {
-        // Check if we need a new page for notes (estimate 15mm)
-        startY = await checkPageBreak(15);
-
-        doc.setFontSize(7);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(30, 41, 59);
-        doc.text('Notes:', 14, startY);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(71, 85, 105);
-        const splitNotes = doc.splitTextToSize(costData.notes, pageWidth - 28);
-        doc.text(splitNotes, 14, startY + 4);
-      }
-    }
-
-    // Add footers to all pages
-    const totalPages = currentPage;
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      addFooter(i, totalPages);
-    }
-
-    // Save PDF
-    const receiptDateStr = woodReceipt.receiptDate
-      ? format(new Date(woodReceipt.receiptDate), 'yyyy-MM-dd')
-      : format(new Date(), 'yyyy-MM-dd');
-    const filename = `${lotNumber} (${woodType}) Traceability - ${receiptDateStr}.pdf`;
-    doc.save(filename);
-
-    enqueueSnackbar('PDF generated successfully', { variant: 'success' });
   };
 
   // Fetch users for notification
@@ -3558,13 +2865,14 @@ const WoodReceipt = () => {
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#92400e', mt: 0.5 }}>
                                 TZS {(() => {
                                   const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
+                                  const paidM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.paidVolumeM3 || traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
                                   const otherExpenses = parseFloat(costData.otherExpenses || '0');
 
-                                  // Calculate totals based on Per Lot or Per m³
-                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  // Calculate totals - Purchase uses paidM3 (excludes complimentary), others use totalM3
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * paidM3 : purchasePrice;
                                   let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
                                   let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
                                   let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
@@ -3581,7 +2889,10 @@ const WoodReceipt = () => {
                                 })()}
                               </Typography>
                               <Typography variant="caption" sx={{ color: '#64748b', fontSize: '0.7rem' }}>
-                                Total for LOT ({(traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(4)} m³)
+                                Paid: {(traceabilityData?.stages?.woodReceipts?.[0]?.paidVolumeM3 || traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0).toFixed(4)} m³
+                                {(traceabilityData?.stages?.woodReceipts?.[0]?.complimentaryVolumeM3 || 0) > 0 && (
+                                  <> | Free: {(traceabilityData?.stages?.woodReceipts?.[0]?.complimentaryVolumeM3 || 0).toFixed(4)} m³</>
+                                )}
                               </Typography>
                               {(costData.purchasePriceType === 'PER_M3' || costData.transportPriceType === 'PER_M3' ||
                                 costData.slicingExpensesType === 'PER_M3' || costData.otherExpensesType === 'PER_M3') &&
@@ -3600,13 +2911,14 @@ const WoodReceipt = () => {
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e40af', mt: 0.5 }}>
                                 TZS {(() => {
                                   const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
+                                  const paidM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.paidVolumeM3 || traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
                                   const otherExpenses = parseFloat(costData.otherExpenses || '0');
 
-                                  // Calculate totals based on Per Lot or Per m³
-                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  // Calculate totals - Purchase uses paidM3 (excludes complimentary), others use totalM3
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * paidM3 : purchasePrice;
                                   let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
                                   let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
                                   let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
@@ -3634,13 +2946,14 @@ const WoodReceipt = () => {
                               <Typography variant="h6" sx={{ fontWeight: 700, color: '#15803d', mt: 0.5 }}>
                                 TZS {(() => {
                                   const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
+                                  const paidM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.paidVolumeM3 || traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
                                   const transportPrice = parseFloat(costData.transportPrice || '0');
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
                                   const otherExpenses = parseFloat(costData.otherExpenses || '0');
 
-                                  // Calculate totals based on Per Lot or Per m³
-                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  // Calculate totals - Purchase uses paidM3 (excludes complimentary), others use totalM3
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * paidM3 : purchasePrice;
                                   let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
                                   let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
                                   let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
@@ -3674,6 +2987,7 @@ const WoodReceipt = () => {
                               <Typography variant="h5" sx={{ fontWeight: 700, color: '#0c4a6e', mt: 0.5 }}>
                                 TZS {(() => {
                                   const totalM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
+                                  const paidM3 = Math.round((traceabilityData?.stages?.woodReceipts?.[0]?.paidVolumeM3 || traceabilityData?.stages?.woodReceipts?.[0]?.actualVolumeM3 || 0) * 10000) / 10000;
                                   if (totalM3 === 0) return '0.00';
 
                                   const purchasePrice = parseFloat(costData.purchasePrice || '0');
@@ -3681,8 +2995,8 @@ const WoodReceipt = () => {
                                   const slicingExpenses = parseFloat(costData.slicingExpenses || '0');
                                   const otherExpenses = parseFloat(costData.otherExpenses || '0');
 
-                                  // Calculate totals
-                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * totalM3 : purchasePrice;
+                                  // Calculate totals - Purchase uses paidM3 (excludes complimentary), others use totalM3
+                                  let purchaseTotal = costData.purchasePriceType === 'PER_M3' ? purchasePrice * paidM3 : purchasePrice;
                                   let transportTotal = costData.transportPriceType === 'PER_M3' ? transportPrice * totalM3 : transportPrice;
                                   let slicingTotal = costData.slicingExpensesType === 'PER_M3' ? slicingExpenses * totalM3 : slicingExpenses;
                                   let otherTotal = costData.otherExpensesType === 'PER_M3' ? otherExpenses * totalM3 : otherExpenses;
@@ -3719,6 +3033,56 @@ const WoodReceipt = () => {
                           </Box>
                         </Paper>
                       </Grid>
+
+                      {/* Complimentary Wood Value Reference - Only show if there's complimentary wood */}
+                      {(traceabilityData?.stages?.woodReceipts?.[0]?.complimentaryVolumeM3 || 0) > 0 && (
+                        <Grid item xs={12}>
+                          <Paper elevation={0} sx={{ p: 2, backgroundColor: '#f0fdf4', border: '2px solid #10b981', borderRadius: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                              <Typography variant="subtitle2" sx={{ color: '#059669', fontWeight: 700, fontSize: '0.875rem' }}>
+                                🎁 Complimentary Wood Value (Reference Only)
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" sx={{ color: '#047857', mb: 1 }}>
+                              This LOT includes <strong>{(traceabilityData?.stages?.woodReceipts?.[0]?.complimentaryVolumeM3 || 0).toFixed(4)} m³</strong> of complimentary/free wood from the supplier.
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                              <Box>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                  If charged at purchase price:
+                                </Typography>
+                                <Typography variant="body1" sx={{ fontWeight: 600, color: '#059669' }}>
+                                  TZS {(() => {
+                                    const complimentaryM3 = traceabilityData?.stages?.woodReceipts?.[0]?.complimentaryVolumeM3 || 0;
+                                    const purchasePrice = parseFloat(costData.purchasePrice || '0');
+                                    let value = costData.purchasePriceType === 'PER_M3' ? purchasePrice * complimentaryM3 : 0;
+                                    if (costData.purchasePriceIncVat) value = value / 1.18;
+                                    return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                  })()}
+                                </Typography>
+                              </Box>
+                              <Box>
+                                <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
+                                  Your savings:
+                                </Typography>
+                                <Typography variant="body1" sx={{ fontWeight: 600, color: '#10b981' }}>
+                                  TZS {(() => {
+                                    const complimentaryM3 = traceabilityData?.stages?.woodReceipts?.[0]?.complimentaryVolumeM3 || 0;
+                                    const purchasePrice = parseFloat(costData.purchasePrice || '0');
+                                    let value = costData.purchasePriceType === 'PER_M3' ? purchasePrice * complimentaryM3 : 0;
+                                    if (costData.purchasePriceIncVat) value = value / 1.18;
+                                    const valueWithVat = value * 1.18;
+                                    return valueWithVat.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                  })()} (inc. VAT)
+                                </Typography>
+                              </Box>
+                            </Box>
+                            <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 1, fontStyle: 'italic' }}>
+                              Note: Complimentary wood is excluded from purchase cost but included in stock and other processing costs.
+                            </Typography>
+                          </Paper>
+                        </Grid>
+                      )}
 
                       <Grid item xs={12}>
                         <TextField

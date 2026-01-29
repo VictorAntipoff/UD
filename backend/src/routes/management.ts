@@ -439,41 +439,54 @@ async function managementRoutes(fastify: FastifyInstance) {
         woodReceipts.map(async (receipt) => {
           let actualVolumeM3 = receipt.actualVolumeM3;
           let actualPieces = receipt.actualPieces;
+          let paidVolumeM3 = 0;
+          let complimentaryVolumeM3 = 0;
+          let paidPieces = 0;
+          let complimentaryPieces = 0;
           let lastWorkedBy = null;
           let lastWorkedAt = null;
+
+          // Helper function to calculate volume for a single measurement
+          const calculateVolumeM3 = (m: any, measurementUnit: string): number => {
+            const thickness = parseFloat(m.thickness) || 0;
+            const width = parseFloat(m.width) || 0;
+            const length = parseFloat(m.length) || 0;
+            const qty = parseInt(m.qty) || 1;
+
+            if (measurementUnit === 'imperial') {
+              // Imperial: thickness and width in inches, length in feet
+              const thicknessM = thickness * 0.0254; // inch to meter
+              const widthM = width * 0.0254; // inch to meter
+              const lengthM = length * 0.3048; // feet to meter
+              return thicknessM * widthM * lengthM * qty;
+            } else {
+              // Metric: all in cm
+              return (thickness / 100) * (width / 100) * (length / 100) * qty;
+            }
+          };
 
           // If there's draft data, calculate from measurements
           const draft = drafts.find(d => d.receiptId === lotNumber);
           if (draft && draft.measurements) {
             const measurements = draft.measurements as any[];
-
-            // Calculate total pieces by summing all qty fields
-            actualPieces = measurements.reduce((sum: number, m: any) => {
-              return sum + (parseInt(m.qty) || 1);
-            }, 0);
-
-            // Calculate total volume using the stored measurement unit
             const measurementUnit = draft.measurementUnit || 'imperial';
-            actualVolumeM3 = measurements.reduce((sum: number, m: any) => {
-              const thickness = parseFloat(m.thickness) || 0;
-              const width = parseFloat(m.width) || 0;
-              const length = parseFloat(m.length) || 0;
+
+            // Calculate totals separately for paid and complimentary wood
+            measurements.forEach((m: any) => {
               const qty = parseInt(m.qty) || 1;
+              const volumeM3 = calculateVolumeM3(m, measurementUnit);
 
-              let volumeM3;
-              if (measurementUnit === 'imperial') {
-                // Imperial: thickness and width in inches, length in feet
-                const thicknessM = thickness * 0.0254; // inch to meter
-                const widthM = width * 0.0254; // inch to meter
-                const lengthM = length * 0.3048; // feet to meter
-                volumeM3 = thicknessM * widthM * lengthM * qty;
+              if (m.isComplimentary) {
+                complimentaryVolumeM3 += volumeM3;
+                complimentaryPieces += qty;
               } else {
-                // Metric: all in cm
-                volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+                paidVolumeM3 += volumeM3;
+                paidPieces += qty;
               }
+            });
 
-              return sum + volumeM3;
-            }, 0);
+            actualVolumeM3 = paidVolumeM3 + complimentaryVolumeM3;
+            actualPieces = paidPieces + complimentaryPieces;
 
             // Get the last user who worked on this receipt
             if (draft.updatedBy) {
@@ -496,6 +509,27 @@ async function managementRoutes(fastify: FastifyInstance) {
 
               lastWorkedAt = draft.updatedAt;
             }
+          } else if (receipt.SleeperMeasurement && receipt.SleeperMeasurement.length > 0) {
+            // Use saved measurements from database
+            receipt.SleeperMeasurement.forEach((m: any) => {
+              const qty = m.qty || 1;
+              const volumeM3 = m.volumeM3 || 0;
+
+              if (m.isComplimentary) {
+                complimentaryVolumeM3 += volumeM3;
+                complimentaryPieces += qty;
+              } else {
+                paidVolumeM3 += volumeM3;
+                paidPieces += qty;
+              }
+            });
+
+            actualVolumeM3 = paidVolumeM3 + complimentaryVolumeM3;
+            actualPieces = paidPieces + complimentaryPieces;
+          } else {
+            // No measurements available, use stored values and assume all is paid
+            paidVolumeM3 = actualVolumeM3 || 0;
+            paidPieces = actualPieces || 0;
           }
 
           return {
@@ -512,6 +546,11 @@ async function managementRoutes(fastify: FastifyInstance) {
             // Show actual measured values (in GREEN on frontend)
             actualVolumeM3: actualVolumeM3,
             actualPieces: actualPieces,
+            // Paid vs Complimentary breakdown (for cost tracking)
+            paidVolumeM3: paidVolumeM3,
+            paidPieces: paidPieces,
+            complimentaryVolumeM3: complimentaryVolumeM3,
+            complimentaryPieces: complimentaryPieces,
             estimatedAmount: receipt.estimatedAmount,
             receiptConfirmedAt: receipt.receiptConfirmedAt,
             notes: receipt.notes,
