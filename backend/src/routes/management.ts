@@ -792,15 +792,19 @@ async function managementRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Approve a wood receipt (change status to COMPLETED)
+  // Approve a wood receipt (change status to COMPLETED and sync stock)
   fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      const user = (request as any).user;
 
-      // Get the receipt first to get lotNumber
+      // Get the receipt with warehouse info
       const existingReceipt = await prisma.woodReceipt.findUnique({
         where: { id },
-        include: { WoodType: true }
+        include: {
+          WoodType: true,
+          Warehouse: true
+        }
       });
 
       if (!existingReceipt) {
@@ -813,17 +817,56 @@ async function managementRoutes(fastify: FastifyInstance) {
         orderBy: { updatedAt: 'desc' }
       });
 
-      // If draft has measurements, save them to SleeperMeasurement table
-      if (draft && draft.measurements) {
-        const measurements = draft.measurements as any[];
+      const measurementUnit = draft?.measurementUnit || 'imperial';
+      const measurements = (draft?.measurements as any[]) || [];
 
-        // Delete existing measurements for this receipt (if any)
-        await prisma.sleeperMeasurement.deleteMany({
+      if (measurements.length === 0) {
+        return reply.status(400).send({ error: 'No measurements found. Cannot approve receipt without measurements.' });
+      }
+
+      // Calculate totals and group by thickness for stock
+      let totalPieces = 0;
+      let totalVolumeM3 = 0;
+      const stockByThickness: Record<string, number> = {};
+
+      measurements.forEach((m: any) => {
+        const qty = parseInt(m.qty) || 1;
+        const volumeM3 = parseFloat(m.m3) || 0;
+
+        totalPieces += qty;
+        totalVolumeM3 += volumeM3;
+
+        // Determine thickness category for stock
+        let thickness: string;
+        if (m.isCustom === true) {
+          thickness = 'Custom';
+        } else {
+          const thicknessValue = parseFloat(m.thickness);
+          const STANDARD_SIZES = [1, 2, 3];
+          thickness = STANDARD_SIZES.includes(thicknessValue) ? `${thicknessValue}"` : 'Custom';
+        }
+
+        if (!stockByThickness[thickness]) {
+          stockByThickness[thickness] = 0;
+        }
+        stockByThickness[thickness] += qty;
+      });
+
+      console.log('📦 Approval - Stock grouping by thickness:', {
+        lotNumber: existingReceipt.lotNumber,
+        stockByThickness,
+        warehouseId: existingReceipt.warehouseId,
+        stockControlEnabled: existingReceipt.Warehouse?.stockControlEnabled
+      });
+
+      // Execute all operations in a transaction
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Delete existing measurements and create new ones
+        await tx.sleeperMeasurement.deleteMany({
           where: { receiptId: id }
         });
 
-        // Create new measurements
-        await prisma.sleeperMeasurement.createMany({
+        await tx.sleeperMeasurement.createMany({
           data: measurements.map(m => ({
             id: crypto.randomUUID(),
             receiptId: id,
@@ -837,44 +880,105 @@ async function managementRoutes(fastify: FastifyInstance) {
             updatedAt: new Date()
           }))
         });
-      }
 
-      const receipt = await prisma.woodReceipt.update({
-        where: { id },
-        data: {
-          status: 'COMPLETED',
-          receiptConfirmedAt: new Date()
-        },
-        include: {
-          WoodType: true
+        // 2. Sync stock if warehouse has stock control enabled
+        if (existingReceipt.warehouseId && existingReceipt.Warehouse?.stockControlEnabled) {
+          console.log('🔄 Starting stock sync for approved LOT', existingReceipt.lotNumber);
+
+          for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+            const qty = quantity as number;
+            console.log(`  → Syncing ${thickness}: ${qty} pieces to warehouse ${existingReceipt.warehouseId}`);
+
+            try {
+              await tx.stock.upsert({
+                where: {
+                  warehouseId_woodTypeId_thickness: {
+                    warehouseId: existingReceipt.warehouseId,
+                    woodTypeId: existingReceipt.woodTypeId,
+                    thickness: thickness
+                  }
+                },
+                update: {
+                  statusNotDried: { increment: qty },
+                  updatedAt: new Date()
+                },
+                create: {
+                  id: crypto.randomUUID(),
+                  warehouseId: existingReceipt.warehouseId,
+                  woodTypeId: existingReceipt.woodTypeId,
+                  thickness: thickness,
+                  statusNotDried: qty,
+                  statusUnderDrying: 0,
+                  statusDried: 0,
+                  statusDamaged: 0,
+                  updatedAt: new Date()
+                }
+              });
+              console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
+
+              // Log stock movement
+              const { createStockMovement } = await import('../services/stockMovementService.js');
+              await createStockMovement({
+                warehouseId: existingReceipt.warehouseId,
+                woodTypeId: existingReceipt.woodTypeId,
+                thickness: thickness,
+                movementType: 'RECEIPT_SYNC',
+                quantityChange: qty,
+                toStatus: 'NOT_DRIED',
+                referenceType: 'RECEIPT',
+                referenceId: existingReceipt.id,
+                referenceNumber: existingReceipt.lotNumber,
+                userId: user?.userId,
+                details: `Receipt ${existingReceipt.lotNumber} approved and synced to stock`
+              }, tx);
+
+            } catch (stockError: any) {
+              console.error(`  ❌ FAILED to sync ${thickness}: ${qty} pieces`, stockError);
+              throw new Error(`Stock sync failed for thickness ${thickness}: ${stockError.message}`);
+            }
+          }
+
+          console.log('✅ All stock synced successfully for approved LOT', existingReceipt.lotNumber);
         }
-      });
 
-      // Create history entry for approval
-      const user = (request as any).user;
-      if (user && existingReceipt.lotNumber) {
-        try {
-          await prisma.receiptHistory.create({
+        // 3. Update the receipt status and actual values
+        const updatedReceipt = await tx.woodReceipt.update({
+          where: { id },
+          data: {
+            status: 'COMPLETED',
+            actualPieces: totalPieces,
+            actualVolumeM3: totalVolumeM3,
+            measurementUnit: measurementUnit,
+            receiptConfirmedAt: new Date()
+          },
+          include: {
+            WoodType: true
+          }
+        });
+
+        // 4. Create history entry for approval
+        if (user && existingReceipt.lotNumber) {
+          await tx.receiptHistory.create({
             data: {
               id: crypto.randomUUID(),
               receiptId: existingReceipt.lotNumber,
               userId: user.userId,
               userName: user.email || user.userId,
               action: 'APPROVED',
-              details: `Receipt approved by admin and marked as COMPLETED`,
+              details: `Receipt approved and completed. ${totalPieces} pieces (${totalVolumeM3.toFixed(4)} m³)${existingReceipt.Warehouse?.stockControlEnabled ? '. Stock synced to warehouse.' : ''}`,
               timestamp: new Date()
             }
           });
-        } catch (historyError) {
-          console.error('Error creating approval history:', historyError);
         }
-      }
 
-      console.log(`Wood Receipt ${receipt.lotNumber} approved by admin and status set to COMPLETED`);
-      return receipt;
-    } catch (error) {
+        return updatedReceipt;
+      });
+
+      console.log(`Wood Receipt ${result.lotNumber} approved by admin, status set to COMPLETED, stock synced`);
+      return result;
+    } catch (error: any) {
       console.error('Error approving wood receipt:', error);
-      return reply.status(500).send({ error: 'Failed to approve wood receipt' });
+      return reply.status(500).send({ error: error.message || 'Failed to approve wood receipt' });
     }
   });
 
@@ -912,8 +1016,9 @@ async function managementRoutes(fastify: FastifyInstance) {
   fastify.post('/wood-receipts/:id/sync-stock', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
-      const body = (request.body || {}) as { warehouse_id?: string };
+      const body = (request.body || {}) as { warehouse_id?: string; force?: boolean };
       const warehouse_id = body.warehouse_id;
+      const force = body.force === true;
 
       // Get the receipt
       const receipt = await prisma.woodReceipt.findUnique({
@@ -994,11 +1099,15 @@ async function managementRoutes(fastify: FastifyInstance) {
       }, {} as Record<string, number>);
 
       // Check if stock was already synced by looking at receiptConfirmedAt
-      if (receipt.receiptConfirmedAt) {
+      if (receipt.receiptConfirmedAt && !force) {
         return reply.status(400).send({
-          error: 'Stock has already been synced for this LOT',
+          error: 'Stock has already been synced for this LOT. Use force: true to re-sync.',
           syncedAt: receipt.receiptConfirmedAt
         });
+      }
+
+      if (force) {
+        console.log(`⚠️ Force re-syncing stock for LOT ${receipt.lotNumber} (previously synced at ${receipt.receiptConfirmedAt})`);
       }
 
       // Update the receipt with the warehouse if not already set
@@ -1010,6 +1119,9 @@ async function managementRoutes(fastify: FastifyInstance) {
       }
 
       // Update stock
+      const user = (request as any).user;
+      const { createStockMovement } = await import('../services/stockMovementService.js');
+
       for (const [thickness, quantity] of Object.entries(stockByThickness)) {
         const qty = quantity as number;
         await prisma.stock.upsert({
@@ -1036,6 +1148,21 @@ async function managementRoutes(fastify: FastifyInstance) {
             updatedAt: new Date()
           }
         });
+
+        // Log stock movement
+        await createStockMovement({
+          warehouseId: warehouseId,
+          woodTypeId: receipt.woodTypeId,
+          thickness: thickness,
+          movementType: force ? 'RECEIPT_RESYNC' : 'RECEIPT_SYNC',
+          quantityChange: qty,
+          toStatus: 'NOT_DRIED',
+          referenceType: 'RECEIPT',
+          referenceId: receipt.id,
+          referenceNumber: receipt.lotNumber,
+          userId: user?.userId,
+          details: `Manual stock sync for ${receipt.lotNumber}${force ? ' (forced re-sync)' : ''}`
+        });
       }
 
       // Mark receipt as confirmed to prevent double-sync
@@ -1044,7 +1171,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         data: { receiptConfirmedAt: new Date() }
       });
 
-      console.log(`Synced stock for LOT ${receipt.lotNumber} to warehouse ${warehouse.name}`);
+      console.log(`✅ Synced stock for LOT ${receipt.lotNumber} to warehouse ${warehouse.name}${force ? ' (forced)' : ''}`);
 
       return {
         success: true,

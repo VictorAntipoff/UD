@@ -1527,7 +1527,10 @@ const ReceiptProcessing = () => {
     try {
       setIsSaving(true);
 
-      if (!receipt?.id) {
+      // Find the current receipt from the receipts array
+      const currentReceipt = receipts.find(r => r.lotNumber === formData.receiptNumber);
+
+      if (!currentReceipt?.id) {
         enqueueSnackbar('No receipt selected', { variant: 'error' });
         return;
       }
@@ -1538,7 +1541,7 @@ const ReceiptProcessing = () => {
       }
 
       // Call the approve endpoint
-      await api.post(`/management/wood-receipts/${receipt.id}/approve`);
+      await api.post(`/management/wood-receipts/${currentReceipt.id}/approve`);
 
       enqueueSnackbar(`LOT ${formData.receiptNumber} has been approved successfully!`, { variant: 'success' });
 
