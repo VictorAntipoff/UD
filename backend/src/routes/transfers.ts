@@ -346,26 +346,28 @@ async function transferRoutes(fastify: FastifyInstance) {
           include: transferInclude
         });
 
-        // If source warehouse has stock control AND transfer is auto-approved, deduct from source
-        if (fromWarehouse.stockControlEnabled && initialStatus === 'APPROVED') {
+        // If transfer is auto-approved and either warehouse has stock control, process stock updates
+        if (initialStatus === 'APPROVED' && (fromWarehouse.stockControlEnabled || toWarehouse.stockControlEnabled)) {
           for (const item of data.items) {
             // Convert NOT_DRIED -> NotDried, UNDER_DRYING -> UnderDrying, etc.
             const statusField = `status${item.woodStatus.split('_').map((word: string) =>
               word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
             ).join('')}`;
 
-            // Deduct from source warehouse
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: data.fromWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness
-              },
-              data: {
-                [statusField]: { decrement: item.quantity },
-                statusInTransitOut: { increment: item.quantity }
-              }
-            });
+            // Deduct from source warehouse (only if source has stock control)
+            if (fromWarehouse.stockControlEnabled) {
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: data.fromWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                },
+                data: {
+                  [statusField]: { decrement: item.quantity },
+                  statusInTransitOut: { increment: item.quantity }
+                }
+              });
+            }
 
             // If destination warehouse has stock control, mark as in-transit-in
             if (toWarehouse.stockControlEnabled) {
