@@ -34,9 +34,384 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import api from '../../lib/api';
 import { format } from 'date-fns';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { Document, Page, Text, View, StyleSheet, Image, BlobProvider } from '@react-pdf/renderer';
+import logo from '../../assets/images/logo.png';
 import { StockMovementDialog } from '../../components/stock/StockMovementDialog';
+
+// PDF Styles matching LOT Traceability Report
+const pdfStyles = StyleSheet.create({
+  page: {
+    padding: '25 30',
+    fontFamily: 'Helvetica',
+    fontSize: 8,
+    color: '#2c3e50'
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 15,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0'
+  },
+  headerLeft: {
+    flex: 1
+  },
+  headerRight: {
+    alignItems: 'flex-end'
+  },
+  logo: {
+    width: 80,
+    marginBottom: 4
+  },
+  title: {
+    fontSize: 14,
+    fontFamily: 'Helvetica-Bold',
+    color: '#dc2626',
+    marginBottom: 2
+  },
+  subtitle: {
+    fontSize: 7,
+    color: '#64748b'
+  },
+  headerMeta: {
+    fontSize: 7,
+    color: '#64748b',
+    textAlign: 'right',
+    marginBottom: 2
+  },
+  // Info Card
+  infoCard: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 4,
+    padding: 12,
+    marginBottom: 12
+  },
+  infoCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0'
+  },
+  infoCardTitle: {
+    fontSize: 12,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1e293b'
+  },
+  infoGrid: {
+    flexDirection: 'row'
+  },
+  infoColumn: {
+    flex: 1
+  },
+  infoRow: {
+    flexDirection: 'row',
+    marginBottom: 6,
+    alignItems: 'flex-start'
+  },
+  infoLabel: {
+    width: 80,
+    fontSize: 7.5,
+    color: '#64748b',
+    paddingTop: 1
+  },
+  infoValue: {
+    fontSize: 7.5,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1e293b'
+  },
+  // Section
+  section: {
+    marginBottom: 10
+  },
+  sectionTitle: {
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1e293b',
+    backgroundColor: '#f1f5f9',
+    padding: '5 8',
+    borderRadius: 3,
+    marginBottom: 6
+  },
+  // Table
+  table: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 3
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f8fafc',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    padding: '5 6',
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    color: '#475569'
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#e2e8f0',
+    padding: '4 6',
+    fontSize: 7
+  },
+  tableRowAlt: {
+    flexDirection: 'row',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#e2e8f0',
+    padding: '4 6',
+    fontSize: 7,
+    backgroundColor: '#fafafa'
+  },
+  tableCell: {
+    flex: 1
+  },
+  tableCellRight: {
+    flex: 1,
+    textAlign: 'right'
+  },
+  tableCellCenter: {
+    flex: 1,
+    textAlign: 'center'
+  },
+  // Summary boxes
+  summaryRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    gap: 8
+  },
+  summaryBox: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 4,
+    padding: 10,
+    alignItems: 'center'
+  },
+  summaryBoxGreen: {
+    flex: 1,
+    backgroundColor: '#dcfce7',
+    borderWidth: 1,
+    borderColor: '#22c55e',
+    borderRadius: 4,
+    padding: 10,
+    alignItems: 'center'
+  },
+  summaryBoxRed: {
+    flex: 1,
+    backgroundColor: '#dc2626',
+    borderRadius: 4,
+    padding: 10,
+    alignItems: 'center'
+  },
+  summaryLabel: {
+    fontSize: 6.5,
+    color: '#64748b',
+    marginBottom: 3
+  },
+  summaryLabelGreen: {
+    fontSize: 6.5,
+    color: '#166534',
+    marginBottom: 3
+  },
+  summaryLabelWhite: {
+    fontSize: 6.5,
+    color: 'rgba(255,255,255,0.8)',
+    marginBottom: 3
+  },
+  summaryValue: {
+    fontSize: 11,
+    fontFamily: 'Helvetica-Bold',
+    color: '#1e293b'
+  },
+  summaryValueGreen: {
+    fontSize: 11,
+    fontFamily: 'Helvetica-Bold',
+    color: '#16a34a'
+  },
+  summaryValueWhite: {
+    fontSize: 11,
+    fontFamily: 'Helvetica-Bold',
+    color: '#ffffff'
+  },
+  // Footer
+  footer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 30,
+    right: 30,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0'
+  },
+  footerText: {
+    fontSize: 6.5,
+    color: '#94a3b8'
+  },
+  footerBrand: {
+    fontSize: 6.5,
+    color: '#94a3b8'
+  },
+  pageNumber: {
+    fontSize: 6.5,
+    color: '#94a3b8'
+  }
+});
+
+// PDF Component
+interface InventoryPDFProps {
+  warehouse: Warehouse;
+  woodTypeFilter: string;
+  stockData: Stock[];
+  timestamp: string;
+}
+
+const InventoryPDF: FC<InventoryPDFProps> = ({ warehouse, woodTypeFilter, stockData, timestamp }) => {
+  // Calculate totals
+  const totals = stockData.reduce((acc, stock) => ({
+    notDried: acc.notDried + stock.statusNotDried,
+    underDrying: acc.underDrying + stock.statusUnderDrying,
+    dried: acc.dried + stock.statusDried,
+    damaged: acc.damaged + stock.statusDamaged,
+    inTransit: acc.inTransit + (stock.statusInTransitOut || 0) + (stock.statusInTransitIn || 0),
+    total: acc.total + stock.statusNotDried + stock.statusUnderDrying + stock.statusDried + stock.statusDamaged,
+    available: acc.available + stock.statusNotDried + stock.statusDried
+  }), { notDried: 0, underDrying: 0, dried: 0, damaged: 0, inTransit: 0, total: 0, available: 0 });
+
+  return (
+    <Document>
+      <Page size="A4" orientation="landscape" style={pdfStyles.page}>
+        {/* Header */}
+        <View style={pdfStyles.header} fixed>
+          <View style={pdfStyles.headerLeft}>
+            <Image src={logo} style={pdfStyles.logo} />
+            <Text style={pdfStyles.title}>Inventory Report</Text>
+            <Text style={pdfStyles.subtitle}>Professional Wood Solutions</Text>
+          </View>
+          <View style={pdfStyles.headerRight}>
+            <Text style={pdfStyles.headerMeta}>Generated: {timestamp}</Text>
+            <Text style={pdfStyles.headerMeta}>Warehouse: {warehouse.name}</Text>
+            <Text style={pdfStyles.headerMeta}>v1.0.0</Text>
+          </View>
+        </View>
+
+        {/* Info Card */}
+        <View style={pdfStyles.infoCard}>
+          <View style={pdfStyles.infoCardHeader}>
+            <Text style={pdfStyles.infoCardTitle}>{warehouse.name} ({warehouse.code})</Text>
+          </View>
+          <View style={pdfStyles.infoGrid}>
+            <View style={pdfStyles.infoColumn}>
+              <View style={pdfStyles.infoRow}>
+                <Text style={pdfStyles.infoLabel}>Wood Type:</Text>
+                <Text style={pdfStyles.infoValue}>{woodTypeFilter}</Text>
+              </View>
+              <View style={pdfStyles.infoRow}>
+                <Text style={pdfStyles.infoLabel}>Total Items:</Text>
+                <Text style={pdfStyles.infoValue}>{stockData.length} types</Text>
+              </View>
+            </View>
+            <View style={pdfStyles.infoColumn}>
+              <View style={pdfStyles.infoRow}>
+                <Text style={pdfStyles.infoLabel}>Total Pieces:</Text>
+                <Text style={pdfStyles.infoValue}>{totals.total.toLocaleString()} pcs</Text>
+              </View>
+              <View style={pdfStyles.infoRow}>
+                <Text style={pdfStyles.infoLabel}>Available:</Text>
+                <Text style={[pdfStyles.infoValue, { color: '#16a34a' }]}>{totals.available.toLocaleString()} pcs</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Stock Details Table */}
+        <View style={pdfStyles.section}>
+          <Text style={pdfStyles.sectionTitle}>Stock Details</Text>
+          <View style={pdfStyles.table}>
+            {/* Table Header */}
+            <View style={pdfStyles.tableHeader} fixed>
+              <Text style={[pdfStyles.tableCell, { flex: 2 }]}>Wood Type</Text>
+              <Text style={pdfStyles.tableCellCenter}>Thickness</Text>
+              <Text style={pdfStyles.tableCellRight}>Not Dried</Text>
+              <Text style={pdfStyles.tableCellRight}>Drying</Text>
+              <Text style={pdfStyles.tableCellRight}>Dried</Text>
+              <Text style={pdfStyles.tableCellRight}>Damaged</Text>
+              <Text style={pdfStyles.tableCellRight}>In Transit</Text>
+              <Text style={pdfStyles.tableCellRight}>Total</Text>
+              <Text style={pdfStyles.tableCellRight}>Available</Text>
+            </View>
+
+            {/* Table Body */}
+            {stockData.map((stock, index) => (
+              <View key={stock.id} style={index % 2 === 0 ? pdfStyles.tableRow : pdfStyles.tableRowAlt} wrap={false}>
+                <Text style={[pdfStyles.tableCell, { flex: 2, fontFamily: 'Helvetica-Bold' }]}>{stock.woodType.name}</Text>
+                <Text style={pdfStyles.tableCellCenter}>{stock.thickness}</Text>
+                <Text style={pdfStyles.tableCellRight}>{stock.statusNotDried.toLocaleString()}</Text>
+                <Text style={pdfStyles.tableCellRight}>{stock.statusUnderDrying.toLocaleString()}</Text>
+                <Text style={[pdfStyles.tableCellRight, { color: '#dc2626', fontFamily: 'Helvetica-Bold' }]}>{stock.statusDried.toLocaleString()}</Text>
+                <Text style={[pdfStyles.tableCellRight, { color: '#ea580c' }]}>{stock.statusDamaged.toLocaleString()}</Text>
+                <Text style={pdfStyles.tableCellRight}>{((stock.statusInTransitOut || 0) + (stock.statusInTransitIn || 0)).toLocaleString()}</Text>
+                <Text style={[pdfStyles.tableCellRight, { fontFamily: 'Helvetica-Bold' }]}>
+                  {(stock.statusNotDried + stock.statusUnderDrying + stock.statusDried + stock.statusDamaged).toLocaleString()}
+                </Text>
+                <Text style={[pdfStyles.tableCellRight, { color: '#16a34a', fontFamily: 'Helvetica-Bold' }]}>
+                  {(stock.statusNotDried + stock.statusDried).toLocaleString()}
+                </Text>
+              </View>
+            ))}
+
+            {/* Totals Row */}
+            <View style={[pdfStyles.tableRow, { backgroundColor: '#f1f5f9', borderTopWidth: 1, borderTopColor: '#e2e8f0' }]} wrap={false}>
+              <Text style={[pdfStyles.tableCell, { flex: 2, fontFamily: 'Helvetica-Bold' }]}>TOTALS</Text>
+              <Text style={pdfStyles.tableCellCenter}>-</Text>
+              <Text style={[pdfStyles.tableCellRight, { fontFamily: 'Helvetica-Bold' }]}>{totals.notDried.toLocaleString()}</Text>
+              <Text style={[pdfStyles.tableCellRight, { fontFamily: 'Helvetica-Bold' }]}>{totals.underDrying.toLocaleString()}</Text>
+              <Text style={[pdfStyles.tableCellRight, { color: '#dc2626', fontFamily: 'Helvetica-Bold' }]}>{totals.dried.toLocaleString()}</Text>
+              <Text style={[pdfStyles.tableCellRight, { fontFamily: 'Helvetica-Bold' }]}>{totals.damaged.toLocaleString()}</Text>
+              <Text style={[pdfStyles.tableCellRight, { fontFamily: 'Helvetica-Bold' }]}>{totals.inTransit.toLocaleString()}</Text>
+              <Text style={[pdfStyles.tableCellRight, { fontFamily: 'Helvetica-Bold' }]}>{totals.total.toLocaleString()}</Text>
+              <Text style={[pdfStyles.tableCellRight, { color: '#16a34a', fontFamily: 'Helvetica-Bold' }]}>{totals.available.toLocaleString()}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Summary Boxes */}
+        <View style={pdfStyles.summaryRow}>
+          <View style={pdfStyles.summaryBox}>
+            <Text style={pdfStyles.summaryLabel}>TOTAL PIECES</Text>
+            <Text style={pdfStyles.summaryValue}>{totals.total.toLocaleString()}</Text>
+          </View>
+          <View style={pdfStyles.summaryBoxGreen}>
+            <Text style={pdfStyles.summaryLabelGreen}>AVAILABLE</Text>
+            <Text style={pdfStyles.summaryValueGreen}>{totals.available.toLocaleString()}</Text>
+          </View>
+          <View style={pdfStyles.summaryBoxRed}>
+            <Text style={pdfStyles.summaryLabelWhite}>DRIED & READY</Text>
+            <Text style={pdfStyles.summaryValueWhite}>{totals.dried.toLocaleString()}</Text>
+          </View>
+        </View>
+
+        {/* Footer */}
+        <View style={pdfStyles.footer} fixed>
+          <Text style={pdfStyles.footerText}>This is a computer-generated document. No signature required.</Text>
+          <Text style={pdfStyles.pageNumber} render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`} />
+          <Text style={pdfStyles.footerBrand}>U Design v1.0.0</Text>
+        </View>
+      </Page>
+    </Document>
+  );
+};
 
 interface Warehouse {
   id: string;
@@ -332,188 +707,11 @@ const InventoryReports: FC = () => {
     setMovementDialogOpen(true);
   };
 
-  const exportToPDF = () => {
-    // Create PDF in landscape orientation
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'mm',
-      format: 'a4'
-    });
-
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-
-    // Add logo - temporarily disabled due to async loading issues in production
-    // TODO: Implement logo as base64 encoded image for reliable PDF generation
-    // const logo = new Image();
-    // logo.src = '/logo.png';
-    // doc.addImage(logo, 'PNG', 14, 10, 35, 10);
-
-    // Title "Inventory Report"
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(220, 38, 38); // Red
-    doc.text('Inventory Report', pageWidth / 2, 16, { align: 'center' });
-
-    // Subtitle "Professional Wood Solutions"
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Professional Wood Solutions', pageWidth / 2, 21, { align: 'center' });
-
-    // Timestamp on top right
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text(`Generated on: ${format(new Date(), 'dd/MM/yyyy, HH:mm:ss')}`, pageWidth - 14, 16, { align: 'right' });
-
-    // Gray line under header
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
-    doc.line(14, 26, pageWidth - 14, 26);
-
-    let startY = 34;
-
-    if (tabValue === 0) {
-      // By Warehouse Report - Info box
-      const warehouse = warehouses.find(w => w.id === selectedWarehouse);
-      const selectedWoodTypeName = selectedWoodType === 'all'
-        ? 'All Wood Types'
-        : uniqueWoodTypes.find(w => w.id === selectedWoodType)?.name || 'All Wood Types';
-
-      if (warehouse) {
-        // Receipt Information section header
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(30, 41, 59);
-        doc.text('Report Information', 14, startY);
-
-        startY += 6;
-
-        // Info box background
-        doc.setFillColor(248, 250, 252);
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.5);
-        doc.roundedRect(14, startY, pageWidth - 28, 18, 2, 2, 'FD');
-
-        // Two columns layout
-        const col1X = 18;
-        const col2X = pageWidth / 2 + 10;
-        const valueOffset = 38;
-
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(100, 116, 139);
-
-        // Column 1
-        doc.text('Warehouse:', col1X, startY + 6);
-        doc.text('Wood Type Filter:', col1X, startY + 12);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(44, 62, 80);
-        doc.text(`${warehouse.name} (${warehouse.code})`, col1X + valueOffset, startY + 6);
-        doc.text(selectedWoodTypeName, col1X + valueOffset, startY + 12);
-
-        // Column 2
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(100, 116, 139);
-        doc.text('Date:', col2X, startY + 6);
-
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(44, 62, 80);
-        doc.text(format(new Date(), 'dd/MM/yyyy'), col2X + 20, startY + 6);
-
-        startY += 24;
-      }
-
-      if (filteredWarehouseStock.length > 0) {
-        // Stock Details section header
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.setTextColor(30, 41, 59);
-        doc.text('Stock Details', 14, startY);
-
-        startY += 6;
-
-        const tableData = filteredWarehouseStock.map(stock => [
-          stock.woodType.name,
-          stock.thickness,
-          stock.statusNotDried.toString(),
-          stock.statusUnderDrying.toString(),
-          stock.statusDried.toString(),
-          stock.statusDamaged.toString(),
-          (stock.statusInTransitOut + stock.statusInTransitIn).toString(),
-          getTotalStock(stock).toString(),
-          getAvailableStock(stock).toString()
-        ]);
-
-        autoTable(doc, {
-          startY,
-          head: [['Wood Type', 'Thickness', 'Not Dried', 'Under Drying', 'Dried', 'Damaged', 'In Transit', 'Total', 'Available']],
-          body: tableData,
-          theme: 'plain',
-          tableWidth: 'auto',
-          headStyles: {
-            fillColor: [248, 250, 252],
-            textColor: [30, 41, 59],
-            fontStyle: 'bold',
-            fontSize: 10,
-            halign: 'left',
-            cellPadding: { top: 4, right: 5, bottom: 4, left: 5 },
-            lineWidth: 0.1,
-            lineColor: [226, 232, 240]
-          },
-          bodyStyles: {
-            fontSize: 9,
-            cellPadding: { top: 4, right: 5, bottom: 4, left: 5 },
-            textColor: [44, 62, 80]
-          },
-          alternateRowStyles: {
-            fillColor: [250, 250, 250]
-          },
-          columnStyles: {
-            0: { fontStyle: 'bold', textColor: [30, 41, 59], halign: 'left' },
-            1: { halign: 'center' },
-            2: { halign: 'right' },
-            3: { halign: 'right' },
-            4: { halign: 'right', fontStyle: 'bold', textColor: [220, 38, 38] },
-            5: { halign: 'right' },
-            6: { halign: 'right' },
-            7: { halign: 'right', fontStyle: 'bold' },
-            8: { halign: 'right', fontStyle: 'bold', textColor: [22, 163, 74] }
-          },
-          margin: { left: 14, right: 14, bottom: 20 },
-          tableLineColor: [226, 232, 240],
-          tableLineWidth: 0.1,
-          didDrawPage: (data: any) => {
-            // Footer on each page
-            const footerY = pageHeight - 10;
-
-            // Footer text - centered
-            doc.setFontSize(8);
-            doc.setTextColor(148, 163, 184); // Gray color
-            doc.setFont('helvetica', 'normal');
-
-            doc.text(
-              'U Design v1.0.0 • Generated by Wood Processing System',
-              pageWidth / 2,
-              footerY,
-              { align: 'center' }
-            );
-          }
-        });
-      }
-    }
-
-    const warehouse = warehouses.find(w => w.id === selectedWarehouse);
-    const woodTypeFilter = selectedWoodType === 'all'
-      ? ''
-      : ` - ${uniqueWoodTypes.find(w => w.id === selectedWoodType)?.name || ''}`;
-
-    const fileName = `Inventory Report (${warehouse?.code || 'Warehouse'}${woodTypeFilter}) - ${format(new Date(), 'yyyy-MM-dd')}.pdf`;
-
-    doc.save(fileName);
-  };
+  // Get current warehouse for PDF
+  const currentWarehouse = warehouses.find(w => w.id === selectedWarehouse);
+  const currentWoodTypeFilter = selectedWoodType === 'all'
+    ? 'All Wood Types'
+    : uniqueWoodTypes.find(w => w.id === selectedWoodType)?.name || 'All Wood Types';
 
   if (loading && tabValue < 2) {
     return (
@@ -534,25 +732,46 @@ const InventoryReports: FC = () => {
               Inventory Reports
             </Typography>
           </Box>
-          {tabValue === 0 && warehouseStock.length > 0 && (
-            <Button
-              variant="contained"
-              startIcon={<PictureAsPdfIcon />}
-              onClick={exportToPDF}
-              sx={{
-                backgroundColor: '#dc2626',
-                color: '#fff',
-                textTransform: 'none',
-                fontWeight: 600,
-                px: 3,
-                '&:hover': {
-                  backgroundColor: '#b91c1c',
-                },
-                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-              }}
+          {tabValue === 0 && warehouseStock.length > 0 && currentWarehouse && (
+            <BlobProvider
+              document={
+                <InventoryPDF
+                  warehouse={currentWarehouse}
+                  woodTypeFilter={currentWoodTypeFilter}
+                  stockData={filteredWarehouseStock}
+                  timestamp={format(new Date(), 'dd MMM yyyy, HH:mm:ss')}
+                />
+              }
             >
-              Export PDF
-            </Button>
+              {({ blob, url, loading: pdfLoading }) => (
+                <Button
+                  variant="contained"
+                  startIcon={pdfLoading ? <CircularProgress size={18} color="inherit" /> : <PictureAsPdfIcon />}
+                  disabled={pdfLoading}
+                  onClick={() => {
+                    if (url) {
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `Inventory_Report_${currentWarehouse.code}_${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+                      link.click();
+                    }
+                  }}
+                  sx={{
+                    backgroundColor: '#dc2626',
+                    color: '#fff',
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    px: 3,
+                    '&:hover': {
+                      backgroundColor: '#b91c1c',
+                    },
+                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                  }}
+                >
+                  {pdfLoading ? 'Generating...' : 'Export PDF'}
+                </Button>
+              )}
+            </BlobProvider>
           )}
         </Box>
 

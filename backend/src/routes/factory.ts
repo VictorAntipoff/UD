@@ -2347,14 +2347,20 @@ async function factoryRoutes(fastify: FastifyInstance) {
       const stockByThickness = measurements.reduce((acc, m) => {
         let thickness: string;
 
-        // Check if measurement has isCustom flag
-        if (m.isCustom === true) {
+        // Check if measurement has isCustom flag - handle both boolean and string values from JSON
+        const isCustom = m.isCustom === true || m.isCustom === 'true';
+        const isNotCustom = m.isCustom === false || m.isCustom === 'false';
+
+        if (isCustom) {
           // User marked as custom → Always "Custom"
           thickness = 'Custom';
-        } else if (m.isCustom === false) {
-          // User marked as standard → Use thickness value
+        } else if (isNotCustom) {
+          // User marked as standard → Use thickness value with Math.round for proper matching
           const thicknessValue = parseFloat(m.thickness);
-          thickness = `${thicknessValue}"`;
+          const STANDARD_SIZES = [1, 2, 3];
+          thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+            ? `${Math.round(thicknessValue)}"`
+            : 'Custom';
         } else {
           // Legacy/fallback: No isCustom field, use auto-detection
           if (measurementUnit === 'metric') {
@@ -2362,8 +2368,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           } else {
             const thicknessValue = parseFloat(m.thickness);
             const STANDARD_SIZES = [1, 2, 3];
-            thickness = STANDARD_SIZES.includes(thicknessValue)
-              ? `${thicknessValue}"`
+            thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+              ? `${Math.round(thicknessValue)}"`
               : 'Custom';
           }
         }
@@ -2470,8 +2476,9 @@ async function factoryRoutes(fastify: FastifyInstance) {
               length: parseFloat(m.length) || 0,
               qty: parseInt(m.qty) || 1,
               volumeM3: parseFloat(m.m3) || 0,
-              isCustom: m.isCustom === true,
-              isComplimentary: m.isComplimentary === true,
+              // Handle both boolean and string values from JSON
+              isCustom: m.isCustom === true || m.isCustom === 'true',
+              isComplimentary: m.isComplimentary === true || m.isComplimentary === 'true',
               updatedAt: new Date()
             }))
           });

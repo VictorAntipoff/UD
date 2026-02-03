@@ -117,6 +117,7 @@ interface ReceiptForm {
   warehouseName?: string;
   lastModifiedBy?: string;
   lastModifiedAt?: string;
+  receiptConfirmedAt?: string; // When stock was synced to inventory
 }
 
 interface ChangeHistory {
@@ -1670,6 +1671,7 @@ const ReceiptProcessing = () => {
         woodFormat: selectedReceipt.woodFormat || 'SLEEPERS',
         warehouseId: selectedReceipt.warehouseId || '',
         warehouseName: selectedReceipt.warehouse?.name || 'No Warehouse',
+        receiptConfirmedAt: selectedReceipt.receiptConfirmedAt || undefined,
       });
     }
 
@@ -2049,6 +2051,7 @@ const ReceiptProcessing = () => {
       setIsSaving(false);
     }
   };
+
 
   const loadDraft = async (receiptId: string) => {
     try {

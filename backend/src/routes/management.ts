@@ -838,12 +838,15 @@ async function managementRoutes(fastify: FastifyInstance) {
 
         // Determine thickness category for stock
         let thickness: string;
-        if (m.isCustom === true) {
+        // Check isCustom - handle both boolean and string values
+        const isCustom = m.isCustom === true || m.isCustom === 'true';
+        if (isCustom) {
           thickness = 'Custom';
         } else {
           const thicknessValue = parseFloat(m.thickness);
           const STANDARD_SIZES = [1, 2, 3];
-          thickness = STANDARD_SIZES.includes(thicknessValue) ? `${thicknessValue}"` : 'Custom';
+          // Use Math.round to handle floating point values like 1.0, 2.0, 3.0
+          thickness = STANDARD_SIZES.includes(Math.round(thicknessValue)) ? `${Math.round(thicknessValue)}"` : 'Custom';
         }
 
         if (!stockByThickness[thickness]) {
@@ -875,8 +878,9 @@ async function managementRoutes(fastify: FastifyInstance) {
             length: parseFloat(m.length) || 0,
             qty: parseInt(m.qty) || 1,
             volumeM3: parseFloat(m.m3) || 0,
-            isCustom: m.isCustom === true,
-            isComplimentary: m.isComplimentary === true,
+            // Handle both boolean and string values from JSON
+            isCustom: m.isCustom === true || m.isCustom === 'true',
+            isComplimentary: m.isComplimentary === true || m.isComplimentary === 'true',
             updatedAt: new Date()
           }))
         });
@@ -1073,12 +1077,18 @@ async function managementRoutes(fastify: FastifyInstance) {
       // Group measurements by thickness
       const stockByThickness = measurements.reduce((acc, m) => {
         let thickness: string;
+        // Check isCustom - handle both boolean and string values
+        const isCustom = m.isCustom === true || m.isCustom === 'true';
+        const isNotCustom = m.isCustom === false || m.isCustom === 'false';
 
-        if (m.isCustom === true) {
+        if (isCustom) {
           thickness = 'Custom';
-        } else if (m.isCustom === false) {
+        } else if (isNotCustom) {
           const thicknessValue = parseFloat(m.thickness);
-          thickness = `${Math.round(thicknessValue)}"`;
+          const STANDARD_SIZES = [1, 2, 3];
+          thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+            ? `${Math.round(thicknessValue)}"`
+            : 'Custom';
         } else {
           if (measurementUnit === 'metric') {
             thickness = 'Custom';
@@ -1108,6 +1118,46 @@ async function managementRoutes(fastify: FastifyInstance) {
 
       if (force) {
         console.log(`⚠️ Force re-syncing stock for LOT ${receipt.lotNumber} (previously synced at ${receipt.receiptConfirmedAt})`);
+
+        // IMPORTANT: First, reverse the previous stock sync to prevent double-counting
+        // Get all previous stock movements for this receipt
+        const previousMovements = await prisma.stock_movements.findMany({
+          where: {
+            referenceType: 'RECEIPT',
+            referenceId: receipt.id,
+            movementType: 'RECEIPT_SYNC'
+          }
+        });
+
+        if (previousMovements.length > 0) {
+          console.log(`🔄 Reversing ${previousMovements.length} previous stock movements for LOT ${receipt.lotNumber}`);
+
+          for (const movement of previousMovements) {
+            // Decrement the stock that was previously added
+            await prisma.stock.updateMany({
+              where: {
+                warehouseId: movement.warehouseId,
+                woodTypeId: movement.woodTypeId,
+                thickness: movement.thickness
+              },
+              data: {
+                statusNotDried: { decrement: movement.quantityChange },
+                updatedAt: new Date()
+              }
+            });
+            console.log(`  ↩️ Reversed ${movement.thickness}: -${movement.quantityChange} pieces`);
+          }
+
+          // Delete the old movements to keep history clean
+          await prisma.stock_movements.deleteMany({
+            where: {
+              referenceType: 'RECEIPT',
+              referenceId: receipt.id,
+              movementType: 'RECEIPT_SYNC'
+            }
+          });
+          console.log(`  🗑️ Cleaned up old stock movement records`);
+        }
       }
 
       // Update the receipt with the warehouse if not already set
@@ -1124,6 +1174,7 @@ async function managementRoutes(fastify: FastifyInstance) {
 
       for (const [thickness, quantity] of Object.entries(stockByThickness)) {
         const qty = quantity as number;
+        // Use set instead of increment for re-sync to avoid accumulation
         await prisma.stock.upsert({
           where: {
             warehouseId_woodTypeId_thickness: {
@@ -1154,14 +1205,14 @@ async function managementRoutes(fastify: FastifyInstance) {
           warehouseId: warehouseId,
           woodTypeId: receipt.woodTypeId,
           thickness: thickness,
-          movementType: force ? 'RECEIPT_RESYNC' : 'RECEIPT_SYNC',
+          movementType: 'RECEIPT_SYNC',
           quantityChange: qty,
           toStatus: 'NOT_DRIED',
           referenceType: 'RECEIPT',
           referenceId: receipt.id,
           referenceNumber: receipt.lotNumber,
           userId: user?.userId,
-          details: `Manual stock sync for ${receipt.lotNumber}${force ? ' (forced re-sync)' : ''}`
+          details: `Manual stock sync for ${receipt.lotNumber}${force ? ' (re-sync - corrected categorization)' : ''}`
         });
       }
 
