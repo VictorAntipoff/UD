@@ -42,6 +42,10 @@ import HistoryIcon from '@mui/icons-material/History';
 import InfoIcon from '@mui/icons-material/Info';
 import PersonIcon from '@mui/icons-material/Person';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ContentPasteGoIcon from '@mui/icons-material/ContentPasteGo';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import CheckIcon from '@mui/icons-material/Check';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import { alpha } from '@mui/material/styles';
 import { styled } from '@mui/material/styles';
 import type { WoodReceipt } from '../../types/wood-receipt';
@@ -1083,6 +1087,404 @@ const ChangeHistoryDisplay = ({ changeHistory }: { changeHistory: ChangeHistory[
   );
 };
 
+// Interface for parsed measurement with validation status
+interface ParsedMeasurement {
+  id: number;
+  thickness: number;
+  width: number;
+  length: number;
+  qty: number;
+  m3: number;
+  isValid: boolean;
+  errorMessage?: string;
+}
+
+// Paste Measurements Dialog Component
+const PasteMeasurementsDialog = ({
+  open,
+  onClose,
+  onImport,
+  measurementUnit,
+  calculateM3Fn,
+  existingMeasurementsCount,
+  woodFormat
+}: {
+  open: boolean;
+  onClose: () => void;
+  onImport: (measurements: SleeperMeasurement[], replace: boolean) => void;
+  measurementUnit: 'imperial' | 'metric';
+  calculateM3Fn: (thickness: number, width: number, length: number) => number;
+  existingMeasurementsCount: number;
+  woodFormat?: string;
+}) => {
+  const [pasteValue, setPasteValue] = useState('');
+  const [parsedData, setParsedData] = useState<ParsedMeasurement[]>([]);
+  const [markAllCustom, setMarkAllCustom] = useState(false);
+  const [markAllComplimentary, setMarkAllComplimentary] = useState(false);
+  const [replaceExisting, setReplaceExisting] = useState(false);
+
+  const unitLabel = measurementUnit === 'imperial' ? 'inches/feet' : 'cm';
+  const thicknessUnit = measurementUnit === 'imperial' ? 'in' : 'cm';
+  const widthUnit = measurementUnit === 'imperial' ? 'in' : 'cm';
+  const lengthUnit = measurementUnit === 'imperial' ? 'ft' : 'cm';
+  const itemType = woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper';
+
+  // Parse pasted data (keep each row separate - summary table handles aggregation)
+  const parseExcelData = (text: string): ParsedMeasurement[] => {
+    const rows = text.split('\n').filter(row => row.trim());
+    let nextId = existingMeasurementsCount + 1;
+
+    return rows.map((row) => {
+      const cells = row.split('\t').map(cell => cell.trim());
+      const thickness = parseFloat(cells[0]);
+      const width = parseFloat(cells[1]);
+      const length = parseFloat(cells[2]);
+      const qty = parseInt(cells[3]) || 1;
+
+      const isThicknessValid = !isNaN(thickness) && thickness > 0;
+      const isWidthValid = !isNaN(width) && width > 0;
+      const isLengthValid = !isNaN(length) && length > 0;
+      const isQtyValid = qty >= 1;
+      const isValid = isThicknessValid && isWidthValid && isLengthValid && isQtyValid;
+
+      let errorMessage = '';
+      if (!isThicknessValid) errorMessage = 'Invalid thickness';
+      else if (!isWidthValid) errorMessage = 'Invalid width';
+      else if (!isLengthValid) errorMessage = 'Invalid length';
+      else if (!isQtyValid) errorMessage = 'Invalid quantity';
+
+      const singleM3 = isValid ? calculateM3Fn(thickness, width, length) : 0;
+
+      return {
+        id: nextId++,
+        thickness: isThicknessValid ? thickness : 0,
+        width: isWidthValid ? width : 0,
+        length: isLengthValid ? length : 0,
+        qty,
+        m3: singleM3 * qty,
+        isValid,
+        errorMessage
+      };
+    });
+  };
+
+  // Update parsed data when paste value changes
+  React.useEffect(() => {
+    if (pasteValue.trim()) {
+      const parsed = parseExcelData(pasteValue);
+      setParsedData(parsed);
+    } else {
+      setParsedData([]);
+    }
+  }, [pasteValue, existingMeasurementsCount]);
+
+  const validMeasurements = parsedData.filter(m => m.isValid);
+  const invalidCount = parsedData.length - validMeasurements.length;
+
+  const handleImport = () => {
+    const measurementsToImport: SleeperMeasurement[] = validMeasurements.map(m => ({
+      id: m.id,
+      thickness: m.thickness,
+      width: m.width,
+      length: m.length,
+      qty: m.qty,
+      m3: m.m3,
+      isCustom: markAllCustom,
+      isComplimentary: markAllComplimentary,
+      lastModifiedBy: 'Pasted from Excel',
+      lastModifiedAt: new Date().toISOString()
+    }));
+
+    onImport(measurementsToImport, replaceExisting);
+    handleClose();
+  };
+
+  const handleClose = () => {
+    setPasteValue('');
+    setParsedData([]);
+    setMarkAllCustom(false);
+    setMarkAllComplimentary(false);
+    setReplaceExisting(false);
+    onClose();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="md"
+      fullWidth
+      PaperProps={{
+        sx: { borderRadius: 3 }
+      }}
+    >
+      <DialogTitle
+        sx={{
+          fontSize: '1.25rem',
+          fontWeight: 700,
+          color: '#1e293b',
+          borderBottom: '1px solid #e2e8f0',
+          pb: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}
+      >
+        <ContentPasteGoIcon sx={{ color: '#dc2626' }} />
+        Paste {itemType} Measurements from Excel
+      </DialogTitle>
+      <DialogContent sx={{ py: 3 }}>
+        <Box sx={{ mt: 1 }}>
+          {/* Unit information */}
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              Current Unit: {measurementUnit === 'imperial' ? 'Imperial' : 'Metric'} ({unitLabel})
+            </Typography>
+          </Alert>
+
+          {/* Expected format */}
+          <Box sx={{ mb: 2, p: 2, backgroundColor: '#f8fafc', borderRadius: 2, border: '1px solid #e2e8f0' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1e293b' }}>
+              Expected Format:
+            </Typography>
+            <Table size="small" sx={{ maxWidth: 400 }}>
+              <TableHead>
+                <TableRow sx={{ backgroundColor: '#e2e8f0' }}>
+                  <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600, py: 0.5 }}>Thickness ({thicknessUnit})</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600, py: 0.5 }}>Width ({widthUnit})</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600, py: 0.5 }}>Length ({lengthUnit})</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', fontWeight: 600, py: 0.5 }}>Qty</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                <TableRow>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>2</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>6</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>8.74</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>288</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>1</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>8</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>8</TableCell>
+                  <TableCell sx={{ fontSize: '0.75rem', py: 0.5 }}>2</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#64748b' }}>
+              💡 Tip: Select cells in Excel → Copy (Ctrl+C) → Paste here. Qty is optional (defaults to 1).
+            </Typography>
+          </Box>
+
+          {/* Paste area */}
+          <TextField
+            multiline
+            rows={5}
+            fullWidth
+            placeholder="Paste your Excel data here..."
+            value={pasteValue}
+            onChange={(e) => setPasteValue(e.target.value)}
+            sx={{
+              ...textFieldSx,
+              '& .MuiOutlinedInput-root': {
+                ...textFieldSx['& .MuiOutlinedInput-root'],
+                fontFamily: 'monospace',
+                fontSize: '0.875rem'
+              }
+            }}
+          />
+
+          {/* Preview table */}
+          {parsedData.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1e293b' }}>
+                Preview ({validMeasurements.length} {itemType.toLowerCase()}{validMeasurements.length !== 1 ? 's' : ''} to import)
+              </Typography>
+              <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #e2e8f0', maxHeight: 250 }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>#</TableCell>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Thickness</TableCell>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Width</TableCell>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Length</TableCell>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Qty</TableCell>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Vol (m³)</TableCell>
+                      <TableCell sx={{ fontWeight: 600, fontSize: '0.75rem' }}>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {parsedData.map((row, index) => (
+                      <TableRow
+                        key={index}
+                        sx={{
+                          backgroundColor: row.isValid ? 'inherit' : alpha('#ef4444', 0.1)
+                        }}
+                      >
+                        <TableCell sx={{ fontSize: '0.75rem' }}>{index + 1}</TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem' }}>{row.thickness > 0 ? `${row.thickness}${thicknessUnit}` : '-'}</TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem' }}>{row.width > 0 ? `${row.width}${widthUnit}` : '-'}</TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem' }}>{row.length > 0 ? `${row.length}${lengthUnit}` : '-'}</TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem' }}>{row.qty}</TableCell>
+                        <TableCell sx={{ fontSize: '0.75rem', fontWeight: 500 }}>{row.isValid ? row.m3.toFixed(4) : '-'}</TableCell>
+                        <TableCell>
+                          {row.isValid ? (
+                            <Chip
+                              icon={<CheckIcon sx={{ fontSize: '0.875rem !important' }} />}
+                              label="Valid"
+                              size="small"
+                              sx={{
+                                backgroundColor: alpha('#10b981', 0.1),
+                                color: '#10b981',
+                                fontWeight: 600,
+                                fontSize: '0.7rem',
+                                height: 22
+                              }}
+                            />
+                          ) : (
+                            <Tooltip title={row.errorMessage || 'Invalid data'}>
+                              <Chip
+                                icon={<WarningAmberIcon sx={{ fontSize: '0.875rem !important' }} />}
+                                label="Invalid"
+                                size="small"
+                                sx={{
+                                  backgroundColor: alpha('#ef4444', 0.1),
+                                  color: '#ef4444',
+                                  fontWeight: 600,
+                                  fontSize: '0.7rem',
+                                  height: 22
+                                }}
+                              />
+                            </Tooltip>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Summary */}
+              <Box sx={{ mt: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+                <Chip
+                  icon={<CheckIcon sx={{ fontSize: '0.875rem !important' }} />}
+                  label={`${validMeasurements.length} valid`}
+                  size="small"
+                  sx={{
+                    backgroundColor: alpha('#10b981', 0.1),
+                    color: '#10b981',
+                    fontWeight: 600,
+                    fontSize: '0.75rem'
+                  }}
+                />
+                {invalidCount > 0 && (
+                  <Chip
+                    icon={<WarningAmberIcon sx={{ fontSize: '0.875rem !important' }} />}
+                    label={`${invalidCount} invalid (will be skipped)`}
+                    size="small"
+                    sx={{
+                      backgroundColor: alpha('#ef4444', 0.1),
+                      color: '#ef4444',
+                      fontWeight: 600,
+                      fontSize: '0.75rem'
+                    }}
+                  />
+                )}
+                <Typography variant="body2" sx={{ ml: 'auto', fontWeight: 600, color: '#1e293b' }}>
+                  Total: {validMeasurements.reduce((sum, m) => sum + m.m3, 0).toFixed(4)} m³
+                </Typography>
+              </Box>
+
+              {/* Options */}
+              <Box sx={{ mt: 2, p: 2, backgroundColor: '#f8fafc', borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1, color: '#1e293b' }}>
+                  Options:
+                </Typography>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={markAllCustom}
+                        onChange={(e) => setMarkAllCustom(e.target.checked)}
+                        size="small"
+                        sx={{
+                          color: '#f59e0b',
+                          '&.Mui-checked': { color: '#f59e0b' }
+                        }}
+                      />
+                    }
+                    label={<Typography variant="body2" sx={{ fontSize: '0.875rem' }}>Mark all as Custom</Typography>}
+                  />
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={markAllComplimentary}
+                        onChange={(e) => setMarkAllComplimentary(e.target.checked)}
+                        size="small"
+                        sx={{
+                          color: '#10b981',
+                          '&.Mui-checked': { color: '#10b981' }
+                        }}
+                      />
+                    }
+                    label={<Typography variant="body2" sx={{ fontSize: '0.875rem' }}>Mark all as Complimentary/Free</Typography>}
+                  />
+                  {existingMeasurementsCount > 0 && (
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={replaceExisting}
+                          onChange={(e) => setReplaceExisting(e.target.checked)}
+                          size="small"
+                          sx={{
+                            color: '#dc2626',
+                            '&.Mui-checked': { color: '#dc2626' }
+                          }}
+                        />
+                      }
+                      label={
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem', color: replaceExisting ? '#dc2626' : 'inherit' }}>
+                          Replace existing {existingMeasurementsCount} measurements (vs append)
+                        </Typography>
+                      }
+                    />
+                  )}
+                </Box>
+              </Box>
+            </Box>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2, pt: 0, borderTop: '1px solid #e2e8f0' }}>
+        <Button
+          onClick={handleClose}
+          sx={{
+            textTransform: 'none',
+            color: '#64748b',
+            '&:hover': { bgcolor: alpha('#dc2626', 0.08) }
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={handleImport}
+          variant="contained"
+          disabled={validMeasurements.length === 0}
+          sx={{
+            textTransform: 'none',
+            bgcolor: '#dc2626',
+            '&:hover': { bgcolor: '#b91c1c' },
+            '&:disabled': { bgcolor: '#f1f5f9', color: '#94a3b8' },
+            fontWeight: 600
+          }}
+        >
+          Import {validMeasurements.length} {itemType}{validMeasurements.length !== 1 ? 's' : ''}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
 const ReceiptProcessing = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
@@ -1106,6 +1508,7 @@ const ReceiptProcessing = () => {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [completedReceipts, setCompletedReceipts] = useState<WoodReceipt[]>([]);
   const [isReadOnly, setIsReadOnly] = useState(false);
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -1326,6 +1729,25 @@ const ReceiptProcessing = () => {
         });
       }
     }, 100);
+  };
+
+  // Handle paste import from Excel
+  const handlePasteImport = (newMeasurements: SleeperMeasurement[], replace: boolean) => {
+    if (replace) {
+      setMeasurements(newMeasurements);
+    } else {
+      // Append with recalculated IDs to avoid conflicts
+      const maxExistingId = measurements.length > 0 ? Math.max(...measurements.map(m => m.id)) : 0;
+      const adjustedMeasurements = newMeasurements.map((m, index) => ({
+        ...m,
+        id: maxExistingId + index + 1,
+        lastModifiedBy: currentUser?.email || 'Unknown User',
+        lastModifiedAt: new Date().toISOString()
+      }));
+      setMeasurements([...measurements, ...adjustedMeasurements]);
+    }
+    setHasUnsavedChanges(true);
+    enqueueSnackbar(`Imported ${newMeasurements.length} measurement${newMeasurements.length !== 1 ? 's' : ''} from Excel`, { variant: 'success' });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent, rowId: number, field: 'thickness' | 'width' | 'length') => {
@@ -2738,9 +3160,26 @@ const ReceiptProcessing = () => {
                         </Table>
                       </TableContainer>
 
-                      {/* Add Sleeper/Plank button */}
+                      {/* Add Sleeper/Plank and Paste from Excel buttons */}
                       {!isReadOnly && (
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+                          <Button
+                            startIcon={<ContentPasteGoIcon />}
+                            onClick={() => setPasteDialogOpen(true)}
+                            sx={{
+                              color: '#64748b',
+                              fontWeight: 600,
+                              fontSize: '0.875rem',
+                              border: '1px solid #e2e8f0',
+                              '&:hover': {
+                                bgcolor: alpha('#dc2626', 0.04),
+                                borderColor: '#dc2626',
+                                color: '#dc2626',
+                              },
+                            }}
+                          >
+                            Paste from Excel
+                          </Button>
                           <Button
                             startIcon={<AddIcon />}
                             onClick={handleAddRow}
@@ -3309,6 +3748,17 @@ const ReceiptProcessing = () => {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Paste Measurements Dialog */}
+        <PasteMeasurementsDialog
+          open={pasteDialogOpen}
+          onClose={() => setPasteDialogOpen(false)}
+          onImport={handlePasteImport}
+          measurementUnit={measurementUnit}
+          calculateM3Fn={calculateM3}
+          existingMeasurementsCount={measurements.length}
+          woodFormat={formData.woodFormat}
+        />
       </StyledContainer>
     </SnackbarProvider>
   );
