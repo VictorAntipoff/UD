@@ -1918,10 +1918,18 @@ async function factoryRoutes(fastify: FastifyInstance) {
     try {
       const { receipt_id } = request.query as { receipt_id?: string };
 
+      console.log(`GET /drafts - receipt_id: ${receipt_id}`);
+
       const drafts = await prisma.receiptDraft.findMany({
         where: receipt_id ? { receiptId: receipt_id } : undefined,
         orderBy: { updatedAt: 'desc' }
       });
+
+      console.log(`GET /drafts - Found ${drafts.length} drafts${receipt_id ? ` for ${receipt_id}` : ''}`);
+      if (drafts.length > 0 && receipt_id) {
+        const draft = drafts[0];
+        console.log(`GET /drafts - Draft has ${Array.isArray(draft.measurements) ? (draft.measurements as any[]).length : 0} measurements`);
+      }
 
       return drafts;
     } catch (error) {
@@ -2032,7 +2040,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
         data: {
           ...(data.measurements && { measurements: data.measurements }),
           ...(data.measurement_unit && { measurementUnit: data.measurement_unit }),
-          ...(data.updated_by && { updatedBy: data.updated_by })
+          ...(data.updated_by && { updatedBy: data.updated_by }),
+          updatedAt: new Date()
         }
       });
 

@@ -21,6 +21,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   IconButton,
   CircularProgress,
   Chip,
@@ -345,7 +346,7 @@ const MobileMeasurements = ({
 
 const pdfStyles = StyleSheet.create({
   page: {
-    padding: '25 20',
+    padding: '25 20 60 20', // Extra bottom padding for fixed footer
     fontFamily: 'Helvetica',
     fontSize: 7.5,
     color: '#2c3e50'
@@ -483,9 +484,12 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
     entry.action === 'SUBMIT' || entry.action === 'CONFIRM' || entry.action === 'SUBMIT_FOR_APPROVAL'
   ) || changeHistory[0];
 
+  // Get stock summary for inventory display
+  const stockSummary = getStockSummary(measurements, measurementUnit);
+
   return (
   <Document>
-    <Page size="A4" style={pdfStyles.page}>
+    <Page size="A4" style={pdfStyles.page} wrap>
       <View style={pdfStyles.header}>
         <Image src={logo} style={pdfStyles.logo} />
         <Text style={pdfStyles.title}>Receipt Processing Report</Text>
@@ -535,7 +539,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
       <View style={pdfStyles.section}>
         <Text style={pdfStyles.sectionTitle}>{formData.woodFormat === 'PLANKS' ? 'Plank Measurements' : 'Sleeper Measurements'}</Text>
         <View style={pdfStyles.table}>
-          <View style={pdfStyles.tableHeader}>
+          <View style={pdfStyles.tableHeader} fixed>
             <View style={[pdfStyles.tableCell, { flex: 0.4 }]}>
               <Text>No.</Text>
             </View>
@@ -561,7 +565,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
             )}
           </View>
           {measurements.map((m: SleeperMeasurement, index: number) => (
-            <View key={m.id} style={[pdfStyles.tableRow, m.isComplimentary ? { backgroundColor: '#f0fdf4' } : {}]}>
+            <View key={m.id} style={[pdfStyles.tableRow, m.isComplimentary ? { backgroundColor: '#f0fdf4' } : {}]} wrap={false}>
               <View style={[pdfStyles.tableCell, { flex: 0.4 }]}>
                 <Text>{String(index + 1).padStart(3, '0')}</Text>
               </View>
@@ -596,7 +600,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
         </View>
       </View>
 
-      <View style={pdfStyles.section}>
+      <View style={pdfStyles.section} wrap={false}>
         <Text style={pdfStyles.sectionTitle}>{summaryTitle}</Text>
         <View style={pdfStyles.table}>
           <View style={pdfStyles.tableHeader}>
@@ -656,53 +660,7 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
         </View>
       </View>
 
-      {/* Stock Summary Section */}
-      <View style={[pdfStyles.section, { backgroundColor: '#f0f9ff', borderRadius: 2, padding: 6, border: '0.5px solid #bae6fd' }]}>
-        <Text style={[pdfStyles.sectionTitle, { color: '#0c4a6e' }]}>Stock Summary (How this receipt enters inventory)</Text>
-        <View style={pdfStyles.table}>
-          <View style={[pdfStyles.tableHeader, { backgroundColor: '#e0f2fe' }]}>
-            <View style={pdfStyles.tableCell}>
-              <Text style={{ color: '#0c4a6e' }}>Thickness</Text>
-            </View>
-            <View style={pdfStyles.tableCell}>
-              <Text style={{ color: '#0c4a6e' }}>Pieces</Text>
-            </View>
-            <View style={pdfStyles.tableCell}>
-              <Text style={{ color: '#0c4a6e' }}>Status</Text>
-            </View>
-          </View>
-          {getStockSummary(measurements, measurementUnit).map((item, index) => (
-            <View key={index} style={pdfStyles.tableRow}>
-              <View style={pdfStyles.tableCell}>
-                <Text style={{ fontFamily: 'Helvetica-Bold' }}>{item.thickness}</Text>
-              </View>
-              <View style={pdfStyles.tableCell}>
-                <Text>{item.pieces}</Text>
-              </View>
-              <View style={pdfStyles.tableCell}>
-                <View style={{ backgroundColor: '#fef3c7', padding: '1 4', borderRadius: 3, alignSelf: 'flex-start' }}>
-                  <Text style={{ fontSize: 5, fontFamily: 'Helvetica-Bold', color: '#92400e' }}>Not Dried</Text>
-                </View>
-              </View>
-            </View>
-          ))}
-          <View style={[pdfStyles.tableRow, { backgroundColor: '#e0f2fe' }]}>
-            <View style={pdfStyles.tableCell}>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>Total</Text>
-            </View>
-            <View style={pdfStyles.tableCell}>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
-                {getStockSummary(measurements, measurementUnit).reduce((sum, s) => sum + s.pieces, 0)}
-              </Text>
-            </View>
-            <View style={pdfStyles.tableCell}>
-              <Text></Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }}>
+      <View style={{ flexDirection: 'row', marginTop: 8, gap: 10 }} wrap={false}>
         {/* Pieces Section */}
         <View style={{ flex: 1, backgroundColor: '#f8fafc', padding: 6, borderRadius: 2, border: '0.5px solid #e2e8f0' }}>
           <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', marginBottom: 4, color: '#475569', letterSpacing: 0.3 }}>PIECES SUMMARY</Text>
@@ -768,22 +726,116 @@ const ReceiptPDF = ({ formData, measurements, totalM3, totalPaidM3, totalComplim
         </View>
       </View>
 
-      <View style={pdfStyles.footer}>
-        <View style={{ marginBottom: 5 }}>
-          {creator && (
-            <Text style={{ fontSize: 6.5, color: '#64748b', marginBottom: 2 }}>
-              Created by: {creator.userName} on {new Date(creator.timestamp).toLocaleDateString()}
-            </Text>
-          )}
-          {submitter && submitter !== creator && (
-            <Text style={{ fontSize: 6.5, color: '#64748b' }}>
-              Submitted by: {submitter.userName} on {new Date(submitter.timestamp).toLocaleDateString()}
-            </Text>
-          )}
-        </View>
-        <Text style={{ fontSize: 6.5, color: '#94a3b8' }}>
-          {APP_NAME} {APP_VERSION} • Generated by Wood Processing System
+      {/* Stock Summary Section */}
+      <View style={{ marginTop: 10, backgroundColor: '#f0f9ff', borderRadius: 3, padding: 8, border: '0.5px solid #bae6fd' }} wrap={false}>
+        <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#0c4a6e', marginBottom: 6 }}>
+          Stock Summary <Text style={{ fontSize: 7, color: '#64748b', fontFamily: 'Helvetica' }}>(How this receipt enters inventory)</Text>
         </Text>
+        <View style={{ border: '0.5px solid #bae6fd', borderRadius: 3, backgroundColor: '#ffffff' }}>
+          {/* Table Header */}
+          <View style={{ flexDirection: 'row', backgroundColor: '#e0f2fe', padding: '4 8', borderTopLeftRadius: 3, borderTopRightRadius: 3 }}>
+            <Text style={{ flex: 1, fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#0c4a6e' }}>Thickness</Text>
+            <Text style={{ flex: 1, fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#0c4a6e', textAlign: 'center' }}>Pieces</Text>
+            <Text style={{ flex: 1, fontSize: 7, fontFamily: 'Helvetica-Bold', color: '#0c4a6e', textAlign: 'right' }}>Status</Text>
+          </View>
+          {/* Table Rows */}
+          {stockSummary.map((item, index) => (
+            <View key={index} style={{ flexDirection: 'row', padding: '4 8', borderBottom: '0.5px solid #e0f2fe', alignItems: 'center' }}>
+              <Text style={{ flex: 1, fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#1e293b' }}>{item.thickness}</Text>
+              <Text style={{ flex: 1, fontSize: 7.5, color: '#1e293b', textAlign: 'center' }}>{item.pieces}</Text>
+              <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                <View style={{ backgroundColor: '#fef3c7', padding: '2 6', borderRadius: 4 }}>
+                  <Text style={{ fontSize: 5.5, fontFamily: 'Helvetica-Bold', color: '#92400e' }}>Not Dried</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+          {/* Total Row */}
+          <View style={{ flexDirection: 'row', padding: '4 8', backgroundColor: '#f0f9ff', borderBottomLeftRadius: 3, borderBottomRightRadius: 3 }}>
+            <Text style={{ flex: 1, fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#0c4a6e' }}>Total</Text>
+            <Text style={{ flex: 1, fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#0c4a6e', textAlign: 'center' }}>
+              {stockSummary.reduce((sum, s) => sum + s.pieces, 0)}
+            </Text>
+            <View style={{ flex: 1 }} />
+          </View>
+        </View>
+      </View>
+
+      {/* Change History Section */}
+      {changeHistory.length > 0 && (
+        <View style={{ marginTop: 10 }} wrap={false}>
+          <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#475569', marginBottom: 4, backgroundColor: '#f8fafc', padding: '3 5', borderRadius: 2 }}>Change History</Text>
+          <View style={{ border: '0.5px solid #e2e8f0', borderRadius: 3 }}>
+            <View style={{ flexDirection: 'row', backgroundColor: '#f1f5f9', padding: '3 5', borderBottom: '0.5px solid #e2e8f0' }}>
+              <Text style={{ flex: 1.2, fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#475569' }}>Date & Time</Text>
+              <Text style={{ flex: 1, fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#475569' }}>User</Text>
+              <Text style={{ flex: 0.8, fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#475569' }}>Action</Text>
+              <Text style={{ flex: 1.5, fontSize: 6.5, fontFamily: 'Helvetica-Bold', color: '#475569' }}>Details</Text>
+            </View>
+            {changeHistory.slice(0, 10).map((entry, index) => (
+              <View key={index} style={{ flexDirection: 'row', padding: '2.5 5', borderBottom: index < Math.min(changeHistory.length, 10) - 1 ? '0.5px solid #e2e8f0' : 'none' }}>
+                <Text style={{ flex: 1.2, fontSize: 6, color: '#64748b' }}>
+                  {new Date(entry.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </Text>
+                <Text style={{ flex: 1, fontSize: 6, color: '#1e293b' }}>{entry.userName}</Text>
+                <View style={{ flex: 0.8 }}>
+                  <View style={{
+                    backgroundColor: entry.action.includes('CREATED') ? '#dbeafe' :
+                                   entry.action.includes('UPDATED') ? '#fef3c7' :
+                                   entry.action.includes('SUBMIT') ? '#d1fae5' :
+                                   entry.action.includes('CONFIRM') ? '#d1fae5' : '#f1f5f9',
+                    padding: '1 3',
+                    borderRadius: 3,
+                    alignSelf: 'flex-start'
+                  }}>
+                    <Text style={{
+                      fontSize: 5,
+                      fontFamily: 'Helvetica-Bold',
+                      color: entry.action.includes('CREATED') ? '#1e40af' :
+                             entry.action.includes('UPDATED') ? '#92400e' :
+                             entry.action.includes('SUBMIT') ? '#166534' :
+                             entry.action.includes('CONFIRM') ? '#166534' : '#475569'
+                    }}>
+                      {entry.action.replace(/_/g, ' ')}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ flex: 1.5, fontSize: 6, color: '#64748b' }}>{entry.details || '-'}</Text>
+              </View>
+            ))}
+            {changeHistory.length > 10 && (
+              <View style={{ padding: '3 5', backgroundColor: '#f8fafc' }}>
+                <Text style={{ fontSize: 6, color: '#64748b', fontStyle: 'italic', textAlign: 'center' }}>
+                  ... and {changeHistory.length - 10} more entries
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Footer */}
+      <View style={pdfStyles.footer} fixed>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          <View style={{ flex: 1 }}>
+            <View style={{ marginBottom: 3 }}>
+              {creator && (
+                <Text style={{ fontSize: 6, color: '#64748b', marginBottom: 1 }}>
+                  Created by: {creator.userName} on {new Date(creator.timestamp).toLocaleDateString()}
+                </Text>
+              )}
+              {submitter && submitter !== creator && (
+                <Text style={{ fontSize: 6, color: '#64748b' }}>
+                  Submitted by: {submitter.userName} on {new Date(submitter.timestamp).toLocaleDateString()}
+                </Text>
+              )}
+            </View>
+            <Text style={{ fontSize: 6, color: '#94a3b8' }}>
+              {APP_NAME} {APP_VERSION} • Generated by Wood Processing System
+            </Text>
+          </View>
+          <Text style={{ fontSize: 7, color: '#64748b', fontFamily: 'Helvetica-Bold' }} render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
+        </View>
       </View>
     </Page>
   </Document>
@@ -1130,12 +1182,23 @@ const PasteMeasurementsDialog = ({
   const itemType = woodFormat === 'PLANKS' ? 'Plank' : 'Sleeper';
 
   // Parse pasted data (keep each row separate - summary table handles aggregation)
-  const parseExcelData = (text: string): ParsedMeasurement[] => {
+  const parseExcelData = React.useCallback((text: string): ParsedMeasurement[] => {
     const rows = text.split('\n').filter(row => row.trim());
     let nextId = existingMeasurementsCount + 1;
 
     return rows.map((row) => {
-      const cells = row.split('\t').map(cell => cell.trim());
+      // Support both tab-delimited (Excel) and comma-delimited (CSV) formats
+      // Also handle multiple spaces as delimiter
+      let cells: string[];
+      if (row.includes('\t')) {
+        cells = row.split('\t').map(cell => cell.trim());
+      } else if (row.includes(',')) {
+        cells = row.split(',').map(cell => cell.trim());
+      } else {
+        // Fall back to splitting by multiple spaces
+        cells = row.split(/\s+/).map(cell => cell.trim());
+      }
+
       const thickness = parseFloat(cells[0]);
       const width = parseFloat(cells[1]);
       const length = parseFloat(cells[2]);
@@ -1166,7 +1229,7 @@ const PasteMeasurementsDialog = ({
         errorMessage
       };
     });
-  };
+  }, [existingMeasurementsCount, calculateM3Fn]);
 
   // Update parsed data when paste value changes
   React.useEffect(() => {
@@ -1176,7 +1239,7 @@ const PasteMeasurementsDialog = ({
     } else {
       setParsedData([]);
     }
-  }, [pasteValue, existingMeasurementsCount]);
+  }, [pasteValue, parseExcelData]);
 
   const validMeasurements = parsedData.filter(m => m.isValid);
   const invalidCount = parsedData.length - validMeasurements.length;
@@ -1509,6 +1572,8 @@ const ReceiptProcessing = () => {
   const [completedReceipts, setCompletedReceipts] = useState<WoodReceipt[]>([]);
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [measurementsPage, setMeasurementsPage] = useState(0);
+  const [measurementsRowsPerPage, setMeasurementsRowsPerPage] = useState(50);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
@@ -1687,7 +1752,7 @@ const ReceiptProcessing = () => {
     }
   };
 
-  const calculateM3 = (thickness: number, width: number, length: number): number => {
+  const calculateM3 = React.useCallback((thickness: number, width: number, length: number): number => {
     if (measurementUnit === 'imperial') {
       // Convert inches to meters and feet to meters
       const thicknessM = thickness * 0.0254; // inch to meter
@@ -1701,7 +1766,7 @@ const ReceiptProcessing = () => {
       const lengthM = length / 100; // cm to meter
       return thicknessM * widthM * lengthM;
     }
-  };
+  }, [measurementUnit]);
 
   const handleAddRow = () => {
     const newId = measurements.length > 0 ? Math.max(...measurements.map(m => m.id)) + 1 : 1;
@@ -2033,6 +2098,7 @@ const ReceiptProcessing = () => {
             lastModifiedAt: m.createdAt || new Date().toISOString()
           }));
           setMeasurements(processedMeasurements);
+          setMeasurementsPage(0); // Reset pagination when loading new data
           return;
         }
       } catch (measurementsError: any) {
@@ -2091,8 +2157,10 @@ const ReceiptProcessing = () => {
             lastModifiedAt: m.lastModifiedAt || new Date().toISOString()
           }));
           setMeasurements(processedMeasurements);
+          setMeasurementsPage(0); // Reset pagination when loading new data
         } else {
           setMeasurements([]);
+          setMeasurementsPage(0);
         }
       } catch (draftError: any) {
         // Silently handle 404 - no draft exists yet
@@ -2100,10 +2168,12 @@ const ReceiptProcessing = () => {
           console.error('Error loading draft:', draftError);
         }
         setMeasurements([]);
+        setMeasurementsPage(0);
       }
     } catch (error) {
       console.error('Error loading data:', error);
       setMeasurements([]);
+      setMeasurementsPage(0);
     }
   };
 
@@ -2968,7 +3038,11 @@ const ReceiptProcessing = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {measurements.map((row, index) => (
+                            {measurements
+                              .slice(measurementsPage * measurementsRowsPerPage, measurementsPage * measurementsRowsPerPage + measurementsRowsPerPage)
+                              .map((row, pageIndex) => {
+                                const index = measurementsPage * measurementsRowsPerPage + pageIndex;
+                                return (
                               <TableRow
                                 key={row.id}
                                 sx={{
@@ -3155,10 +3229,32 @@ const ReceiptProcessing = () => {
                                   )}
                                 </TableCell>
                               </TableRow>
-                            ))}
+                            );
+                            })}
                           </TableBody>
                         </Table>
                       </TableContainer>
+
+                      {/* Pagination for measurements table */}
+                      {measurements.length > 50 && (
+                        <TablePagination
+                          component="div"
+                          count={measurements.length}
+                          page={measurementsPage}
+                          onPageChange={(_, newPage) => setMeasurementsPage(newPage)}
+                          rowsPerPage={measurementsRowsPerPage}
+                          onRowsPerPageChange={(e) => {
+                            setMeasurementsRowsPerPage(parseInt(e.target.value, 10));
+                            setMeasurementsPage(0);
+                          }}
+                          rowsPerPageOptions={[25, 50, 100, 250]}
+                          labelRowsPerPage="Rows:"
+                          sx={{
+                            '.MuiTablePagination-toolbar': { minHeight: 40 },
+                            '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': { fontSize: '0.8125rem' },
+                          }}
+                        />
+                      )}
 
                       {/* Add Sleeper/Plank and Paste from Excel buttons */}
                       {!isReadOnly && (
