@@ -150,6 +150,9 @@ const WoodTransfer: FC = () => {
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [openCompleteDialog, setOpenCompleteDialog] = useState(false);
   const [openNotifyDialog, setOpenNotifyDialog] = useState(false);
+  const [openCancelDialog, setOpenCancelDialog] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [selectedNotifyUserId, setSelectedNotifyUserId] = useState('');
   const [formData, setFormData] = useState({
@@ -402,6 +405,30 @@ const WoodTransfer: FC = () => {
     }
   };
 
+  const handleOpenCancel = (transfer: Transfer) => {
+    setSelectedTransfer(transfer);
+    setCancelReason('');
+    setOpenCancelDialog(true);
+  };
+
+  const handleCancelTransfer = async () => {
+    if (!selectedTransfer || cancelling) return;
+
+    try {
+      setCancelling(true);
+      await api.post(`/transfers/${selectedTransfer.id}/cancel`, { reason: cancelReason });
+      setSuccess('Transfer cancelled successfully');
+      setOpenCancelDialog(false);
+      setSelectedTransfer(null);
+      setCancelReason('');
+      fetchTransfers();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to cancel transfer');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const handleOpenComplete = (transfer: Transfer) => {
     setSelectedTransfer(transfer);
     setSelectedNotifyUserId('');
@@ -474,8 +501,8 @@ const WoodTransfer: FC = () => {
     });
     setEditItems(transfer.items);
 
-    // If transfer is IN_TRANSIT and source warehouse has stock control, fetch stock for validation
-    if (transfer.status === 'IN_TRANSIT' && transfer.fromWarehouse.stockControlEnabled) {
+    // Fetch source warehouse stock for validation (for any non-completed status)
+    if (!['COMPLETED', 'REJECTED'].includes(transfer.status) && transfer.fromWarehouse.stockControlEnabled) {
       await fetchWarehouseStock(transfer.fromWarehouse.id);
     }
 
@@ -499,20 +526,27 @@ const WoodTransfer: FC = () => {
 
     try {
       setEditing(true);
-      // Validate stock availability for IN_TRANSIT transfers if source has stock control
-      if (selectedTransfer.status === 'IN_TRANSIT' && selectedTransfer.fromWarehouse.stockControlEnabled) {
+      // Validate stock availability if source has stock control
+      if (!['COMPLETED', 'REJECTED'].includes(selectedTransfer.status) && selectedTransfer.fromWarehouse.stockControlEnabled) {
         for (const item of editItems) {
+          const isNewItem = !item.id || item.id.startsWith('temp-');
           const originalItem = selectedTransfer.items.find(i => i.id === item.id);
-          if (!originalItem) continue;
+          const availableStock = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
 
-          // Check if quantity increased
-          if (item.quantity > originalItem.quantity) {
-            const additionalQuantity = item.quantity - originalItem.quantity;
-            const availableStock = getAvailableStock(item.woodType.id, item.thickness, item.woodStatus);
-
-            if (availableStock < additionalQuantity) {
-              setError(`Insufficient stock for ${item.woodType.name} (${item.thickness}). Available: ${availableStock}, Additional needed: ${additionalQuantity}`);
+          if (isNewItem) {
+            // New items need full quantity available
+            if (item.quantity > availableStock) {
+              setError(`Insufficient stock for ${item.woodType.name} (${item.thickness}). Available: ${availableStock}, Requested: ${item.quantity}`);
               return;
+            }
+          } else if (originalItem) {
+            // For existing items, check if quantity increased beyond available
+            if (item.quantity > originalItem.quantity) {
+              const additionalQuantity = item.quantity - originalItem.quantity;
+              if (availableStock < additionalQuantity) {
+                setError(`Insufficient stock for ${item.woodType.name} (${item.thickness}). Available to add: ${availableStock}, Additional needed: ${additionalQuantity}`);
+                return;
+              }
             }
           }
         }
@@ -525,6 +559,16 @@ const WoodTransfer: FC = () => {
 
       // Update transfer metadata (date, notes)
       await api.put(endpoint, editFormData);
+
+      // Delete removed items first (for any non-completed status)
+      if (!['COMPLETED', 'REJECTED'].includes(selectedTransfer.status)) {
+        for (const originalItem of selectedTransfer.items) {
+          const stillExists = editItems.some(item => item.id === originalItem.id);
+          if (!stillExists) {
+            await api.delete(`/transfers/${selectedTransfer.id}/items/${originalItem.id}`);
+          }
+        }
+      }
 
       // Update each item if it changed, or create new items
       for (const item of editItems) {
@@ -932,16 +976,27 @@ const WoodTransfer: FC = () => {
                     )}
                     {/* Edit button for non-completed transfers - FACTORY_MANAGER, WAREHOUSE_MANAGER, ADMIN */}
                     {['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(user?.role || '') &&
-                     transfer.status !== 'COMPLETED' && (
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        color="warning"
-                        startIcon={<EditIcon />}
-                        onClick={() => handleOpenEdit(transfer)}
-                      >
-                        Edit
-                      </Button>
+                     transfer.status !== 'COMPLETED' && transfer.status !== 'REJECTED' && (
+                      <>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="warning"
+                          startIcon={<EditIcon />}
+                          onClick={() => handleOpenEdit(transfer)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          startIcon={<CloseIcon />}
+                          onClick={() => handleOpenCancel(transfer)}
+                        >
+                          Cancel
+                        </Button>
+                      </>
                     )}
                     {/* Admin-only: Edit button for completed transfers */}
                     {user?.role === 'ADMIN' && transfer.status === 'COMPLETED' && (
@@ -2060,8 +2115,8 @@ const WoodTransfer: FC = () => {
                   }}
                 />
 
-                {/* Transfer Items - Only show for IN_TRANSIT status */}
-                {selectedTransfer.status === 'IN_TRANSIT' && editItems.length > 0 && (
+                {/* Transfer Items - Show for all non-completed, non-rejected statuses */}
+                {!['COMPLETED', 'REJECTED'].includes(selectedTransfer.status) && editItems.length > 0 && (
                   <>
                     <Divider />
                     <Box>
@@ -2121,7 +2176,7 @@ const WoodTransfer: FC = () => {
                                     ))}
                                   </TextField>
                                 </Box>
-                                {isNewItem && (
+                                {editItems.length > 1 && (
                                   <IconButton
                                     onClick={() => {
                                       const updatedItems = editItems.filter((_, i) => i !== index);
@@ -2129,6 +2184,7 @@ const WoodTransfer: FC = () => {
                                     }}
                                     size="small"
                                     color="error"
+                                    title="Remove item"
                                   >
                                     <DeleteIcon />
                                   </IconButton>
@@ -2138,16 +2194,14 @@ const WoodTransfer: FC = () => {
                               <Stack spacing={2}>
                                 <Box display="flex" gap={2}>
                                   <TextField
-                                    select={isNewItem}
+                                    select
                                     label="Thickness"
                                     value={item.thickness}
                                     onChange={(e) => handleEditItemChange(index, 'thickness', e.target.value)}
                                     size="small"
                                     fullWidth
-                                    disabled={!isNewItem}
-                                    sx={{ bgcolor: isNewItem ? undefined : '#f1f5f9' }}
                                   >
-                                    {isNewItem && thicknessOptions.map((thickness) => (
+                                    {thicknessOptions.map((thickness) => (
                                       <MenuItem key={thickness} value={thickness}>
                                         {thickness}
                                       </MenuItem>
@@ -2164,9 +2218,7 @@ const WoodTransfer: FC = () => {
                                     inputProps={{ min: 1 }}
                                     helperText={
                                       selectedTransfer.fromWarehouse.stockControlEnabled && originalItem && !isNewItem
-                                        ? item.quantity > originalItem.quantity
-                                          ? `Available to add: ${getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)} pcs`
-                                          : `Original: ${originalItem.quantity} pcs`
+                                        ? `Original: ${originalItem.quantity} pcs | Available: ${getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)} pcs`
                                         : isNewItem && selectedTransfer.fromWarehouse.stockControlEnabled
                                         ? `Available: ${getAvailableStock(item.woodType.id, item.thickness, item.woodStatus)} pcs`
                                         : ''
@@ -2469,6 +2521,59 @@ const WoodTransfer: FC = () => {
               disabled={!selectedNotifyUserId || notifying}
             >
               {notifying ? 'Sending...' : 'Send Notification'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Cancel Transfer Dialog */}
+        <Dialog
+          open={openCancelDialog}
+          onClose={() => { setOpenCancelDialog(false); setSelectedTransfer(null); setCancelReason(''); }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box display="flex" alignItems="center" gap={1}>
+              <CloseIcon color="error" />
+              <Typography variant="h6" fontWeight="bold" color="error">
+                Cancel Transfer
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              {selectedTransfer && (
+                <Alert severity="warning">
+                  You are about to cancel transfer <strong>{selectedTransfer.transferNumber}</strong>.
+                  {selectedTransfer.status === 'IN_TRANSIT' && ' All stock movements will be reversed.'}
+                  {' '}This action cannot be undone.
+                </Alert>
+              )}
+              <TextField
+                label="Reason for cancellation"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                fullWidth
+                multiline
+                rows={3}
+                placeholder="Enter reason for cancelling this transfer..."
+                required
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => { setOpenCancelDialog(false); setSelectedTransfer(null); setCancelReason(''); }} size="large">
+              Go Back
+            </Button>
+            <Button
+              onClick={handleCancelTransfer}
+              variant="contained"
+              color="error"
+              size="large"
+              startIcon={cancelling ? <CircularProgress size={20} color="inherit" /> : <CloseIcon />}
+              disabled={!cancelReason.trim() || cancelling}
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel Transfer'}
             </Button>
           </DialogActions>
         </Dialog>

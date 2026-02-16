@@ -2045,11 +2045,13 @@ async function managementRoutes(fastify: FastifyInstance) {
   fastify.get('/stock/movements/:woodTypeId', async (request, reply) => {
     try {
       const { woodTypeId } = request.params as { woodTypeId: string };
-      const { days, warehouseId, movementType, thickness } = request.query as {
+      const { days, warehouseId, movementType, thickness, startDate, endDate } = request.query as {
         days?: string;
         warehouseId?: string;
         movementType?: string;
         thickness?: string;
+        startDate?: string;
+        endDate?: string;
       };
 
       const filters: any = {
@@ -2059,13 +2061,27 @@ async function managementRoutes(fastify: FastifyInstance) {
         movementType: movementType as any
       };
 
-      if (days) {
+      // Handle date filtering - custom dates take precedence over days
+      if (startDate || endDate) {
+        // Custom date range
+        if (startDate) {
+          filters.startDate = new Date(startDate);
+        }
+        if (endDate) {
+          // Set end date to end of day
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          filters.endDate = end;
+        }
+      } else if (days) {
+        // Days-based filtering
         const daysNum = parseInt(days);
         if (!isNaN(daysNum)) {
           filters.startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
           filters.endDate = new Date();
         }
       }
+      // If no date params, return all movements (no date filtering)
 
       const { getStockMovements } = await import('../services/stockMovementService.js');
       const movements = await getStockMovements(filters);

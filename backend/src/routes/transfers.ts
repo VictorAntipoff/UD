@@ -274,40 +274,6 @@ async function transferRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Warehouse not found' });
       }
 
-      // Check if FROM warehouse has stock control enabled
-      if (fromWarehouse.stockControlEnabled) {
-        // Check stock availability for each item
-        for (const item of data.items) {
-          const stock = await prisma.stock.findUnique({
-            where: {
-              warehouseId_woodTypeId_thickness: {
-                warehouseId: data.fromWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness
-              }
-            }
-          });
-
-          if (!stock) {
-            return reply.status(400).send({
-              error: `Stock not found in source warehouse for wood type ${item.woodTypeId}, thickness ${item.thickness}`
-            });
-          }
-
-          // Check if sufficient quantity available based on wood status
-          const statusField = `status${item.woodStatus.split('_').map((word: string) =>
-            word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-          ).join('')}` as keyof typeof stock;
-          const availableQuantity = stock[statusField] as number;
-
-          if (availableQuantity < item.quantity) {
-            return reply.status(400).send({
-              error: `Insufficient stock for wood type ${item.woodTypeId}. Available: ${availableQuantity}, Requested: ${item.quantity}`
-            });
-          }
-        }
-      }
-
       // Generate transfer number (format: UD-TRF-00001)
       const count = await prisma.transfer.count();
       const transferNumber = `UD-TRF-${String(count + 1).padStart(5, '0')}`;
@@ -315,8 +281,34 @@ async function transferRoutes(fastify: FastifyInstance) {
       // Determine initial status based on whether approval is required
       const initialStatus = fromWarehouse.requiresApproval ? 'PENDING' : 'APPROVED';
 
-      // Create transfer in a transaction with increased timeout
+      // Create transfer in a transaction with stock validation inside for atomicity
       const result = await prisma.$transaction(async (tx) => {
+        // Validate stock availability inside the transaction to prevent race conditions
+        if (fromWarehouse.stockControlEnabled) {
+          for (const item of data.items) {
+            const stock = await tx.stock.findUnique({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: data.fromWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                }
+              }
+            });
+
+            if (!stock) {
+              throw new Error(`Stock not found in source warehouse for wood type ${item.woodTypeId}, thickness ${item.thickness}`);
+            }
+
+            const statusField = getStatusFieldName(item.woodStatus) as keyof typeof stock;
+            const availableQuantity = stock[statusField] as number;
+
+            if (availableQuantity < item.quantity) {
+              throw new Error(`Insufficient stock. Available: ${availableQuantity}, Requested: ${item.quantity}`);
+            }
+          }
+        }
+
         // Create the transfer
         const transfer = await tx.transfer.create({
           data: {
@@ -349,10 +341,7 @@ async function transferRoutes(fastify: FastifyInstance) {
         // If transfer is auto-approved and either warehouse has stock control, process stock updates
         if (initialStatus === 'APPROVED' && (fromWarehouse.stockControlEnabled || toWarehouse.stockControlEnabled)) {
           for (const item of data.items) {
-            // Convert NOT_DRIED -> NotDried, UNDER_DRYING -> UnderDrying, etc.
-            const statusField = `status${item.woodStatus.split('_').map((word: string) =>
-              word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-            ).join('')}`;
+            const statusField = getStatusFieldName(item.woodStatus);
 
             // Deduct from source warehouse (only if source has stock control)
             if (fromWarehouse.stockControlEnabled) {
@@ -480,8 +469,12 @@ async function transferRoutes(fastify: FastifyInstance) {
       });
 
       return mapTransfer(result);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating transfer:', error);
+      const message = error?.message || '';
+      if (message.includes('Insufficient stock') || message.includes('Stock not found')) {
+        return reply.status(400).send({ error: message });
+      }
       return reply.status(500).send({ error: 'Failed to create transfer' });
     }
   });
@@ -521,38 +514,34 @@ async function transferRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Check stock availability again if source has stock control
-      if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
-        for (const item of (transfer as any).TransferItem) {
-          const stock = await prisma.stock.findUnique({
-            where: {
-              warehouseId_woodTypeId_thickness: {
-                warehouseId: transfer.fromWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness
+      // Approve and update stock in a transaction (validation inside for atomicity)
+      const result = await prisma.$transaction(async (tx) => {
+        // Validate stock availability inside transaction to prevent race conditions
+        if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
+          for (const item of (transfer as any).TransferItem) {
+            const stock = await tx.stock.findUnique({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: transfer.fromWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                }
               }
+            });
+
+            if (!stock) {
+              throw new Error(`Stock not found in source warehouse for item ${item.id}`);
             }
-          });
 
-          if (!stock) {
-            return reply.status(400).send({
-              error: `Stock not found in source warehouse for item ${item.id}`
-            });
-          }
+            const statusField = getStatusFieldName(item.woodStatus) as keyof typeof stock;
+            const availableQuantity = stock[statusField] as number;
 
-          const statusField = getStatusFieldName(item.woodStatus) as keyof typeof stock;
-          const availableQuantity = stock[statusField] as number;
-
-          if (availableQuantity < item.quantity) {
-            return reply.status(400).send({
-              error: `Insufficient stock for item ${item.id}. Available: ${availableQuantity}, Requested: ${item.quantity}`
-            });
+            if (availableQuantity < item.quantity) {
+              throw new Error(`Insufficient stock. Available: ${availableQuantity}, Requested: ${item.quantity}`);
+            }
           }
         }
-      }
 
-      // Approve and update stock in a transaction
-      const result = await prisma.$transaction(async (tx) => {
         // Update transfer status
         const updatedTransfer = await tx.transfer.update({
           where: { id },
@@ -633,8 +622,12 @@ async function transferRoutes(fastify: FastifyInstance) {
       });
 
       return mapTransfer(result);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error approving transfer:', error);
+      const message = error?.message || '';
+      if (message.includes('Insufficient stock') || message.includes('Stock not found')) {
+        return reply.status(400).send({ error: message });
+      }
       return reply.status(500).send({ error: 'Failed to approve transfer' });
     }
   });
@@ -1604,6 +1597,285 @@ async function transferRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error editing transfer item:', error);
       return reply.status(500).send({ error: 'Failed to edit transfer item' });
+    }
+  });
+
+  // Delete a transfer item
+  fastify.delete('/:id/items/:itemId', async (request, reply) => {
+    try {
+      const { id, itemId } = request.params as { id: string; itemId: string };
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      if (!['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(userRole)) {
+        return reply.status(403).send({ error: 'Access denied' });
+      }
+
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      // Get the item with transfer and wood type
+      const existingItem = await prisma.transferItem.findUnique({
+        where: { id: itemId },
+        include: {
+          Transfer: {
+            include: {
+              Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+              Warehouse_Transfer_toWarehouseIdToWarehouse: true,
+              TransferItem: true
+            }
+          },
+          WoodType: true
+        }
+      });
+
+      if (!existingItem || existingItem.transferId !== id) {
+        return reply.status(404).send({ error: 'Transfer item not found' });
+      }
+
+      if (existingItem.Transfer.status === 'COMPLETED') {
+        return reply.status(400).send({ error: 'Cannot delete items from a completed transfer' });
+      }
+
+      // Must have at least 1 item remaining
+      if (existingItem.Transfer.TransferItem.length <= 1) {
+        return reply.status(400).send({ error: 'Cannot delete the last item. Cancel the transfer instead.' });
+      }
+
+      await prisma.$transaction(async (tx) => {
+        // If IN_TRANSIT, reverse the stock movements
+        if (existingItem.Transfer.status === 'IN_TRANSIT') {
+          const fromWarehouse = (existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+          const toWarehouse = (existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
+          const statusField = getStatusFieldName(existingItem.woodStatus);
+
+          // Return stock to source warehouse (if stock control enabled)
+          if (fromWarehouse.stockControlEnabled) {
+            await tx.stock.upsert({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: existingItem.Transfer.fromWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness
+                }
+              },
+              update: {
+                [statusField]: { increment: existingItem.quantity },
+                statusInTransitOut: { decrement: existingItem.quantity }
+              },
+              create: {
+                id: crypto.randomUUID(),
+                warehouseId: existingItem.Transfer.fromWarehouseId,
+                woodTypeId: existingItem.woodTypeId,
+                thickness: existingItem.thickness,
+                [statusField]: existingItem.quantity
+              }
+            });
+          }
+
+          // Remove from destination warehouse in-transit (if stock control enabled)
+          if (toWarehouse.stockControlEnabled) {
+            const destStock = await tx.stock.findUnique({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: existingItem.Transfer.toWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness
+                }
+              }
+            });
+
+            if (destStock) {
+              await tx.stock.update({
+                where: {
+                  warehouseId_woodTypeId_thickness: {
+                    warehouseId: existingItem.Transfer.toWarehouseId,
+                    woodTypeId: existingItem.woodTypeId,
+                    thickness: existingItem.thickness
+                  }
+                },
+                data: {
+                  statusInTransitIn: { decrement: existingItem.quantity }
+                }
+              });
+            }
+          }
+        }
+
+        // Delete the item
+        await tx.transferItem.delete({ where: { id: itemId } });
+
+        // Log history
+        const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+        await tx.transferHistory.create({
+          data: {
+            id: crypto.randomUUID(),
+            transferId: id,
+            transferNumber: existingItem.Transfer.transferNumber,
+            userId: currentUser.id,
+            userName,
+            userEmail: currentUser.email,
+            action: 'ITEM_DELETED',
+            details: `Removed item: ${(existingItem as any).WoodType.name} - ${existingItem.thickness} x ${existingItem.quantity} pcs (${existingItem.woodStatus})`
+          }
+        });
+      });
+
+      return { message: 'Item deleted successfully' };
+    } catch (error) {
+      console.error('Error deleting transfer item:', error);
+      return reply.status(500).send({ error: 'Failed to delete transfer item' });
+    }
+  });
+
+  // Cancel a transfer (PENDING, APPROVED, or IN_TRANSIT)
+  fastify.post('/:id/cancel', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { reason } = request.body as { reason?: string };
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      if (!['ADMIN', 'FACTORY_MANAGER', 'WAREHOUSE_MANAGER'].includes(userRole)) {
+        return reply.status(403).send({ error: 'Access denied' });
+      }
+
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      const transfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: {
+          TransferItem: {
+            include: { WoodType: true }
+          },
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true
+        }
+      });
+
+      if (!transfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      if (transfer.status === 'COMPLETED') {
+        return reply.status(400).send({ error: 'Cannot cancel a completed transfer. Contact admin for stock adjustments.' });
+      }
+
+      if (transfer.status === 'REJECTED') {
+        return reply.status(400).send({ error: 'Transfer is already rejected' });
+      }
+
+      await prisma.$transaction(async (tx) => {
+        // If IN_TRANSIT, reverse all stock movements
+        if (transfer.status === 'IN_TRANSIT') {
+          const fromWarehouse = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+          const toWarehouse = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
+
+          for (const item of transfer.TransferItem) {
+            const statusField = getStatusFieldName(item.woodStatus);
+
+            // Return stock to source warehouse
+            if (fromWarehouse.stockControlEnabled) {
+              await tx.stock.upsert({
+                where: {
+                  warehouseId_woodTypeId_thickness: {
+                    warehouseId: transfer.fromWarehouseId,
+                    woodTypeId: item.woodTypeId,
+                    thickness: item.thickness
+                  }
+                },
+                update: {
+                  [statusField]: { increment: item.quantity },
+                  statusInTransitOut: { decrement: item.quantity }
+                },
+                create: {
+                  id: crypto.randomUUID(),
+                  warehouseId: transfer.fromWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness,
+                  [statusField]: item.quantity
+                }
+              });
+            }
+
+            // Remove from destination in-transit
+            if (toWarehouse.stockControlEnabled) {
+              const destStock = await tx.stock.findUnique({
+                where: {
+                  warehouseId_woodTypeId_thickness: {
+                    warehouseId: transfer.toWarehouseId,
+                    woodTypeId: item.woodTypeId,
+                    thickness: item.thickness
+                  }
+                }
+              });
+
+              if (destStock) {
+                await tx.stock.update({
+                  where: {
+                    warehouseId_woodTypeId_thickness: {
+                      warehouseId: transfer.toWarehouseId,
+                      woodTypeId: item.woodTypeId,
+                      thickness: item.thickness
+                    }
+                  },
+                  data: {
+                    statusInTransitIn: { decrement: item.quantity }
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        // Update transfer status to CANCELLED
+        await tx.transfer.update({
+          where: { id },
+          data: {
+            status: 'REJECTED',
+            notes: reason ? `${transfer.notes ? transfer.notes + '\n' : ''}CANCELLED: ${reason}` : transfer.notes
+          }
+        });
+
+        // Log history
+        const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+        await tx.transferHistory.create({
+          data: {
+            id: crypto.randomUUID(),
+            transferId: id,
+            transferNumber: transfer.transferNumber,
+            userId: currentUser.id,
+            userName,
+            userEmail: currentUser.email,
+            action: 'CANCELLED',
+            details: reason || 'Transfer cancelled'
+          }
+        });
+      });
+
+      // Return updated transfer
+      const updatedTransfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: transferInclude
+      });
+
+      return mapTransfer(updatedTransfer);
+    } catch (error) {
+      console.error('Error cancelling transfer:', error);
+      return reply.status(500).send({ error: 'Failed to cancel transfer' });
     }
   });
 
