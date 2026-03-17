@@ -1906,6 +1906,319 @@ async function transferRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Preview what reversing a completed transfer would do (read-only)
+  fastify.get('/:id/reverse-preview', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const userRole = (request as any).user?.role;
+
+      if (userRole !== 'ADMIN') {
+        return reply.status(403).send({ error: 'Only admins can reverse completed transfers' });
+      }
+
+      const transfer = await prisma.transfer.findUnique({
+        where: { id },
+        include: {
+          TransferItem: { include: { WoodType: true } },
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true
+        }
+      });
+
+      if (!transfer) {
+        return reply.status(404).send({ error: 'Transfer not found' });
+      }
+
+      if (transfer.status !== 'COMPLETED') {
+        return reply.status(400).send({
+          error: transfer.status === 'REJECTED'
+            ? 'Transfer has already been reversed or rejected'
+            : `Transfer is ${transfer.status}, not COMPLETED. Use cancel instead.`
+        });
+      }
+
+      const fromWarehouse = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+      const toWarehouse = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
+      const warnings: string[] = [];
+      let canReverse = true;
+
+      const itemsToReverse: Array<{
+        woodType: string;
+        thickness: string;
+        woodStatus: string;
+        quantity: number;
+        destinationStock: { notDried: number; underDrying: number; dried: number; damaged: number } | null;
+        sufficient: boolean;
+      }> = [];
+
+      // Check if destination warehouse has enough stock to reverse
+      for (const item of transfer.TransferItem) {
+        const statusField = getStatusFieldName(item.woodStatus);
+        let destinationStock = null;
+        let sufficient = true;
+
+        if (toWarehouse.stockControlEnabled) {
+          const stock = await prisma.stock.findUnique({
+            where: {
+              warehouseId_woodTypeId_thickness: {
+                warehouseId: transfer.toWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness
+              }
+            }
+          });
+
+          if (stock) {
+            destinationStock = {
+              notDried: stock.statusNotDried,
+              underDrying: stock.statusUnderDrying,
+              dried: stock.statusDried,
+              damaged: stock.statusDamaged
+            };
+
+            // Check if the specific status field has enough stock
+            const currentValue = (stock as any)[statusField] || 0;
+            if (currentValue < item.quantity) {
+              sufficient = false;
+              canReverse = false;
+              warnings.push(`${item.thickness} ${(item as any).WoodType?.name || ''}: destination has ${currentValue} ${item.woodStatus} but need ${item.quantity} to reverse`);
+            }
+          } else {
+            sufficient = false;
+            canReverse = false;
+            warnings.push(`${item.thickness} ${(item as any).WoodType?.name || ''}: no stock record found at destination`);
+          }
+        }
+
+        itemsToReverse.push({
+          woodType: (item as any).WoodType?.name || item.woodTypeId,
+          thickness: item.thickness,
+          woodStatus: item.woodStatus,
+          quantity: item.quantity,
+          destinationStock,
+          sufficient
+        });
+      }
+
+      return {
+        transfer: {
+          id: transfer.id,
+          transferNumber: transfer.transferNumber,
+          status: transfer.status,
+          fromWarehouse: fromWarehouse.name,
+          toWarehouse: toWarehouse.name,
+          completedAt: transfer.completedAt
+        },
+        itemsToReverse,
+        canReverse,
+        warnings
+      };
+    } catch (error) {
+      console.error('Error generating reverse preview:', error);
+      return reply.status(500).send({ error: 'Failed to generate reverse preview' });
+    }
+  });
+
+  // Reverse a completed transfer (admin only - returns stock to source warehouse)
+  fastify.post('/:id/reverse', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const { reason } = request.body as { reason?: string };
+      const userId = (request as any).user?.userId;
+      const userRole = (request as any).user?.role;
+
+      if (userRole !== 'ADMIN') {
+        return reply.status(403).send({ error: 'Only admins can reverse completed transfers' });
+      }
+
+      const currentUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, firstName: true, lastName: true }
+      });
+
+      if (!currentUser) {
+        return reply.status(401).send({ error: 'User not found' });
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        const transfer = await tx.transfer.findUnique({
+          where: { id },
+          include: {
+            TransferItem: { include: { WoodType: true } },
+            Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+            Warehouse_Transfer_toWarehouseIdToWarehouse: true
+          }
+        });
+
+        if (!transfer) {
+          throw new Error('Transfer not found');
+        }
+
+        if (transfer.status !== 'COMPLETED') {
+          throw new Error(transfer.status === 'REJECTED'
+            ? 'Transfer has already been reversed or rejected'
+            : `Transfer is ${transfer.status}, not COMPLETED`);
+        }
+
+        const fromWarehouse = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+        const toWarehouse = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
+        const reversals: Array<{ woodType: string; thickness: string; quantity: number; woodStatus: string }> = [];
+
+        for (const item of transfer.TransferItem) {
+          const statusField = getStatusFieldName(item.woodStatus);
+
+          // Remove stock from destination warehouse
+          if (toWarehouse.stockControlEnabled) {
+            const destStock = await tx.stock.findUnique({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: transfer.toWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                }
+              }
+            });
+
+            if (!destStock) {
+              throw new Error(`No stock record at destination for ${item.thickness} - cannot reverse`);
+            }
+
+            const currentValue = (destStock as any)[statusField] || 0;
+            if (currentValue < item.quantity) {
+              throw new Error(`Insufficient stock at ${toWarehouse.name} for ${item.thickness}: has ${currentValue} ${item.woodStatus} but need ${item.quantity}. Stock may have been moved.`);
+            }
+
+            await tx.stock.update({
+              where: { id: destStock.id },
+              data: {
+                [statusField]: { decrement: item.quantity },
+                updatedAt: new Date()
+              }
+            });
+
+            // Log reversal stock movement at destination
+            const { createStockMovement } = await import('../services/stockMovementService.js');
+            await createStockMovement({
+              warehouseId: transfer.toWarehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              movementType: 'MANUAL_ADJUSTMENT',
+              quantityChange: -item.quantity,
+              fromStatus: item.woodStatus as any,
+              referenceType: 'TRANSFER',
+              referenceId: transfer.id,
+              referenceNumber: transfer.transferNumber,
+              userId: currentUser.id,
+              userName: `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email,
+              details: `Transfer ${transfer.transferNumber} reversed - removed ${item.quantity} pcs ${item.thickness} from ${toWarehouse.name}`
+            }, tx);
+          }
+
+          // Return stock to source warehouse
+          if (fromWarehouse.stockControlEnabled) {
+            await tx.stock.upsert({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: transfer.fromWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness
+                }
+              },
+              update: {
+                [statusField]: { increment: item.quantity },
+                updatedAt: new Date()
+              },
+              create: {
+                id: crypto.randomUUID(),
+                warehouseId: transfer.fromWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                statusNotDried: 0,
+                statusUnderDrying: 0,
+                statusDried: 0,
+                statusDamaged: 0,
+                statusInTransitOut: 0,
+                statusInTransitIn: 0,
+                [statusField]: item.quantity,
+                updatedAt: new Date()
+              }
+            });
+
+            // Log reversal stock movement at source
+            const { createStockMovement } = await import('../services/stockMovementService.js');
+            await createStockMovement({
+              warehouseId: transfer.fromWarehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              movementType: 'MANUAL_ADJUSTMENT',
+              quantityChange: item.quantity,
+              toStatus: item.woodStatus as any,
+              referenceType: 'TRANSFER',
+              referenceId: transfer.id,
+              referenceNumber: transfer.transferNumber,
+              userId: currentUser.id,
+              userName: `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email,
+              details: `Transfer ${transfer.transferNumber} reversed - returned ${item.quantity} pcs ${item.thickness} to ${fromWarehouse.name}`
+            }, tx);
+          }
+
+          reversals.push({
+            woodType: (item as any).WoodType?.name || item.woodTypeId,
+            thickness: item.thickness,
+            quantity: item.quantity,
+            woodStatus: item.woodStatus
+          });
+        }
+
+        // Update transfer status
+        await tx.transfer.update({
+          where: { id },
+          data: {
+            status: 'REJECTED',
+            notes: `${transfer.notes ? transfer.notes + '\n' : ''}REVERSED: ${reason || 'Transfer reversed by admin'}`
+          }
+        });
+
+        // Log history
+        const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+        await tx.transferHistory.create({
+          data: {
+            id: crypto.randomUUID(),
+            transferId: id,
+            transferNumber: transfer.transferNumber,
+            userId: currentUser.id,
+            userName,
+            userEmail: currentUser.email,
+            action: 'REVERSED',
+            details: reason
+              ? `Transfer reversed: ${reason}. Stock returned to ${fromWarehouse.name}`
+              : `Transfer reversed. Stock returned to ${fromWarehouse.name}`
+          }
+        });
+
+        return {
+          transferNumber: transfer.transferNumber,
+          fromWarehouse: fromWarehouse.name,
+          toWarehouse: toWarehouse.name,
+          reversals
+        };
+      });
+
+      console.log(`🔄 Transfer ${result.transferNumber} reversed by ${currentUser.email}`, result.reversals);
+
+      return { success: true, ...result };
+    } catch (error: any) {
+      console.error('Error reversing transfer:', error);
+      if (error.message?.includes('not found') || error.message?.includes('not COMPLETED')) {
+        return reply.status(400).send({ error: error.message });
+      }
+      if (error.message?.includes('Insufficient stock')) {
+        return reply.status(409).send({ error: error.message });
+      }
+      return reply.status(500).send({ error: 'Failed to reverse transfer' });
+    }
+  });
+
   // Send notification for a transfer
   fastify.post('/:id/notify', async (request, reply) => {
     try {

@@ -192,6 +192,7 @@ const WoodReceipt = () => {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [sendingNotification, setSendingNotification] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(true);
 
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -1186,213 +1187,293 @@ const WoodReceipt = () => {
                 </TableRow>
               ))}
 
-              {/* Cancelled LOTs */}
-              {receipts.filter(r => r.status === 'CANCELLED').map((receipt) => (
-                <TableRow key={receipt.id} sx={{ opacity: 0.5, backgroundColor: '#fef2f2' }}>
-                  <TableCell>
-                    <Box
-                      onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        backgroundColor: '#991b1b',
-                        color: '#fff',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1,
-                        fontWeight: 600,
-                        fontSize: '0.75rem',
-                        letterSpacing: '0.025em',
-                        cursor: receipt.lot_number ? 'pointer' : 'default',
-                        textDecoration: 'line-through',
-                        transition: 'all 0.2s ease',
-                        '&:hover': receipt.lot_number ? { backgroundColor: '#7f1d1d' } : {}
-                      }}
-                    >
-                      {receipt.lot_number}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.supplier}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.wood_type_name}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString() : '-'}</Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.actual_pieces || receipt.estimated_pieces || '-'}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label="Cancelled"
-                      size="small"
-                      sx={{
-                        fontSize: '0.6875rem',
-                        fontWeight: 600,
-                        height: '24px',
-                        px: 1.25,
-                        borderRadius: 1,
-                        backgroundColor: '#991b1b',
-                        color: '#fff',
-                        border: 'none',
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell />
-                </TableRow>
-              ))}
-
-              {/* Completed LOTs toggle */}
-              {receipts.filter(r => r.status === 'COMPLETED').length > 0 && (
-                <TableRow>
-                  <TableCell colSpan={8} sx={{ p: 0, border: 'none' }}>
-                    <Box
-                      onClick={() => setShowCompleted(!showCompleted)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 1,
-                        py: 1,
-                        cursor: 'pointer',
-                        backgroundColor: '#f1f5f9',
-                        borderTop: '2px solid #e2e8f0',
-                        transition: 'all 0.2s ease',
-                        '&:hover': { backgroundColor: '#e2e8f0' }
-                      }}
-                    >
-                      {showCompleted ? <ExpandLessIcon sx={{ fontSize: '1rem', color: '#64748b' }} /> : <ExpandMoreIcon sx={{ fontSize: '1rem', color: '#64748b' }} />}
-                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>
-                        {showCompleted ? 'Hide' : 'Show'} Completed LOTs ({receipts.filter(r => r.status === 'COMPLETED').length})
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              )}
-
-              {/* Completed LOTs - collapsible */}
-              {showCompleted && receipts.filter(r => r.status === 'COMPLETED').map((receipt) => (
-                <TableRow key={receipt.id} sx={{ opacity: 0.75 }}>
-                  <TableCell>
-                    <Box
-                      onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        backgroundColor: '#dc2626',
-                        color: '#fff',
-                        px: 1.5,
-                        py: 0.5,
-                        borderRadius: 1,
-                        fontWeight: 600,
-                        fontSize: '0.75rem',
-                        letterSpacing: '0.025em',
-                        cursor: receipt.lot_number ? 'pointer' : 'default',
-                        transition: 'all 0.2s ease',
-                        '&:hover': receipt.lot_number ? {
-                          backgroundColor: '#b91c1c',
-                          boxShadow: '0 2px 4px rgba(220, 38, 38, 0.3)',
-                        } : {},
-                      }}
-                    >
-                      {receipt.lot_number || 'N/A'}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.8125rem' }}>
-                      {receipt.wood_type?.name}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ color: '#475569', fontSize: '0.8125rem' }}>
-                      {receipt.supplier}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography sx={{ color: '#64748b', fontSize: '0.8125rem', fontWeight: 500 }}>
-                      {receipt.purchase_order || 'N/A'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box>
-                      <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
-                        {(() => {
-                          const volume = receipt.actualVolumeM3 || receipt.estimatedVolumeM3 || receipt.total_volume_m3;
-                          return volume ? parseFloat(volume.toString()).toFixed(4) : '0';
-                        })()}
-                      </Typography>
-                      <Typography sx={{ color: '#10b981', fontSize: '0.625rem', fontWeight: 600, mt: 0.25 }}>
-                        ACTUAL
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Box>
-                      <Typography sx={{ color: '#1e293b', fontWeight: 600, fontSize: '0.8125rem' }}>
-                        {receipt.actualPieces || receipt.estimatedPieces || receipt.total_pieces || '0'}
-                      </Typography>
-                      <Typography sx={{ color: '#10b981', fontSize: '0.625rem', fontWeight: 600, mt: 0.25 }}>
-                        ACTUAL
-                      </Typography>
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label="Completed"
-                      size="small"
-                      sx={{
-                        fontSize: '0.6875rem',
-                        fontWeight: 600,
-                        height: '24px',
-                        px: 1.25,
-                        borderRadius: 1,
-                        backgroundColor: '#10b981',
-                        color: '#fff',
-                        border: 'none',
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <IconButton
-                      size="small"
-                      onClick={() => handleEditClick(receipt)}
-                      sx={{
-                        backgroundColor: '#dc2626',
-                        color: '#fff',
-                        width: 32,
-                        height: 32,
-                        '&:hover': { backgroundColor: '#b91c1c' },
-                        transition: 'all 0.2s ease',
-                      }}
-                    >
-                      <EditIcon fontSize="small" />
-                    </IconButton>
-                    {isAdmin && (
-                      <IconButton
-                        size="small"
-                        onClick={() => handleReopenLot(receipt)}
-                        sx={{
-                          backgroundColor: '#10b981',
-                          color: '#fff',
-                          ml: 1,
-                          width: 32,
-                          height: 32,
-                          '&:hover': { backgroundColor: '#059669' },
-                          transition: 'all 0.2s ease',
-                        }}
-                      >
-                        <LockOpenIcon fontSize="small" />
-                      </IconButton>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
             </TableBody>
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* Completed LOTs Section */}
+      {receipts.filter(r => r.status === 'COMPLETED').length > 0 && (
+        <Paper
+          elevation={3}
+          sx={{
+            mt: 2,
+            borderRadius: 3,
+            overflow: 'hidden',
+            border: '1px solid #d1fae5',
+            background: 'linear-gradient(135deg, #f0fdf4 0%, #fff 100%)',
+          }}
+        >
+          <Box
+            onClick={() => setShowCompleted(!showCompleted)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              px: 3,
+              py: 2,
+              cursor: 'pointer',
+              backgroundColor: '#d1fae5',
+              transition: 'all 0.2s ease',
+              '&:hover': { backgroundColor: '#bbf7d0' }
+            }}
+          >
+            <CheckCircleIcon sx={{ color: '#059669', fontSize: '1.5rem' }} />
+            <Box flex={1}>
+              <Typography sx={{ fontWeight: 700, color: '#059669', fontSize: '1rem' }}>
+                Completed LOTs
+              </Typography>
+              <Typography sx={{ fontSize: '0.8rem', color: '#10b981' }}>
+                {receipts.filter(r => r.status === 'COMPLETED').length} {receipts.filter(r => r.status === 'COMPLETED').length === 1 ? 'lot' : 'lots'} completed
+              </Typography>
+            </Box>
+            <Chip
+              label={receipts.filter(r => r.status === 'COMPLETED').length}
+              sx={{
+                backgroundColor: '#059669',
+                color: '#fff',
+                fontWeight: 'bold',
+                fontSize: '0.875rem',
+                height: 30,
+                minWidth: 36,
+                borderRadius: '8px',
+              }}
+            />
+            {showCompleted ? <ExpandLessIcon sx={{ color: '#059669' }} /> : <ExpandMoreIcon sx={{ color: '#059669' }} />}
+          </Box>
+          {showCompleted && (
+            <TableContainer>
+              <Table size="small">
+                <TableBody>
+                  {receipts.filter(r => r.status === 'COMPLETED').map((receipt) => (
+                    <TableRow key={receipt.id} sx={{ '&:hover': { backgroundColor: '#f0fdf4' } }}>
+                      <TableCell>
+                        <Box
+                          onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            backgroundColor: '#dc2626',
+                            color: '#fff',
+                            px: 1.5,
+                            py: 0.5,
+                            borderRadius: 1,
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                            letterSpacing: '0.025em',
+                            cursor: receipt.lot_number ? 'pointer' : 'default',
+                            transition: 'all 0.2s ease',
+                            '&:hover': receipt.lot_number ? { backgroundColor: '#b91c1c' } : {},
+                          }}
+                        >
+                          {receipt.lot_number || 'N/A'}
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#1e293b', fontWeight: 600 }}>{receipt.wood_type?.name}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#475569' }}>{receipt.supplier}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#64748b' }}>{receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString() : '-'}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#1e293b', fontWeight: 600 }}>
+                          {receipt.actualPieces || receipt.estimatedPieces || receipt.total_pieces || '0'} pcs
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label="Completed"
+                          size="small"
+                          sx={{
+                            fontSize: '0.6875rem',
+                            fontWeight: 600,
+                            height: '24px',
+                            px: 1.25,
+                            borderRadius: 1,
+                            backgroundColor: '#10b981',
+                            color: '#fff',
+                            border: 'none',
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleEditClick(receipt)}
+                          sx={{
+                            backgroundColor: '#dc2626',
+                            color: '#fff',
+                            width: 32,
+                            height: 32,
+                            '&:hover': { backgroundColor: '#b91c1c' },
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        {isAdmin && (
+                          <IconButton
+                            size="small"
+                            onClick={() => handleReopenLot(receipt)}
+                            sx={{
+                              backgroundColor: '#10b981',
+                              color: '#fff',
+                              ml: 1,
+                              width: 32,
+                              height: 32,
+                              '&:hover': { backgroundColor: '#059669' },
+                              transition: 'all 0.2s ease',
+                            }}
+                          >
+                            <LockOpenIcon fontSize="small" />
+                          </IconButton>
+                        )}
+                        {isAdmin && (
+                          <Tooltip title="Cancel LOT & reverse stock">
+                            <IconButton
+                              size="small"
+                              onClick={() => handleCancelClick(receipt)}
+                              sx={{
+                                backgroundColor: '#991b1b',
+                                color: '#fff',
+                                ml: 1,
+                                width: 32,
+                                height: 32,
+                                '&:hover': { backgroundColor: '#7f1d1d' },
+                                transition: 'all 0.2s ease',
+                              }}
+                            >
+                              <CancelIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Paper>
+      )}
+
+      {/* Cancelled LOTs Section */}
+      {receipts.filter(r => r.status === 'CANCELLED').length > 0 && (
+        <Paper
+          elevation={3}
+          sx={{
+            mt: 2,
+            borderRadius: 3,
+            overflow: 'hidden',
+            border: '1px solid #fecaca',
+            background: 'linear-gradient(135deg, #fef2f2 0%, #fff 100%)',
+          }}
+        >
+          <Box
+            onClick={() => setShowCancelled(!showCancelled)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              px: 3,
+              py: 2,
+              cursor: 'pointer',
+              backgroundColor: '#fee2e2',
+              transition: 'all 0.2s ease',
+              '&:hover': { backgroundColor: '#fecaca' }
+            }}
+          >
+            <CancelIcon sx={{ color: '#991b1b', fontSize: '1.5rem' }} />
+            <Box flex={1}>
+              <Typography sx={{ fontWeight: 700, color: '#991b1b', fontSize: '1rem' }}>
+                Cancelled LOTs
+              </Typography>
+              <Typography sx={{ fontSize: '0.8rem', color: '#b91c1c' }}>
+                {receipts.filter(r => r.status === 'CANCELLED').length} {receipts.filter(r => r.status === 'CANCELLED').length === 1 ? 'lot' : 'lots'} cancelled
+              </Typography>
+            </Box>
+            <Chip
+              label={receipts.filter(r => r.status === 'CANCELLED').length}
+              sx={{
+                backgroundColor: '#991b1b',
+                color: '#fff',
+                fontWeight: 'bold',
+                fontSize: '0.875rem',
+                height: 30,
+                minWidth: 36,
+                borderRadius: '8px',
+              }}
+            />
+            {showCancelled ? <ExpandLessIcon sx={{ color: '#991b1b' }} /> : <ExpandMoreIcon sx={{ color: '#991b1b' }} />}
+          </Box>
+          {showCancelled && (
+            <TableContainer>
+              <Table size="small">
+                <TableBody>
+                  {receipts.filter(r => r.status === 'CANCELLED').map((receipt) => (
+                    <TableRow key={receipt.id} sx={{ opacity: 0.75, '&:hover': { backgroundColor: '#fef2f2' } }}>
+                      <TableCell>
+                        <Box
+                          onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            backgroundColor: '#991b1b',
+                            color: '#fff',
+                            px: 1.5,
+                            py: 0.5,
+                            borderRadius: 1,
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                            letterSpacing: '0.025em',
+                            cursor: receipt.lot_number ? 'pointer' : 'default',
+                            textDecoration: 'line-through',
+                            transition: 'all 0.2s ease',
+                            '&:hover': receipt.lot_number ? { backgroundColor: '#7f1d1d' } : {}
+                          }}
+                        >
+                          {receipt.lot_number}
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#94a3b8' }}>{receipt.wood_type_name}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#94a3b8' }}>{receipt.supplier}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#94a3b8' }}>{receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString() : '-'}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontSize: '0.8125rem', color: '#94a3b8' }}>{receipt.actual_pieces || receipt.estimated_pieces || '-'} pcs</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label="Cancelled"
+                          size="small"
+                          sx={{
+                            fontSize: '0.6875rem',
+                            fontWeight: 600,
+                            height: '24px',
+                            px: 1.25,
+                            borderRadius: 1,
+                            backgroundColor: '#991b1b',
+                            color: '#fff',
+                            border: 'none',
+                          }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Paper>
+      )}
 
       <Dialog
         open={openDialog}
@@ -1996,50 +2077,50 @@ const WoodReceipt = () => {
             </Box>
           ) : cancelPreview ? (
             <Box>
-              <Typography sx={{ fontWeight: 600, mb: 2 }}>
-                Cancel LOT {cancelPreview.receipt?.lotNumber}?
+              <Typography sx={{ fontSize: '0.9375rem', mb: 2, color: '#334155' }}>
+                Are you sure you want to cancel <strong>{cancelPreview.receipt?.lotNumber}</strong>?
+                This will remove all stock that was added when this LOT was approved.
               </Typography>
 
               {cancelPreview.stockToReverse?.length > 0 && (
                 <Box sx={{ mb: 2, p: 2, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
-                  <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, mb: 1, color: '#991b1b' }}>
-                    Stock to be reversed:
-                  </Typography>
-                  {cancelPreview.stockToReverse.map((item: any, idx: number) => (
-                    <Box key={idx} sx={{ mb: 1 }}>
-                      <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
-                        {item.thickness}: {item.quantity} pieces
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.75rem', color: '#64748b' }}>
-                        Current stock — Not Dried: {item.currentNotDried}, Under Drying: {item.currentUnderDrying}, Dried: {item.currentDried}, Damaged: {item.currentDamaged}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
-              )}
-
-              {cancelPreview.warnings?.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  {cancelPreview.warnings.map((w: string, idx: number) => (
-                    <Typography key={idx} sx={{ fontSize: '0.75rem', color: '#d97706', mb: 0.5 }}>
-                      ⚠ {w}
-                    </Typography>
-                  ))}
-                </Box>
-              )}
-
-              {cancelPreview.relatedRecords && (
-                <Box sx={{ mb: 2, p: 2, backgroundColor: '#f8fafc', borderRadius: 1 }}>
-                  <Typography sx={{ fontSize: '0.8125rem', color: '#64748b' }}>
-                    Related records (will be kept for history): {cancelPreview.relatedRecords.operations} operations, {cancelPreview.relatedRecords.historyEntries} history entries{cancelPreview.relatedRecords.hasLotCost ? ', lot cost data' : ''}
-                  </Typography>
+                  {cancelPreview.stockToReverse.map((item: any, idx: number) => {
+                    const total = item.currentNotDried + item.currentUnderDrying + item.currentDried + item.currentDamaged;
+                    return (
+                      <Box key={idx} sx={{ mb: idx < cancelPreview.stockToReverse.length - 1 ? 1.5 : 0 }}>
+                        <Typography sx={{ fontSize: '0.875rem', fontWeight: 700, color: '#991b1b', mb: 0.5 }}>
+                          {item.quantity} pieces ({item.thickness}) will be removed from stock
+                        </Typography>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          {item.currentNotDried > 0 && (
+                            <Chip label={`${item.currentNotDried} Not Dried`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#e2e8f0' }} />
+                          )}
+                          {item.currentUnderDrying > 0 && (
+                            <Chip label={`${item.currentUnderDrying} Under Drying`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#fef3c7' }} />
+                          )}
+                          {item.currentDried > 0 && (
+                            <Chip label={`${item.currentDried} Dried`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#d1fae5' }} />
+                          )}
+                          {item.currentDamaged > 0 && (
+                            <Chip label={`${item.currentDamaged} Damaged`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#fee2e2' }} />
+                          )}
+                        </Box>
+                        {total > 0 && item.currentNotDried < item.quantity && (
+                          <Typography sx={{ fontSize: '0.75rem', color: '#b45309', mt: 0.5 }}>
+                            Note: {item.quantity - item.currentNotDried} of {item.quantity} pieces have already been processed (dried/under drying) and will also be removed
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })}
                 </Box>
               )}
 
               {!cancelPreview.canCancel && (
-                <Typography sx={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 600, mb: 2 }}>
-                  Cannot cancel: insufficient stock to reverse. Some stock may have been transferred out.
-                </Typography>
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  Cannot cancel this LOT — there is not enough stock in the warehouse to reverse.
+                  Some stock may have been transferred to another warehouse.
+                </Alert>
               )}
 
               {cancelPreview.canCancel && (

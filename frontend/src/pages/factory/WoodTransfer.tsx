@@ -51,6 +51,8 @@ import { PDFDownloadLink, BlobProvider } from '@react-pdf/renderer';
 import { WoodTransferReport } from '../../components/reports/WoodTransferReport';
 import { useAuth } from '../../hooks/useAuth';
 import EditIcon from '@mui/icons-material/Edit';
+import UndoIcon from '@mui/icons-material/Undo';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 interface Warehouse {
   id: string;
@@ -153,6 +155,12 @@ const WoodTransfer: FC = () => {
   const [openCancelDialog, setOpenCancelDialog] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const [openReverseDialog, setOpenReverseDialog] = useState(false);
+  const [reversePreview, setReversePreview] = useState<any>(null);
+  const [loadingReversePreview, setLoadingReversePreview] = useState(false);
+  const [reversing, setReversing] = useState(false);
+  const [reverseReason, setReverseReason] = useState('');
+  const [reverseConfirmText, setReverseConfirmText] = useState('');
   const [selectedTransfer, setSelectedTransfer] = useState<Transfer | null>(null);
   const [selectedNotifyUserId, setSelectedNotifyUserId] = useState('');
   const [formData, setFormData] = useState({
@@ -429,6 +437,47 @@ const WoodTransfer: FC = () => {
     }
   };
 
+  const handleOpenReverse = async (transfer: Transfer) => {
+    setSelectedTransfer(transfer);
+    setReverseReason('');
+    setReverseConfirmText('');
+    setReversePreview(null);
+    setLoadingReversePreview(true);
+    setOpenReverseDialog(true);
+
+    try {
+      const response = await api.get(`/transfers/${transfer.id}/reverse-preview`);
+      setReversePreview(response.data);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to load reverse preview');
+      setOpenReverseDialog(false);
+    } finally {
+      setLoadingReversePreview(false);
+    }
+  };
+
+  const handleReverseTransfer = async () => {
+    if (!selectedTransfer || reversing) return;
+
+    try {
+      setReversing(true);
+      const response = await api.post(`/transfers/${selectedTransfer.id}/reverse`, { reason: reverseReason });
+      const data = response.data;
+      const itemsSummary = data.reversals?.map((r: any) => `${r.thickness} ${r.woodType}: ${r.quantity} pcs`).join(', ') || '';
+      setSuccess(`Transfer ${data.transferNumber} reversed. Stock returned to ${data.fromWarehouse}. ${itemsSummary}`);
+      setOpenReverseDialog(false);
+      setSelectedTransfer(null);
+      setReversePreview(null);
+      setReverseReason('');
+      setReverseConfirmText('');
+      fetchTransfers();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to reverse transfer');
+    } finally {
+      setReversing(false);
+    }
+  };
+
   const handleOpenComplete = (transfer: Transfer) => {
     setSelectedTransfer(transfer);
     setSelectedNotifyUserId('');
@@ -626,6 +675,15 @@ const WoodTransfer: FC = () => {
     }
   };
 
+  const isReversedTransfer = (transfer: Transfer) => {
+    return transfer.status === 'REJECTED' && transfer.notes?.includes('REVERSED:');
+  };
+
+  const getStatusLabel = (transfer: Transfer) => {
+    if (isReversedTransfer(transfer)) return 'REVERSED';
+    return transfer.status.replace('_', ' ');
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'PENDING': return 'warning';
@@ -719,6 +777,19 @@ const WoodTransfer: FC = () => {
   const pendingTransfers = filterTransfers(['PENDING']);
   const inTransitTransfers = filterTransfers(['APPROVED', 'IN_TRANSIT']);
   const completedTransfers = filterTransfers(['COMPLETED']);
+  const reversedTransfers = transfers.filter(t => {
+    if (!isReversedTransfer(t)) return false;
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      t.transferNumber.toLowerCase().includes(query) ||
+      t.fromWarehouse.code.toLowerCase().includes(query) ||
+      t.fromWarehouse.name.toLowerCase().includes(query) ||
+      t.toWarehouse.code.toLowerCase().includes(query) ||
+      t.toWarehouse.name.toLowerCase().includes(query) ||
+      (t.notes && t.notes.toLowerCase().includes(query))
+    );
+  });
 
   if (loading && transfers.length === 0) {
     return (
@@ -925,10 +996,10 @@ const WoodTransfer: FC = () => {
                         </Box>
                       </Box>
                       <Chip
-                        label={transfer.status.replace('_', ' ')}
+                        label={getStatusLabel(transfer)}
                         size="small"
                         color={getStatusColor(transfer.status)}
-                        sx={{ fontWeight: 700, fontSize: '0.75rem' }}
+                        sx={{ fontWeight: 700, fontSize: '0.75rem', ...(isReversedTransfer(transfer) ? { backgroundColor: '#991b1b', color: '#fff' } : {}) }}
                       />
                       <Stack direction="row" spacing={1}>
                         <Button
@@ -998,7 +1069,7 @@ const WoodTransfer: FC = () => {
                         </Button>
                       </>
                     )}
-                    {/* Admin-only: Edit button for completed transfers */}
+                    {/* Admin-only: Edit, Notify, Reverse buttons for completed transfers */}
                     {user?.role === 'ADMIN' && transfer.status === 'COMPLETED' && (
                       <>
                         <Button
@@ -1022,6 +1093,19 @@ const WoodTransfer: FC = () => {
                           }}
                         >
                           Notify
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          startIcon={<UndoIcon />}
+                          onClick={() => handleOpenReverse(transfer)}
+                          sx={{
+                            textTransform: 'none',
+                            fontSize: '0.75rem'
+                          }}
+                        >
+                          Reverse
                         </Button>
                       </>
                     )}
@@ -1156,10 +1240,10 @@ const WoodTransfer: FC = () => {
                         </Box>
                       </Box>
                       <Chip
-                        label={transfer.status.replace('_', ' ')}
+                        label={getStatusLabel(transfer)}
                         size="small"
                         color={getStatusColor(transfer.status)}
-                        sx={{ fontWeight: 700, fontSize: '0.75rem' }}
+                        sx={{ fontWeight: 700, fontSize: '0.75rem', ...(isReversedTransfer(transfer) ? { backgroundColor: '#991b1b', color: '#fff' } : {}) }}
                       />
                       <Stack direction="row" spacing={1}>
                         <Button
@@ -1325,10 +1409,10 @@ const WoodTransfer: FC = () => {
                         </Box>
                       </Box>
                       <Chip
-                        label={transfer.status.replace('_', ' ')}
+                        label={getStatusLabel(transfer)}
                         size="small"
                         color={getStatusColor(transfer.status)}
-                        sx={{ fontWeight: 700, fontSize: '0.75rem' }}
+                        sx={{ fontWeight: 700, fontSize: '0.75rem', ...(isReversedTransfer(transfer) ? { backgroundColor: '#991b1b', color: '#fff' } : {}) }}
                       />
                       <Stack direction="row" spacing={1}>
                         <Button
@@ -1340,7 +1424,7 @@ const WoodTransfer: FC = () => {
                         >
                           Details
                         </Button>
-                    {user?.role === 'ADMIN' && (
+                    {user?.role === 'ADMIN' && !isReversedTransfer(transfer) && (
                       <>
                         <Button
                           variant="outlined"
@@ -1362,6 +1446,16 @@ const WoodTransfer: FC = () => {
                         >
                           Notify
                         </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          startIcon={<UndoIcon />}
+                          onClick={() => handleOpenReverse(transfer)}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                        >
+                          Reverse
+                        </Button>
                       </>
                     )}
                         </Stack>
@@ -1373,6 +1467,148 @@ const WoodTransfer: FC = () => {
               </AccordionDetails>
             </Accordion>
           </Grid>
+
+          {/* Reversed Section */}
+          {reversedTransfers.length > 0 && (
+          <Grid item xs={12}>
+            <Accordion
+              expanded={expandedSections.includes('reversed')}
+              onChange={() => toggleSection('reversed')}
+              elevation={0}
+              sx={{
+                border: '1px solid #fecaca',
+                '&:before': { display: 'none' },
+                borderRadius: '12px',
+                overflow: 'hidden',
+                transition: 'all 0.3s ease',
+                backgroundColor: '#fef2f2'
+              }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ color: '#991b1b', fontSize: 28 }} />}
+                sx={{
+                  backgroundColor: '#fee2e2',
+                  '&:hover': {
+                    backgroundColor: '#fecaca',
+                  },
+                  minHeight: 72,
+                  '& .MuiAccordionSummary-content': {
+                    my: 2
+                  }
+                }}
+              >
+                <Box display="flex" alignItems="center" gap={2.5} width="100%">
+                  <Box
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: '10px',
+                      backgroundColor: '#ffffff',
+                      border: '1px solid #fecaca',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <UndoIcon sx={{ fontSize: 28, color: '#991b1b' }} />
+                  </Box>
+                  <Box flex={1}>
+                    <Typography variant="h6" fontWeight="bold" sx={{ color: '#991b1b', fontSize: '1.1rem', mb: 0.3 }}>
+                      Reversed
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#b91c1c', fontSize: '0.85rem' }}>
+                      {reversedTransfers.length} {reversedTransfers.length === 1 ? 'transfer' : 'transfers'} reversed
+                    </Typography>
+                  </Box>
+                  <Chip
+                    label={reversedTransfers.length}
+                    sx={{
+                      backgroundColor: '#991b1b',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      fontSize: '0.9rem',
+                      height: 32,
+                      minWidth: 40,
+                      borderRadius: '8px',
+                    }}
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails sx={{ p: 0 }}>
+                <Stack spacing={0} divider={<Divider sx={{ borderColor: '#fecaca' }} />}>
+                  {reversedTransfers.map((transfer) => (
+                    <Box
+                      key={transfer.id}
+                      sx={{
+                        p: 2.5,
+                        transition: 'all 0.2s ease',
+                        opacity: 0.85,
+                        '&:hover': {
+                          backgroundColor: '#fee2e2',
+                          transform: 'translateX(4px)'
+                        }
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" gap={2.5} flex={1}>
+                        <Box
+                          sx={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 1.5,
+                            backgroundColor: '#fee2e2',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <UndoIcon sx={{ fontSize: 22, color: '#991b1b' }} />
+                        </Box>
+                        <Box flex={1}>
+                          <Typography variant="subtitle1" fontWeight="bold" sx={{ fontSize: '0.875rem', textDecoration: 'line-through', color: '#64748b' }}>
+                            {transfer.transferNumber}
+                          </Typography>
+                          <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              {transfer.fromWarehouse.code} → {transfer.toWarehouse.code}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              •
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              {transfer.items?.length || 0} items ({transfer.items?.reduce((sum, item) => sum + item.quantity, 0) || 0} pcs)
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              •
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                              {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Chip
+                          label="REVERSED"
+                          size="small"
+                          sx={{ fontWeight: 700, fontSize: '0.75rem', backgroundColor: '#991b1b', color: '#fff' }}
+                        />
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => handleOpenDetails(transfer)}
+                            sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+                          >
+                            Details
+                          </Button>
+                        </Stack>
+                      </Box>
+                    </Box>
+                  ))}
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          </Grid>
+          )}
         </Grid>
 
         {/* Create Transfer Dialog */}
@@ -1823,7 +2059,7 @@ const WoodTransfer: FC = () => {
                       </Typography>
                     </Box>
                     <Chip
-                      label={selectedTransfer.status.replace('_', ' ')}
+                      label={getStatusLabel(selectedTransfer)}
                       color={getStatusColor(selectedTransfer.status)}
                       size="small"
                     />
@@ -2574,6 +2810,142 @@ const WoodTransfer: FC = () => {
               disabled={!cancelReason.trim() || cancelling}
             >
               {cancelling ? 'Cancelling...' : 'Cancel Transfer'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Reverse Transfer Dialog */}
+        <Dialog
+          open={openReverseDialog}
+          onClose={() => {
+            if (!reversing) {
+              setOpenReverseDialog(false);
+              setSelectedTransfer(null);
+              setReversePreview(null);
+              setReverseReason('');
+              setReverseConfirmText('');
+            }
+          }}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            <Box display="flex" alignItems="center" gap={1}>
+              <WarningAmberIcon sx={{ color: '#991b1b' }} />
+              <Typography variant="h6" fontWeight="bold" sx={{ color: '#991b1b' }}>
+                Reverse Completed Transfer
+              </Typography>
+            </Box>
+          </DialogTitle>
+          <DialogContent>
+            {loadingReversePreview ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : reversePreview ? (
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <Alert severity="warning">
+                  This will reverse transfer <strong>{reversePreview.transfer?.transferNumber}</strong> and return all stock
+                  from <strong>{reversePreview.transfer?.toWarehouse}</strong> back to <strong>{reversePreview.transfer?.fromWarehouse}</strong>.
+                </Alert>
+
+                {reversePreview.itemsToReverse?.length > 0 && (
+                  <Box sx={{ p: 2, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
+                    <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, mb: 1, color: '#991b1b' }}>
+                      Stock to be reversed:
+                    </Typography>
+                    {reversePreview.itemsToReverse.map((item: any, idx: number) => (
+                      <Box key={idx} sx={{ mb: 1 }}>
+                        <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                          {item.thickness} {item.woodType}: {item.quantity} pcs ({item.woodStatus.replace(/_/g, ' ')})
+                        </Typography>
+                        {item.destinationStock && (
+                          <Typography sx={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            Destination stock — Not Dried: {item.destinationStock.notDried}, Under Drying: {item.destinationStock.underDrying}, Dried: {item.destinationStock.dried}, Damaged: {item.destinationStock.damaged}
+                          </Typography>
+                        )}
+                        {!item.sufficient && (
+                          <Typography sx={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>
+                            Insufficient stock to reverse
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                {reversePreview.warnings?.length > 0 && (
+                  <Box>
+                    {reversePreview.warnings.map((w: string, idx: number) => (
+                      <Typography key={idx} sx={{ fontSize: '0.75rem', color: '#d97706', mb: 0.5 }}>
+                        ⚠ {w}
+                      </Typography>
+                    ))}
+                  </Box>
+                )}
+
+                {!reversePreview.canReverse && (
+                  <Alert severity="error">
+                    Cannot reverse: insufficient stock at destination warehouse. Some stock may have been moved or used.
+                  </Alert>
+                )}
+
+                {reversePreview.canReverse && (
+                  <>
+                    <TextField
+                      label="Reason for reversal"
+                      value={reverseReason}
+                      onChange={(e) => setReverseReason(e.target.value)}
+                      fullWidth
+                      multiline
+                      rows={2}
+                      placeholder="Enter reason for reversing this transfer..."
+                    />
+                    <Box>
+                      <Typography sx={{ fontSize: '0.8125rem', mb: 1 }}>
+                        Type <strong>{selectedTransfer?.transferNumber}</strong> to confirm:
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={reverseConfirmText}
+                        onChange={(e) => setReverseConfirmText(e.target.value)}
+                        placeholder={selectedTransfer?.transferNumber || ''}
+                        disabled={reversing}
+                      />
+                    </Box>
+                  </>
+                )}
+              </Stack>
+            ) : null}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button
+              onClick={() => {
+                setOpenReverseDialog(false);
+                setSelectedTransfer(null);
+                setReversePreview(null);
+                setReverseReason('');
+                setReverseConfirmText('');
+              }}
+              disabled={reversing}
+              size="large"
+            >
+              Close
+            </Button>
+            <Button
+              onClick={handleReverseTransfer}
+              variant="contained"
+              size="large"
+              disabled={reversing || !reversePreview?.canReverse || reverseConfirmText !== selectedTransfer?.transferNumber}
+              startIcon={reversing ? <CircularProgress size={20} color="inherit" /> : <UndoIcon />}
+              sx={{
+                backgroundColor: '#991b1b',
+                '&:hover': { backgroundColor: '#7f1d1d' },
+                '&:disabled': { backgroundColor: 'rgba(0, 0, 0, 0.12)', color: 'rgba(0, 0, 0, 0.26)' }
+              }}
+            >
+              {reversing ? 'Reversing...' : 'Reverse Transfer'}
             </Button>
           </DialogActions>
         </Dialog>
