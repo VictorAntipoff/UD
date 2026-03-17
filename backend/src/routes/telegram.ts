@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { format, formatDistance, differenceInHours } from 'date-fns';
+import crypto from 'node:crypto';
 
 const telegramRoutes: FastifyPluginAsync = async (fastify) => {
   /**

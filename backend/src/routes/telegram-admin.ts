@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import crypto from 'node:crypto';
 
 const telegramAdminRoutes: FastifyPluginAsync = async (fastify) => {
   // ==== TELEGRAM MESSAGES ====

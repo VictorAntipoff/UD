@@ -6,6 +6,7 @@ import {
   canApproveTransfer,
   requireTransferApproval
 } from '../middleware/auth.js';
+import crypto from 'node:crypto';
 
 // Helper function to convert wood status to field name (e.g., NOT_DRIED -> statusNotDried)
 function getStatusFieldName(woodStatus: string): string {

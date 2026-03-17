@@ -6,6 +6,7 @@ import {
   requireStockAdjustment,
   requireRole
 } from '../middleware/auth.js';
+import crypto from 'node:crypto';
 
 async function managementRoutes(fastify: FastifyInstance) {
   // SECURITY: Protect all management routes with authentication

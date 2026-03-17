@@ -1,4 +1,5 @@
 import { PrismaClient, MovementType, ReferenceType, WoodStatus } from '@prisma/client';
+import crypto from 'node:crypto';
 
 const prisma = new PrismaClient();
 

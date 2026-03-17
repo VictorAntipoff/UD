@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import PDFDocument from 'pdfkit';
 import { formatInTimeZone } from 'date-fns-tz';
+import crypto from 'node:crypto';
 
 const APP_TIMEZONE = 'Africa/Dar_es_Salaam';
 
