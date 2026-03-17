@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import crypto from 'node:crypto';
 async function electricityRoutes(fastify) {
     // SECURITY: Protect all electricity routes with authentication
     fastify.addHook('onRequest', authenticateToken);

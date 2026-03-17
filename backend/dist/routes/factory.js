@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import PDFDocument from 'pdfkit';
 import { formatInTimeZone } from 'date-fns-tz';
+import crypto from 'node:crypto';
 const APP_TIMEZONE = 'Africa/Dar_es_Salaam';
 /** Format a UTC date in the app timezone */
 function formatTZ(date, fmt = 'yyyy-MM-dd hh:mm a') {

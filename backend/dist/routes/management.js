@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken, requireWarehouseManagement, requireStockAdjustment, requireRole } from '../middleware/auth.js';
+import crypto from 'node:crypto';
 async function managementRoutes(fastify) {
     // SECURITY: Protect all management routes with authentication
     fastify.addHook('onRequest', authenticateToken);
