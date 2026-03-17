@@ -383,6 +383,265 @@ async function managementRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Preview what cancelling a wood receipt would do (read-only, no mutations)
+  fastify.get('/wood-receipts/:id/cancel-preview', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+
+      const receipt = await prisma.woodReceipt.findUnique({
+        where: { id },
+        include: { WoodType: true, Warehouse: true }
+      });
+
+      if (!receipt) {
+        return reply.status(404).send({ error: 'Receipt not found' });
+      }
+
+      if (receipt.status === 'CANCELLED') {
+        return reply.status(400).send({ error: 'Receipt is already cancelled' });
+      }
+
+      const warnings: string[] = [];
+      const stockToReverse: Array<{
+        thickness: string;
+        quantity: number;
+        currentNotDried: number;
+        currentUnderDrying: number;
+        currentDried: number;
+        currentDamaged: number;
+        sufficient: boolean;
+      }> = [];
+      let canCancel = true;
+
+      // Find stock that was added by this receipt's approval
+      if (receipt.receiptConfirmedAt && receipt.warehouseId && receipt.Warehouse?.stockControlEnabled) {
+        const movements = await prisma.stock_movements.findMany({
+          where: {
+            referenceType: 'RECEIPT',
+            referenceId: receipt.id,
+            movementType: 'RECEIPT_SYNC'
+          }
+        });
+
+        for (const movement of movements) {
+          const stock = await prisma.stock.findUnique({
+            where: {
+              warehouseId_woodTypeId_thickness: {
+                warehouseId: movement.warehouseId,
+                woodTypeId: movement.woodTypeId,
+                thickness: movement.thickness
+              }
+            }
+          });
+
+          const currentNotDried = stock?.statusNotDried || 0;
+          const currentUnderDrying = stock?.statusUnderDrying || 0;
+          const currentDried = stock?.statusDried || 0;
+          const currentDamaged = stock?.statusDamaged || 0;
+          const totalAvailable = currentNotDried + currentUnderDrying + currentDried + currentDamaged;
+          const sufficient = totalAvailable >= movement.quantityChange;
+
+          if (!sufficient) {
+            canCancel = false;
+            warnings.push(`Insufficient stock for ${movement.thickness}: need ${movement.quantityChange} but only ${totalAvailable} available (some may have been transferred out)`);
+          } else if (currentNotDried < movement.quantityChange) {
+            const fromOtherStatuses = movement.quantityChange - currentNotDried;
+            warnings.push(`${fromOtherStatuses} pieces of ${movement.thickness} have moved beyond "Not Dried" status and will be deducted from Under Drying/Dried/Damaged pools`);
+          }
+
+          stockToReverse.push({
+            thickness: movement.thickness,
+            quantity: movement.quantityChange,
+            currentNotDried,
+            currentUnderDrying,
+            currentDried,
+            currentDamaged,
+            sufficient
+          });
+        }
+      }
+
+      // Count related records
+      const operationCount = await prisma.operation.count({ where: { lotNumber: receipt.lotNumber } });
+      const lotCost = await prisma.lotCost.findUnique({ where: { lotNumber: receipt.lotNumber } });
+      const historyCount = await prisma.receiptHistory.count({ where: { receiptId: receipt.lotNumber } });
+
+      return {
+        receipt: {
+          id: receipt.id,
+          lotNumber: receipt.lotNumber,
+          status: receipt.status,
+          woodType: receipt.WoodType?.name,
+          warehouse: receipt.Warehouse?.name,
+          receiptConfirmedAt: receipt.receiptConfirmedAt
+        },
+        stockToReverse,
+        relatedRecords: {
+          operations: operationCount,
+          hasLotCost: !!lotCost,
+          historyEntries: historyCount
+        },
+        canCancel,
+        warnings
+      };
+    } catch (error) {
+      console.error('Error generating cancel preview:', error);
+      return reply.status(500).send({ error: 'Failed to generate cancel preview' });
+    }
+  });
+
+  // Cancel a wood receipt (soft delete - reverse stock, keep all records)
+  fastify.post('/wood-receipts/:id/cancel', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const user = (request as any).user;
+
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Fetch receipt with warehouse
+        const receipt = await tx.woodReceipt.findUnique({
+          where: { id },
+          include: { WoodType: true, Warehouse: true }
+        });
+
+        if (!receipt) {
+          throw new Error('Receipt not found');
+        }
+
+        if (receipt.status === 'CANCELLED') {
+          throw new Error('Receipt is already cancelled');
+        }
+
+        const stockReversals: Array<{ thickness: string; quantity: number; deductions: Record<string, number> }> = [];
+
+        // 2. Reverse stock if receipt was approved and warehouse has stock control
+        if (receipt.receiptConfirmedAt && receipt.warehouseId && receipt.Warehouse?.stockControlEnabled) {
+          const movements = await tx.stock_movements.findMany({
+            where: {
+              referenceType: 'RECEIPT',
+              referenceId: receipt.id,
+              movementType: 'RECEIPT_SYNC'
+            }
+          });
+
+          for (const movement of movements) {
+            const stock = await tx.stock.findUnique({
+              where: {
+                warehouseId_woodTypeId_thickness: {
+                  warehouseId: movement.warehouseId,
+                  woodTypeId: movement.woodTypeId,
+                  thickness: movement.thickness
+                }
+              }
+            });
+
+            if (!stock) {
+              throw new Error(`Stock record not found for ${movement.thickness} - cannot reverse`);
+            }
+
+            // Deduct using priority: NOT_DRIED → UNDER_DRYING → DRIED → DAMAGED
+            let remaining = movement.quantityChange;
+            const deductions = { notDried: 0, underDrying: 0, dried: 0, damaged: 0 };
+
+            const takeFrom = (available: number, key: keyof typeof deductions) => {
+              const toTake = Math.min(remaining, available);
+              deductions[key] = toTake;
+              remaining -= toTake;
+            };
+
+            takeFrom(stock.statusNotDried, 'notDried');
+            takeFrom(stock.statusUnderDrying, 'underDrying');
+            takeFrom(stock.statusDried, 'dried');
+            takeFrom(stock.statusDamaged, 'damaged');
+
+            if (remaining > 0) {
+              throw new Error(`Insufficient stock for ${movement.thickness}: need ${movement.quantityChange} but only ${movement.quantityChange - remaining} available. ${remaining} pieces may have been transferred out.`);
+            }
+
+            // Update stock
+            await tx.stock.update({
+              where: { id: stock.id },
+              data: {
+                statusNotDried: { decrement: deductions.notDried },
+                statusUnderDrying: { decrement: deductions.underDrying },
+                statusDried: { decrement: deductions.dried },
+                statusDamaged: { decrement: deductions.damaged },
+                updatedAt: new Date()
+              }
+            });
+
+            // Record reversal stock movement
+            const { createStockMovement } = await import('../services/stockMovementService.js');
+            await createStockMovement({
+              warehouseId: movement.warehouseId,
+              woodTypeId: movement.woodTypeId,
+              thickness: movement.thickness,
+              movementType: 'MANUAL_ADJUSTMENT',
+              quantityChange: -movement.quantityChange,
+              fromStatus: 'NOT_DRIED',
+              referenceType: 'RECEIPT',
+              referenceId: receipt.id,
+              referenceNumber: receipt.lotNumber,
+              userId: user?.userId,
+              userName: user?.email || user?.userId,
+              details: `LOT ${receipt.lotNumber} cancelled - reversed ${movement.quantityChange} pieces (${deductions.notDried} from Not Dried, ${deductions.underDrying} from Under Drying, ${deductions.dried} from Dried, ${deductions.damaged} from Damaged)`
+            }, tx);
+
+            stockReversals.push({
+              thickness: movement.thickness,
+              quantity: movement.quantityChange,
+              deductions
+            });
+          }
+        }
+
+        // 3. Set receipt status to CANCELLED
+        await tx.woodReceipt.update({
+          where: { id },
+          data: {
+            status: 'CANCELLED',
+            updatedAt: new Date()
+          }
+        });
+
+        // 4. Add history entry
+        if (user) {
+          await tx.receiptHistory.create({
+            data: {
+              id: crypto.randomUUID(),
+              receiptId: receipt.lotNumber,
+              userId: user.userId,
+              userName: user.email || user.userId,
+              action: 'CANCELLED',
+              details: stockReversals.length > 0
+                ? `LOT cancelled. Stock reversed: ${stockReversals.map(r => `${r.thickness}: ${r.quantity} pieces`).join(', ')}`
+                : `LOT cancelled. No stock to reverse.`,
+              timestamp: new Date()
+            }
+          });
+        }
+
+        return {
+          lotNumber: receipt.lotNumber,
+          stockReversed: stockReversals.length > 0,
+          stockReversals
+        };
+      });
+
+      console.log(`🚫 LOT ${result.lotNumber} cancelled by ${user?.email}`, result.stockReversals);
+
+      return { success: true, ...result };
+    } catch (error: any) {
+      console.error('Error cancelling wood receipt:', error);
+      if (error.message?.includes('not found') || error.message?.includes('already cancelled')) {
+        return reply.status(400).send({ error: error.message });
+      }
+      if (error.message?.includes('Insufficient stock')) {
+        return reply.status(409).send({ error: error.message });
+      }
+      return reply.status(500).send({ error: 'Failed to cancel wood receipt' });
+    }
+  });
+
   // Get LOT traceability - all records related to a LOT number
   fastify.get('/lot-traceability/:lotNumber', async (request, reply) => {
     try {

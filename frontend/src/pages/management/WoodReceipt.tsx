@@ -49,6 +49,8 @@ import SyncIcon from '@mui/icons-material/Sync';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import InventoryIcon from '@mui/icons-material/Inventory';
+import CancelIcon from '@mui/icons-material/Cancel';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useSnackbar } from 'notistack';
 import { useAuth } from '../../hooks/useAuth';
 import type { WoodType } from '../../types/calculations';
@@ -159,6 +161,12 @@ const WoodReceipt = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [receiptToDelete, setReceiptToDelete] = useState<WoodReceiptType | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+  const [receiptToCancel, setReceiptToCancel] = useState<WoodReceiptType | null>(null);
+  const [cancelPreview, setCancelPreview] = useState<any>(null);
+  const [loadingCancelPreview, setLoadingCancelPreview] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelConfirmText, setCancelConfirmText] = useState('');
   const [traceabilityDialogOpen, setTraceabilityDialogOpen] = useState(false);
   const [traceabilityData, setTraceabilityData] = useState<any>(null);
   const [loadingTraceability, setLoadingTraceability] = useState(false);
@@ -515,6 +523,54 @@ const WoodReceipt = () => {
       setIsDeleting(false);
       setDeleteDialogOpen(false);
       setReceiptToDelete(null);
+    }
+  };
+
+  const handleCancelClick = async (receipt: WoodReceiptType) => {
+    setReceiptToCancel(receipt);
+    setCancelConfirmText('');
+    setCancelPreview(null);
+    setLoadingCancelPreview(true);
+    setCancelDialogOpen(true);
+
+    try {
+      const response = await api.get(`/management/wood-receipts/${receipt.id}/cancel-preview`);
+      setCancelPreview(response.data);
+    } catch (error: any) {
+      enqueueSnackbar(
+        `Failed to load cancel preview: ${error.response?.data?.error || error.message}`,
+        { variant: 'error' }
+      );
+      setCancelDialogOpen(false);
+    } finally {
+      setLoadingCancelPreview(false);
+    }
+  };
+
+  const handleCancelReceipt = async () => {
+    if (!receiptToCancel) return;
+
+    try {
+      setIsCancelling(true);
+      const response = await api.post(`/management/wood-receipts/${receiptToCancel.id}/cancel`);
+      const data = response.data;
+
+      const stockMsg = data.stockReversed
+        ? ` Stock reversed: ${data.stockReversals.map((r: any) => `${r.thickness}: ${r.quantity} pcs`).join(', ')}`
+        : '';
+      enqueueSnackbar(`LOT ${data.lotNumber} cancelled successfully.${stockMsg}`, { variant: 'success' });
+      await fetchReceipts();
+    } catch (error: any) {
+      enqueueSnackbar(
+        `Failed to cancel LOT: ${error.response?.data?.error || error.message}`,
+        { variant: 'error' }
+      );
+    } finally {
+      setIsCancelling(false);
+      setCancelDialogOpen(false);
+      setReceiptToCancel(null);
+      setCancelPreview(null);
+      setCancelConfirmText('');
     }
   };
 
@@ -881,8 +937,8 @@ const WoodReceipt = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {/* Active LOTs (non-completed) - always visible */}
-              {receipts.filter(r => r.status !== 'COMPLETED').map((receipt) => (
+              {/* Active LOTs (non-completed, non-cancelled) - always visible */}
+              {receipts.filter(r => r.status !== 'COMPLETED' && r.status !== 'CANCELLED').map((receipt) => (
                 <TableRow key={receipt.id}>
                   <TableCell>
                     <Box
@@ -982,6 +1038,7 @@ const WoodReceipt = () => {
                           receipt.status === 'RECEIVED' ? '#3b82f6' :
                           receipt.status === 'PROCESSING' ? '#8b5cf6' :
                           receipt.status === 'COMPLETED' ? '#10b981' :
+                          receipt.status === 'CANCELLED' ? '#991b1b' :
                           '#ef4444',
                         color: '#fff',
                         border: 'none',
@@ -1104,7 +1161,86 @@ const WoodReceipt = () => {
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     )}
+                    {isAdmin && receipt.status === 'COMPLETED' && (
+                      <Tooltip title="Cancel LOT & reverse stock">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleCancelClick(receipt)}
+                          sx={{
+                            backgroundColor: '#991b1b',
+                            color: '#fff',
+                            ml: 1,
+                            width: 32,
+                            height: 32,
+                            '&:hover': {
+                              backgroundColor: '#7f1d1d',
+                            },
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          <CancelIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </TableCell>
+                </TableRow>
+              ))}
+
+              {/* Cancelled LOTs */}
+              {receipts.filter(r => r.status === 'CANCELLED').map((receipt) => (
+                <TableRow key={receipt.id} sx={{ opacity: 0.5, backgroundColor: '#fef2f2' }}>
+                  <TableCell>
+                    <Box
+                      onClick={() => receipt.lot_number && handleLotClick(receipt.lot_number)}
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: '#991b1b',
+                        color: '#fff',
+                        px: 1.5,
+                        py: 0.5,
+                        borderRadius: 1,
+                        fontWeight: 600,
+                        fontSize: '0.75rem',
+                        letterSpacing: '0.025em',
+                        cursor: receipt.lot_number ? 'pointer' : 'default',
+                        textDecoration: 'line-through',
+                        transition: 'all 0.2s ease',
+                        '&:hover': receipt.lot_number ? { backgroundColor: '#7f1d1d' } : {}
+                      }}
+                    >
+                      {receipt.lot_number}
+                    </Box>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.supplier}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.wood_type_name}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString() : '-'}</Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Typography sx={{ fontSize: '0.75rem', color: '#94a3b8' }}>{receipt.actual_pieces || receipt.estimated_pieces || '-'}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label="Cancelled"
+                      size="small"
+                      sx={{
+                        fontSize: '0.6875rem',
+                        fontWeight: 600,
+                        height: '24px',
+                        px: 1.25,
+                        borderRadius: 1,
+                        backgroundColor: '#991b1b',
+                        color: '#fff',
+                        border: 'none',
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell />
                 </TableRow>
               ))}
 
@@ -1824,6 +1960,138 @@ const WoodReceipt = () => {
             }}
           >
             {isDeleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Cancel LOT Dialog */}
+      <Dialog
+        open={cancelDialogOpen}
+        onClose={() => {
+          if (!isCancelling) {
+            setCancelDialogOpen(false);
+            setReceiptToCancel(null);
+            setCancelPreview(null);
+            setCancelConfirmText('');
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+        disablePortal={false}
+        disableEnforceFocus={true}
+        disableAutoFocus={true}
+        disableRestoreFocus={true}
+        container={() => document.getElementById('modal-root')}
+        PaperProps={{
+          sx: { borderRadius: 2, backgroundColor: '#fff' }
+        }}
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#991b1b' }}>
+          <WarningAmberIcon /> Cancel LOT
+        </DialogTitle>
+        <DialogContent>
+          {loadingCancelPreview ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : cancelPreview ? (
+            <Box>
+              <Typography sx={{ fontWeight: 600, mb: 2 }}>
+                Cancel LOT {cancelPreview.receipt?.lotNumber}?
+              </Typography>
+
+              {cancelPreview.stockToReverse?.length > 0 && (
+                <Box sx={{ mb: 2, p: 2, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
+                  <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, mb: 1, color: '#991b1b' }}>
+                    Stock to be reversed:
+                  </Typography>
+                  {cancelPreview.stockToReverse.map((item: any, idx: number) => (
+                    <Box key={idx} sx={{ mb: 1 }}>
+                      <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                        {item.thickness}: {item.quantity} pieces
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.75rem', color: '#64748b' }}>
+                        Current stock — Not Dried: {item.currentNotDried}, Under Drying: {item.currentUnderDrying}, Dried: {item.currentDried}, Damaged: {item.currentDamaged}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+
+              {cancelPreview.warnings?.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  {cancelPreview.warnings.map((w: string, idx: number) => (
+                    <Typography key={idx} sx={{ fontSize: '0.75rem', color: '#d97706', mb: 0.5 }}>
+                      ⚠ {w}
+                    </Typography>
+                  ))}
+                </Box>
+              )}
+
+              {cancelPreview.relatedRecords && (
+                <Box sx={{ mb: 2, p: 2, backgroundColor: '#f8fafc', borderRadius: 1 }}>
+                  <Typography sx={{ fontSize: '0.8125rem', color: '#64748b' }}>
+                    Related records (will be kept for history): {cancelPreview.relatedRecords.operations} operations, {cancelPreview.relatedRecords.historyEntries} history entries{cancelPreview.relatedRecords.hasLotCost ? ', lot cost data' : ''}
+                  </Typography>
+                </Box>
+              )}
+
+              {!cancelPreview.canCancel && (
+                <Typography sx={{ fontSize: '0.875rem', color: '#dc2626', fontWeight: 600, mb: 2 }}>
+                  Cannot cancel: insufficient stock to reverse. Some stock may have been transferred out.
+                </Typography>
+              )}
+
+              {cancelPreview.canCancel && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography sx={{ fontSize: '0.8125rem', mb: 1 }}>
+                    Type <strong>{receiptToCancel?.lot_number}</strong> to confirm:
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    value={cancelConfirmText}
+                    onChange={(e) => setCancelConfirmText(e.target.value)}
+                    placeholder={receiptToCancel?.lot_number || ''}
+                    disabled={isCancelling}
+                    sx={{ '& .MuiOutlinedInput-root': { fontSize: '0.875rem' } }}
+                  />
+                </Box>
+              )}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
+          <Button
+            onClick={() => {
+              setCancelDialogOpen(false);
+              setReceiptToCancel(null);
+              setCancelPreview(null);
+              setCancelConfirmText('');
+            }}
+            disabled={isCancelling}
+            sx={{ color: 'rgba(0, 0, 0, 0.6)', textTransform: 'none', fontSize: '0.875rem', fontWeight: 500 }}
+          >
+            Close
+          </Button>
+          <Button
+            onClick={handleCancelReceipt}
+            variant="contained"
+            disabled={isCancelling || !cancelPreview?.canCancel || cancelConfirmText !== receiptToCancel?.lot_number}
+            startIcon={isCancelling ? <CircularProgress size={20} /> : <CancelIcon />}
+            sx={{
+              backgroundColor: '#991b1b',
+              color: '#fff',
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              px: 2,
+              py: 0.75,
+              '&:hover': { backgroundColor: '#7f1d1d' },
+              '&:disabled': { backgroundColor: 'rgba(0, 0, 0, 0.12)', color: 'rgba(0, 0, 0, 0.26)' }
+            }}
+          >
+            {isCancelling ? 'Cancelling...' : 'Cancel LOT'}
           </Button>
         </DialogActions>
       </Dialog>
