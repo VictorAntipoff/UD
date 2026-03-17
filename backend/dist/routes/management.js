@@ -38,9 +38,9 @@ async function managementRoutes(fastify) {
         try {
             const receipts = await prisma.woodReceipt.findMany({
                 include: {
-                    woodType: true,
-                    warehouse: true,
-                    measurements: true // Include sleeper/plank measurements
+                    WoodType: true,
+                    Warehouse: true,
+                    SleeperMeasurement: true // Include sleeper/plank measurements
                 },
                 orderBy: { createdAt: 'desc' }
             });
@@ -92,6 +92,9 @@ async function managementRoutes(fastify) {
                 }
                 return {
                     ...receipt,
+                    woodType: receipt.WoodType,
+                    warehouse: receipt.Warehouse,
+                    measurements: receipt.SleeperMeasurement,
                     actualVolumeM3,
                     actualPieces
                 };
@@ -133,6 +136,7 @@ async function managementRoutes(fastify) {
             }
             const receipt = await prisma.woodReceipt.create({
                 data: {
+                    id: crypto.randomUUID(),
                     woodTypeId: data.wood_type_id,
                     warehouseId: data.warehouse_id || null,
                     supplier: data.supplier,
@@ -143,11 +147,12 @@ async function managementRoutes(fastify) {
                     notes: data.notes || null,
                     estimatedAmount: data.total_amount || 0,
                     estimatedVolumeM3: data.total_volume_m3 || null,
-                    estimatedPieces: data.total_pieces || null
+                    estimatedPieces: data.total_pieces || null,
+                    updatedAt: new Date()
                 },
                 include: {
-                    woodType: true,
-                    warehouse: true
+                    WoodType: true,
+                    Warehouse: true
                 }
             });
             return receipt;
@@ -167,9 +172,9 @@ async function managementRoutes(fastify) {
             // Only lock if warehouse has stock control enabled
             const existingReceipt = await prisma.woodReceipt.findUnique({
                 where: { id },
-                include: { warehouse: true }
+                include: { Warehouse: true }
             });
-            if (existingReceipt?.receiptConfirmedAt && existingReceipt?.warehouse?.stockControlEnabled) {
+            if (existingReceipt?.receiptConfirmedAt && existingReceipt?.Warehouse?.stockControlEnabled) {
                 const errors = [];
                 if (data.warehouse_id !== existingReceipt.warehouseId) {
                     errors.push('warehouse');
@@ -203,8 +208,8 @@ async function managementRoutes(fastify) {
                     estimatedPieces: data.total_pieces
                 },
                 include: {
-                    woodType: true,
-                    warehouse: true
+                    WoodType: true,
+                    Warehouse: true
                 }
             });
             console.log('PUT /wood-receipts/:id - Update successful');
@@ -226,9 +231,9 @@ async function managementRoutes(fastify) {
             if (hasStockAffectingChanges) {
                 const existingReceipt = await prisma.woodReceipt.findUnique({
                     where: { id },
-                    include: { warehouse: true }
+                    include: { Warehouse: true }
                 });
-                if (existingReceipt?.receiptConfirmedAt && existingReceipt?.warehouse?.stockControlEnabled) {
+                if (existingReceipt?.receiptConfirmedAt && existingReceipt?.Warehouse?.stockControlEnabled) {
                     const errors = [];
                     if (data.warehouse_id !== undefined && data.warehouse_id !== existingReceipt.warehouseId) {
                         errors.push('warehouse');
@@ -278,7 +283,7 @@ async function managementRoutes(fastify) {
                 where: { id },
                 data: updateData,
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             // If status changed to PENDING_APPROVAL, create notifications for admins
@@ -306,10 +311,11 @@ async function managementRoutes(fastify) {
                     userIds = subscriptions.map(s => s.userId);
                 }
                 const notifications = userIds.map(userId => ({
+                    id: crypto.randomUUID(),
                     userId,
                     type: 'LOT_PENDING_APPROVAL',
                     title: 'LOT Pending Approval',
-                    message: `LOT ${receipt.lotNumber} (${receipt.woodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
+                    message: `LOT ${receipt.lotNumber} (${receipt.WoodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
                     linkUrl: `/dashboard/management/wood-receipt`,
                     isRead: false
                 }));
@@ -341,6 +347,228 @@ async function managementRoutes(fastify) {
             return reply.status(500).send({ error: 'Failed to delete wood receipt' });
         }
     });
+    // Preview what cancelling a wood receipt would do (read-only, no mutations)
+    fastify.get('/wood-receipts/:id/cancel-preview', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const receipt = await prisma.woodReceipt.findUnique({
+                where: { id },
+                include: { WoodType: true, Warehouse: true }
+            });
+            if (!receipt) {
+                return reply.status(404).send({ error: 'Receipt not found' });
+            }
+            if (receipt.status === 'CANCELLED') {
+                return reply.status(400).send({ error: 'Receipt is already cancelled' });
+            }
+            const warnings = [];
+            const stockToReverse = [];
+            let canCancel = true;
+            // Find stock that was added by this receipt's approval
+            if (receipt.receiptConfirmedAt && receipt.warehouseId && receipt.Warehouse?.stockControlEnabled) {
+                const movements = await prisma.stock_movements.findMany({
+                    where: {
+                        referenceType: 'RECEIPT',
+                        referenceId: receipt.id,
+                        movementType: 'RECEIPT_SYNC'
+                    }
+                });
+                for (const movement of movements) {
+                    const stock = await prisma.stock.findUnique({
+                        where: {
+                            warehouseId_woodTypeId_thickness: {
+                                warehouseId: movement.warehouseId,
+                                woodTypeId: movement.woodTypeId,
+                                thickness: movement.thickness
+                            }
+                        }
+                    });
+                    const currentNotDried = stock?.statusNotDried || 0;
+                    const currentUnderDrying = stock?.statusUnderDrying || 0;
+                    const currentDried = stock?.statusDried || 0;
+                    const currentDamaged = stock?.statusDamaged || 0;
+                    const totalAvailable = currentNotDried + currentUnderDrying + currentDried + currentDamaged;
+                    const sufficient = totalAvailable >= movement.quantityChange;
+                    if (!sufficient) {
+                        canCancel = false;
+                        warnings.push(`Insufficient stock for ${movement.thickness}: need ${movement.quantityChange} but only ${totalAvailable} available (some may have been transferred out)`);
+                    }
+                    else if (currentNotDried < movement.quantityChange) {
+                        const fromOtherStatuses = movement.quantityChange - currentNotDried;
+                        warnings.push(`${fromOtherStatuses} pieces of ${movement.thickness} have moved beyond "Not Dried" status and will be deducted from Under Drying/Dried/Damaged pools`);
+                    }
+                    stockToReverse.push({
+                        thickness: movement.thickness,
+                        quantity: movement.quantityChange,
+                        currentNotDried,
+                        currentUnderDrying,
+                        currentDried,
+                        currentDamaged,
+                        sufficient
+                    });
+                }
+            }
+            // Count related records
+            const operationCount = await prisma.operation.count({ where: { lotNumber: receipt.lotNumber } });
+            const lotCost = await prisma.lotCost.findUnique({ where: { lotNumber: receipt.lotNumber } });
+            const historyCount = await prisma.receiptHistory.count({ where: { receiptId: receipt.lotNumber } });
+            return {
+                receipt: {
+                    id: receipt.id,
+                    lotNumber: receipt.lotNumber,
+                    status: receipt.status,
+                    woodType: receipt.WoodType?.name,
+                    warehouse: receipt.Warehouse?.name,
+                    receiptConfirmedAt: receipt.receiptConfirmedAt
+                },
+                stockToReverse,
+                relatedRecords: {
+                    operations: operationCount,
+                    hasLotCost: !!lotCost,
+                    historyEntries: historyCount
+                },
+                canCancel,
+                warnings
+            };
+        }
+        catch (error) {
+            console.error('Error generating cancel preview:', error);
+            return reply.status(500).send({ error: 'Failed to generate cancel preview' });
+        }
+    });
+    // Cancel a wood receipt (soft delete - reverse stock, keep all records)
+    fastify.post('/wood-receipts/:id/cancel', { onRequest: requireRole('ADMIN') }, async (request, reply) => {
+        try {
+            const { id } = request.params;
+            const user = request.user;
+            const result = await prisma.$transaction(async (tx) => {
+                // 1. Fetch receipt with warehouse
+                const receipt = await tx.woodReceipt.findUnique({
+                    where: { id },
+                    include: { WoodType: true, Warehouse: true }
+                });
+                if (!receipt) {
+                    throw new Error('Receipt not found');
+                }
+                if (receipt.status === 'CANCELLED') {
+                    throw new Error('Receipt is already cancelled');
+                }
+                const stockReversals = [];
+                // 2. Reverse stock if receipt was approved and warehouse has stock control
+                if (receipt.receiptConfirmedAt && receipt.warehouseId && receipt.Warehouse?.stockControlEnabled) {
+                    const movements = await tx.stock_movements.findMany({
+                        where: {
+                            referenceType: 'RECEIPT',
+                            referenceId: receipt.id,
+                            movementType: 'RECEIPT_SYNC'
+                        }
+                    });
+                    for (const movement of movements) {
+                        const stock = await tx.stock.findUnique({
+                            where: {
+                                warehouseId_woodTypeId_thickness: {
+                                    warehouseId: movement.warehouseId,
+                                    woodTypeId: movement.woodTypeId,
+                                    thickness: movement.thickness
+                                }
+                            }
+                        });
+                        if (!stock) {
+                            throw new Error(`Stock record not found for ${movement.thickness} - cannot reverse`);
+                        }
+                        // Deduct using priority: NOT_DRIED → UNDER_DRYING → DRIED → DAMAGED
+                        let remaining = movement.quantityChange;
+                        const deductions = { notDried: 0, underDrying: 0, dried: 0, damaged: 0 };
+                        const takeFrom = (available, key) => {
+                            const toTake = Math.min(remaining, available);
+                            deductions[key] = toTake;
+                            remaining -= toTake;
+                        };
+                        takeFrom(stock.statusNotDried, 'notDried');
+                        takeFrom(stock.statusUnderDrying, 'underDrying');
+                        takeFrom(stock.statusDried, 'dried');
+                        takeFrom(stock.statusDamaged, 'damaged');
+                        if (remaining > 0) {
+                            throw new Error(`Insufficient stock for ${movement.thickness}: need ${movement.quantityChange} but only ${movement.quantityChange - remaining} available. ${remaining} pieces may have been transferred out.`);
+                        }
+                        // Update stock
+                        await tx.stock.update({
+                            where: { id: stock.id },
+                            data: {
+                                statusNotDried: { decrement: deductions.notDried },
+                                statusUnderDrying: { decrement: deductions.underDrying },
+                                statusDried: { decrement: deductions.dried },
+                                statusDamaged: { decrement: deductions.damaged },
+                                updatedAt: new Date()
+                            }
+                        });
+                        // Record reversal stock movement
+                        const { createStockMovement } = await import('../services/stockMovementService.js');
+                        await createStockMovement({
+                            warehouseId: movement.warehouseId,
+                            woodTypeId: movement.woodTypeId,
+                            thickness: movement.thickness,
+                            movementType: 'MANUAL_ADJUSTMENT',
+                            quantityChange: -movement.quantityChange,
+                            fromStatus: 'NOT_DRIED',
+                            referenceType: 'RECEIPT',
+                            referenceId: receipt.id,
+                            referenceNumber: receipt.lotNumber,
+                            userId: user?.userId,
+                            userName: user?.email || user?.userId,
+                            details: `LOT ${receipt.lotNumber} cancelled - reversed ${movement.quantityChange} pieces (${deductions.notDried} from Not Dried, ${deductions.underDrying} from Under Drying, ${deductions.dried} from Dried, ${deductions.damaged} from Damaged)`
+                        }, tx);
+                        stockReversals.push({
+                            thickness: movement.thickness,
+                            quantity: movement.quantityChange,
+                            deductions
+                        });
+                    }
+                }
+                // 3. Set receipt status to CANCELLED
+                await tx.woodReceipt.update({
+                    where: { id },
+                    data: {
+                        status: 'CANCELLED',
+                        updatedAt: new Date()
+                    }
+                });
+                // 4. Add history entry
+                if (user) {
+                    await tx.receiptHistory.create({
+                        data: {
+                            id: crypto.randomUUID(),
+                            receiptId: receipt.lotNumber,
+                            userId: user.userId,
+                            userName: user.email || user.userId,
+                            action: 'CANCELLED',
+                            details: stockReversals.length > 0
+                                ? `LOT cancelled. Stock reversed: ${stockReversals.map(r => `${r.thickness}: ${r.quantity} pieces`).join(', ')}`
+                                : `LOT cancelled. No stock to reverse.`,
+                            timestamp: new Date()
+                        }
+                    });
+                }
+                return {
+                    lotNumber: receipt.lotNumber,
+                    stockReversed: stockReversals.length > 0,
+                    stockReversals
+                };
+            });
+            console.log(`🚫 LOT ${result.lotNumber} cancelled by ${user?.email}`, result.stockReversals);
+            return { success: true, ...result };
+        }
+        catch (error) {
+            console.error('Error cancelling wood receipt:', error);
+            if (error.message?.includes('not found') || error.message?.includes('already cancelled')) {
+                return reply.status(400).send({ error: error.message });
+            }
+            if (error.message?.includes('Insufficient stock')) {
+                return reply.status(409).send({ error: error.message });
+            }
+            return reply.status(500).send({ error: 'Failed to cancel wood receipt' });
+        }
+    });
     // Get LOT traceability - all records related to a LOT number
     fastify.get('/lot-traceability/:lotNumber', async (request, reply) => {
         try {
@@ -352,8 +580,8 @@ async function managementRoutes(fastify) {
             const woodReceipts = await prisma.woodReceipt.findMany({
                 where: { lotNumber },
                 include: {
-                    woodType: true,
-                    measurements: true
+                    WoodType: true,
+                    SleeperMeasurement: true
                 },
                 orderBy: {
                     createdAt: 'asc'
@@ -368,7 +596,7 @@ async function managementRoutes(fastify) {
             const slicingOperations = await prisma.operation.findMany({
                 where: { lotNumber },
                 include: {
-                    woodType: true
+                    WoodType: true
                 },
                 orderBy: {
                     createdAt: 'asc'
@@ -389,37 +617,50 @@ async function managementRoutes(fastify) {
             const enrichedWoodReceipts = await Promise.all(woodReceipts.map(async (receipt) => {
                 let actualVolumeM3 = receipt.actualVolumeM3;
                 let actualPieces = receipt.actualPieces;
+                let paidVolumeM3 = 0;
+                let complimentaryVolumeM3 = 0;
+                let paidPieces = 0;
+                let complimentaryPieces = 0;
                 let lastWorkedBy = null;
                 let lastWorkedAt = null;
+                // Helper function to calculate volume for a single measurement
+                const calculateVolumeM3 = (m, measurementUnit) => {
+                    const thickness = parseFloat(m.thickness) || 0;
+                    const width = parseFloat(m.width) || 0;
+                    const length = parseFloat(m.length) || 0;
+                    const qty = parseInt(m.qty) || 1;
+                    if (measurementUnit === 'imperial') {
+                        // Imperial: thickness and width in inches, length in feet
+                        const thicknessM = thickness * 0.0254; // inch to meter
+                        const widthM = width * 0.0254; // inch to meter
+                        const lengthM = length * 0.3048; // feet to meter
+                        return thicknessM * widthM * lengthM * qty;
+                    }
+                    else {
+                        // Metric: all in cm
+                        return (thickness / 100) * (width / 100) * (length / 100) * qty;
+                    }
+                };
                 // If there's draft data, calculate from measurements
                 const draft = drafts.find(d => d.receiptId === lotNumber);
                 if (draft && draft.measurements) {
                     const measurements = draft.measurements;
-                    // Calculate total pieces by summing all qty fields
-                    actualPieces = measurements.reduce((sum, m) => {
-                        return sum + (parseInt(m.qty) || 1);
-                    }, 0);
-                    // Calculate total volume using the stored measurement unit
                     const measurementUnit = draft.measurementUnit || 'imperial';
-                    actualVolumeM3 = measurements.reduce((sum, m) => {
-                        const thickness = parseFloat(m.thickness) || 0;
-                        const width = parseFloat(m.width) || 0;
-                        const length = parseFloat(m.length) || 0;
+                    // Calculate totals separately for paid and complimentary wood
+                    measurements.forEach((m) => {
                         const qty = parseInt(m.qty) || 1;
-                        let volumeM3;
-                        if (measurementUnit === 'imperial') {
-                            // Imperial: thickness and width in inches, length in feet
-                            const thicknessM = thickness * 0.0254; // inch to meter
-                            const widthM = width * 0.0254; // inch to meter
-                            const lengthM = length * 0.3048; // feet to meter
-                            volumeM3 = thicknessM * widthM * lengthM * qty;
+                        const volumeM3 = calculateVolumeM3(m, measurementUnit);
+                        if (m.isComplimentary) {
+                            complimentaryVolumeM3 += volumeM3;
+                            complimentaryPieces += qty;
                         }
                         else {
-                            // Metric: all in cm
-                            volumeM3 = (thickness / 100) * (width / 100) * (length / 100) * qty;
+                            paidVolumeM3 += volumeM3;
+                            paidPieces += qty;
                         }
-                        return sum + volumeM3;
-                    }, 0);
+                    });
+                    actualVolumeM3 = paidVolumeM3 + complimentaryVolumeM3;
+                    actualPieces = paidPieces + complimentaryPieces;
                     // Get the last user who worked on this receipt
                     if (draft.updatedBy) {
                         // Fetch user information
@@ -442,9 +683,31 @@ async function managementRoutes(fastify) {
                         lastWorkedAt = draft.updatedAt;
                     }
                 }
+                else if (receipt.SleeperMeasurement && receipt.SleeperMeasurement.length > 0) {
+                    // Use saved measurements from database
+                    receipt.SleeperMeasurement.forEach((m) => {
+                        const qty = m.qty || 1;
+                        const volumeM3 = m.volumeM3 || 0;
+                        if (m.isComplimentary) {
+                            complimentaryVolumeM3 += volumeM3;
+                            complimentaryPieces += qty;
+                        }
+                        else {
+                            paidVolumeM3 += volumeM3;
+                            paidPieces += qty;
+                        }
+                    });
+                    actualVolumeM3 = paidVolumeM3 + complimentaryVolumeM3;
+                    actualPieces = paidPieces + complimentaryPieces;
+                }
+                else {
+                    // No measurements available, use stored values and assume all is paid
+                    paidVolumeM3 = actualVolumeM3 || 0;
+                    paidPieces = actualPieces || 0;
+                }
                 return {
                     id: receipt.id,
-                    woodType: receipt.woodType.name,
+                    woodType: receipt.WoodType.name,
                     supplier: receipt.supplier,
                     receiptDate: receipt.receiptDate,
                     purchaseOrder: receipt.purchaseOrder,
@@ -456,6 +719,11 @@ async function managementRoutes(fastify) {
                     // Show actual measured values (in GREEN on frontend)
                     actualVolumeM3: actualVolumeM3,
                     actualPieces: actualPieces,
+                    // Paid vs Complimentary breakdown (for cost tracking)
+                    paidVolumeM3: paidVolumeM3,
+                    paidPieces: paidPieces,
+                    complimentaryVolumeM3: complimentaryVolumeM3,
+                    complimentaryPieces: complimentaryPieces,
                     estimatedAmount: receipt.estimatedAmount,
                     receiptConfirmedAt: receipt.receiptConfirmedAt,
                     notes: receipt.notes,
@@ -464,8 +732,9 @@ async function managementRoutes(fastify) {
                     // Last user who worked on this receipt
                     lastWorkedBy: lastWorkedBy,
                     lastWorkedAt: lastWorkedAt,
-                    // Include the measurements for PDF generation
-                    measurements: draft?.measurements || null
+                    // Include the measurements for display and PDF generation
+                    measurements: draft?.measurements || null,
+                    measurementUnit: draft?.measurementUnit || 'imperial'
                 };
             }));
             // TODO: Add other stages here when they're implemented
@@ -479,7 +748,7 @@ async function managementRoutes(fastify) {
                     slicing: slicingOperations.map(op => ({
                         id: op.id,
                         serialNumber: op.serialNumber,
-                        woodType: op.woodType.name,
+                        woodType: op.WoodType.name,
                         status: op.status,
                         startTime: op.startTime,
                         endTime: op.endTime,
@@ -557,10 +826,15 @@ async function managementRoutes(fastify) {
             const data = request.body;
             const lotCost = await prisma.lotCost.upsert({
                 where: { lotNumber },
-                update: data,
+                update: {
+                    ...data,
+                    updatedAt: new Date()
+                },
                 create: {
+                    id: crypto.randomUUID(),
                     lotNumber,
-                    ...data
+                    ...data,
+                    updatedAt: new Date()
                 }
             });
             return lotCost;
@@ -579,8 +853,8 @@ async function managementRoutes(fastify) {
                     status: 'PENDING_APPROVAL'
                 },
                 include: {
-                    woodType: true,
-                    warehouse: true
+                    WoodType: true,
+                    Warehouse: true
                 },
                 orderBy: { createdAt: 'desc' }
             });
@@ -590,9 +864,9 @@ async function managementRoutes(fastify) {
                     status: 'pending'
                 },
                 include: {
-                    operation: {
+                    Operation: {
                         include: {
-                            woodType: true
+                            WoodType: true
                         }
                     }
                 },
@@ -605,7 +879,7 @@ async function managementRoutes(fastify) {
                 module: 'WOOD_RECEIPT',
                 referenceId: receipt.id,
                 lotNumber: receipt.lotNumber,
-                woodType: receipt.woodType,
+                woodType: receipt.WoodType,
                 supplier: receipt.supplier,
                 receiptDate: receipt.receiptDate,
                 estimatedAmount: receipt.estimatedAmount,
@@ -614,7 +888,7 @@ async function managementRoutes(fastify) {
                 actualVolumeM3: receipt.actualVolumeM3,
                 actualPieces: receipt.actualPieces,
                 woodFormat: receipt.woodFormat,
-                warehouse: receipt.warehouse,
+                warehouse: receipt.Warehouse,
                 status: 'pending',
                 createdAt: receipt.createdAt,
                 updatedAt: receipt.updatedAt
@@ -623,9 +897,9 @@ async function managementRoutes(fastify) {
             const transformedOperationApprovals = operationApprovals.map(approval => ({
                 id: approval.id,
                 type: 'OPERATION_APPROVAL',
-                module: approval.operation.serialNumber.startsWith('WS-') ? 'WOOD_SLICER' : 'WOOD_CALCULATOR',
+                module: approval.Operation.serialNumber.startsWith('WS-') ? 'WOOD_SLICER' : 'WOOD_CALCULATOR',
                 referenceId: approval.operationId,
-                operation: approval.operation,
+                operation: approval.Operation,
                 approverRole: approval.approverRole,
                 status: approval.status,
                 createdAt: approval.createdAt,
@@ -664,14 +938,18 @@ async function managementRoutes(fastify) {
             return reply.status(500).send({ error: 'Failed to fetch pending count' });
         }
     });
-    // Approve a wood receipt (change status to COMPLETED)
+    // Approve a wood receipt (change status to COMPLETED and sync stock)
     fastify.post('/wood-receipts/:id/approve', { onRequest: requireRole('ADMIN', 'SUPERVISOR') }, async (request, reply) => {
         try {
             const { id } = request.params;
-            // Get the receipt first to get lotNumber
+            const user = request.user;
+            // Get the receipt with warehouse info
             const existingReceipt = await prisma.woodReceipt.findUnique({
                 where: { id },
-                include: { woodType: true }
+                include: {
+                    WoodType: true,
+                    Warehouse: true
+                }
             });
             if (!existingReceipt) {
                 return reply.status(404).send({ error: 'Receipt not found' });
@@ -681,61 +959,156 @@ async function managementRoutes(fastify) {
                 where: { receiptId: existingReceipt.lotNumber },
                 orderBy: { updatedAt: 'desc' }
             });
-            // If draft has measurements, save them to SleeperMeasurement table
-            if (draft && draft.measurements) {
-                const measurements = draft.measurements;
-                // Delete existing measurements for this receipt (if any)
-                await prisma.sleeperMeasurement.deleteMany({
+            const measurementUnit = draft?.measurementUnit || 'imperial';
+            const measurements = draft?.measurements || [];
+            if (measurements.length === 0) {
+                return reply.status(400).send({ error: 'No measurements found. Cannot approve receipt without measurements.' });
+            }
+            // Calculate totals and group by thickness for stock
+            let totalPieces = 0;
+            let totalVolumeM3 = 0;
+            const stockByThickness = {};
+            measurements.forEach((m) => {
+                const qty = parseInt(m.qty) || 1;
+                const volumeM3 = parseFloat(m.m3) || 0;
+                totalPieces += qty;
+                totalVolumeM3 += volumeM3;
+                // Determine thickness category for stock
+                let thickness;
+                // Check isCustom - handle both boolean and string values
+                const isCustom = m.isCustom === true || m.isCustom === 'true';
+                if (isCustom) {
+                    thickness = 'Custom';
+                }
+                else {
+                    const thicknessValue = parseFloat(m.thickness);
+                    const STANDARD_SIZES = [1, 2, 3];
+                    // Use Math.round to handle floating point values like 1.0, 2.0, 3.0
+                    thickness = STANDARD_SIZES.includes(Math.round(thicknessValue)) ? `${Math.round(thicknessValue)}"` : 'Custom';
+                }
+                if (!stockByThickness[thickness]) {
+                    stockByThickness[thickness] = 0;
+                }
+                stockByThickness[thickness] += qty;
+            });
+            console.log('📦 Approval - Stock grouping by thickness:', {
+                lotNumber: existingReceipt.lotNumber,
+                stockByThickness,
+                warehouseId: existingReceipt.warehouseId,
+                stockControlEnabled: existingReceipt.Warehouse?.stockControlEnabled
+            });
+            // Execute all operations in a transaction
+            const result = await prisma.$transaction(async (tx) => {
+                // 1. Delete existing measurements and create new ones
+                await tx.sleeperMeasurement.deleteMany({
                     where: { receiptId: id }
                 });
-                // Create new measurements
-                await prisma.sleeperMeasurement.createMany({
+                await tx.sleeperMeasurement.createMany({
                     data: measurements.map(m => ({
+                        id: crypto.randomUUID(),
                         receiptId: id,
                         thickness: parseFloat(m.thickness) || 0,
                         width: parseFloat(m.width) || 0,
                         length: parseFloat(m.length) || 0,
                         qty: parseInt(m.qty) || 1,
                         volumeM3: parseFloat(m.m3) || 0,
-                        isCustom: m.isCustom === true
+                        // Handle both boolean and string values from JSON
+                        isCustom: m.isCustom === true || m.isCustom === 'true',
+                        isComplimentary: m.isComplimentary === true || m.isComplimentary === 'true',
+                        updatedAt: new Date()
                     }))
                 });
-            }
-            const receipt = await prisma.woodReceipt.update({
-                where: { id },
-                data: {
-                    status: 'COMPLETED',
-                    receiptConfirmedAt: new Date()
-                },
-                include: {
-                    woodType: true
+                // 2. Sync stock if warehouse has stock control enabled
+                if (existingReceipt.warehouseId && existingReceipt.Warehouse?.stockControlEnabled) {
+                    console.log('🔄 Starting stock sync for approved LOT', existingReceipt.lotNumber);
+                    for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+                        const qty = quantity;
+                        console.log(`  → Syncing ${thickness}: ${qty} pieces to warehouse ${existingReceipt.warehouseId}`);
+                        try {
+                            await tx.stock.upsert({
+                                where: {
+                                    warehouseId_woodTypeId_thickness: {
+                                        warehouseId: existingReceipt.warehouseId,
+                                        woodTypeId: existingReceipt.woodTypeId,
+                                        thickness: thickness
+                                    }
+                                },
+                                update: {
+                                    statusNotDried: { increment: qty },
+                                    updatedAt: new Date()
+                                },
+                                create: {
+                                    id: crypto.randomUUID(),
+                                    warehouseId: existingReceipt.warehouseId,
+                                    woodTypeId: existingReceipt.woodTypeId,
+                                    thickness: thickness,
+                                    statusNotDried: qty,
+                                    statusUnderDrying: 0,
+                                    statusDried: 0,
+                                    statusDamaged: 0,
+                                    updatedAt: new Date()
+                                }
+                            });
+                            console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
+                            // Log stock movement
+                            const { createStockMovement } = await import('../services/stockMovementService.js');
+                            await createStockMovement({
+                                warehouseId: existingReceipt.warehouseId,
+                                woodTypeId: existingReceipt.woodTypeId,
+                                thickness: thickness,
+                                movementType: 'RECEIPT_SYNC',
+                                quantityChange: qty,
+                                toStatus: 'NOT_DRIED',
+                                referenceType: 'RECEIPT',
+                                referenceId: existingReceipt.id,
+                                referenceNumber: existingReceipt.lotNumber,
+                                userId: user?.userId,
+                                details: `Receipt ${existingReceipt.lotNumber} approved and synced to stock`
+                            }, tx);
+                        }
+                        catch (stockError) {
+                            console.error(`  ❌ FAILED to sync ${thickness}: ${qty} pieces`, stockError);
+                            throw new Error(`Stock sync failed for thickness ${thickness}: ${stockError.message}`);
+                        }
+                    }
+                    console.log('✅ All stock synced successfully for approved LOT', existingReceipt.lotNumber);
                 }
-            });
-            // Create history entry for approval
-            const user = request.user;
-            if (user && existingReceipt.lotNumber) {
-                try {
-                    await prisma.receiptHistory.create({
+                // 3. Update the receipt status and actual values
+                const updatedReceipt = await tx.woodReceipt.update({
+                    where: { id },
+                    data: {
+                        status: 'COMPLETED',
+                        actualPieces: totalPieces,
+                        actualVolumeM3: totalVolumeM3,
+                        measurementUnit: measurementUnit,
+                        receiptConfirmedAt: new Date()
+                    },
+                    include: {
+                        WoodType: true
+                    }
+                });
+                // 4. Create history entry for approval
+                if (user && existingReceipt.lotNumber) {
+                    await tx.receiptHistory.create({
                         data: {
+                            id: crypto.randomUUID(),
                             receiptId: existingReceipt.lotNumber,
                             userId: user.userId,
                             userName: user.email || user.userId,
                             action: 'APPROVED',
-                            details: `Receipt approved by admin and marked as COMPLETED`,
+                            details: `Receipt approved and completed. ${totalPieces} pieces (${totalVolumeM3.toFixed(4)} m³)${existingReceipt.Warehouse?.stockControlEnabled ? '. Stock synced to warehouse.' : ''}`,
                             timestamp: new Date()
                         }
                     });
                 }
-                catch (historyError) {
-                    console.error('Error creating approval history:', historyError);
-                }
-            }
-            console.log(`Wood Receipt ${receipt.lotNumber} approved by admin and status set to COMPLETED`);
-            return receipt;
+                return updatedReceipt;
+            });
+            console.log(`Wood Receipt ${result.lotNumber} approved by admin, status set to COMPLETED, stock synced`);
+            return result;
         }
         catch (error) {
             console.error('Error approving wood receipt:', error);
-            return reply.status(500).send({ error: 'Failed to approve wood receipt' });
+            return reply.status(500).send({ error: error.message || 'Failed to approve wood receipt' });
         }
     });
     // Reject a wood receipt (you can customize the rejected status)
@@ -754,7 +1127,7 @@ async function managementRoutes(fastify) {
                     notes: notes || currentReceipt?.notes
                 },
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             console.log(`Wood Receipt ${receipt.lotNumber} rejected`);
@@ -771,10 +1144,11 @@ async function managementRoutes(fastify) {
             const { id } = request.params;
             const body = (request.body || {});
             const warehouse_id = body.warehouse_id;
+            const force = body.force === true;
             // Get the receipt
             const receipt = await prisma.woodReceipt.findUnique({
                 where: { id },
-                include: { woodType: true, warehouse: true }
+                include: { WoodType: true, Warehouse: true }
             });
             if (!receipt) {
                 return reply.status(404).send({ error: 'Receipt not found' });
@@ -812,12 +1186,18 @@ async function managementRoutes(fastify) {
             // Group measurements by thickness
             const stockByThickness = measurements.reduce((acc, m) => {
                 let thickness;
-                if (m.isCustom === true) {
+                // Check isCustom - handle both boolean and string values
+                const isCustom = m.isCustom === true || m.isCustom === 'true';
+                const isNotCustom = m.isCustom === false || m.isCustom === 'false';
+                if (isCustom) {
                     thickness = 'Custom';
                 }
-                else if (m.isCustom === false) {
+                else if (isNotCustom) {
                     const thicknessValue = parseFloat(m.thickness);
-                    thickness = `${Math.round(thicknessValue)}"`;
+                    const STANDARD_SIZES = [1, 2, 3];
+                    thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+                        ? `${Math.round(thicknessValue)}"`
+                        : 'Custom';
                 }
                 else {
                     if (measurementUnit === 'metric') {
@@ -838,11 +1218,50 @@ async function managementRoutes(fastify) {
                 return acc;
             }, {});
             // Check if stock was already synced by looking at receiptConfirmedAt
-            if (receipt.receiptConfirmedAt) {
+            if (receipt.receiptConfirmedAt && !force) {
                 return reply.status(400).send({
-                    error: 'Stock has already been synced for this LOT',
+                    error: 'Stock has already been synced for this LOT. Use force: true to re-sync.',
                     syncedAt: receipt.receiptConfirmedAt
                 });
+            }
+            if (force) {
+                console.log(`⚠️ Force re-syncing stock for LOT ${receipt.lotNumber} (previously synced at ${receipt.receiptConfirmedAt})`);
+                // IMPORTANT: First, reverse the previous stock sync to prevent double-counting
+                // Get all previous stock movements for this receipt
+                const previousMovements = await prisma.stock_movements.findMany({
+                    where: {
+                        referenceType: 'RECEIPT',
+                        referenceId: receipt.id,
+                        movementType: 'RECEIPT_SYNC'
+                    }
+                });
+                if (previousMovements.length > 0) {
+                    console.log(`🔄 Reversing ${previousMovements.length} previous stock movements for LOT ${receipt.lotNumber}`);
+                    for (const movement of previousMovements) {
+                        // Decrement the stock that was previously added
+                        await prisma.stock.updateMany({
+                            where: {
+                                warehouseId: movement.warehouseId,
+                                woodTypeId: movement.woodTypeId,
+                                thickness: movement.thickness
+                            },
+                            data: {
+                                statusNotDried: { decrement: movement.quantityChange },
+                                updatedAt: new Date()
+                            }
+                        });
+                        console.log(`  ↩️ Reversed ${movement.thickness}: -${movement.quantityChange} pieces`);
+                    }
+                    // Delete the old movements to keep history clean
+                    await prisma.stock_movements.deleteMany({
+                        where: {
+                            referenceType: 'RECEIPT',
+                            referenceId: receipt.id,
+                            movementType: 'RECEIPT_SYNC'
+                        }
+                    });
+                    console.log(`  🗑️ Cleaned up old stock movement records`);
+                }
             }
             // Update the receipt with the warehouse if not already set
             if (!receipt.warehouseId || receipt.warehouseId !== warehouseId) {
@@ -852,8 +1271,11 @@ async function managementRoutes(fastify) {
                 });
             }
             // Update stock
+            const user = request.user;
+            const { createStockMovement } = await import('../services/stockMovementService.js');
             for (const [thickness, quantity] of Object.entries(stockByThickness)) {
                 const qty = quantity;
+                // Use set instead of increment for re-sync to avoid accumulation
                 await prisma.stock.upsert({
                     where: {
                         warehouseId_woodTypeId_thickness: {
@@ -863,17 +1285,34 @@ async function managementRoutes(fastify) {
                         }
                     },
                     update: {
-                        statusNotDried: { increment: qty }
+                        statusNotDried: { increment: qty },
+                        updatedAt: new Date()
                     },
                     create: {
+                        id: crypto.randomUUID(),
                         warehouseId: warehouseId,
                         woodTypeId: receipt.woodTypeId,
                         thickness: thickness,
                         statusNotDried: qty,
                         statusUnderDrying: 0,
                         statusDried: 0,
-                        statusDamaged: 0
+                        statusDamaged: 0,
+                        updatedAt: new Date()
                     }
+                });
+                // Log stock movement
+                await createStockMovement({
+                    warehouseId: warehouseId,
+                    woodTypeId: receipt.woodTypeId,
+                    thickness: thickness,
+                    movementType: 'RECEIPT_SYNC',
+                    quantityChange: qty,
+                    toStatus: 'NOT_DRIED',
+                    referenceType: 'RECEIPT',
+                    referenceId: receipt.id,
+                    referenceNumber: receipt.lotNumber,
+                    userId: user?.userId,
+                    details: `Manual stock sync for ${receipt.lotNumber}${force ? ' (re-sync - corrected categorization)' : ''}`
                 });
             }
             // Mark receipt as confirmed to prevent double-sync
@@ -881,7 +1320,7 @@ async function managementRoutes(fastify) {
                 where: { id },
                 data: { receiptConfirmedAt: new Date() }
             });
-            console.log(`Synced stock for LOT ${receipt.lotNumber} to warehouse ${warehouse.name}`);
+            console.log(`✅ Synced stock for LOT ${receipt.lotNumber} to warehouse ${warehouse.name}${force ? ' (forced)' : ''}`);
             return {
                 success: true,
                 message: `LOT ${receipt.lotNumber} stock synced to ${warehouse.name}.`,
@@ -930,11 +1369,13 @@ async function managementRoutes(fastify) {
             }
             const rule = await prisma.approvalRule.create({
                 data: {
+                    id: crypto.randomUUID(),
                     module: data.module,
                     conditionField: data.conditionField,
                     operator: data.operator,
                     threshold: parseFloat(data.threshold),
-                    isActive: data.isActive ?? true
+                    isActive: data.isActive ?? true,
+                    updatedAt: new Date()
                 }
             });
             return rule;
@@ -991,9 +1432,9 @@ async function managementRoutes(fastify) {
             const warehouses = await prisma.warehouse.findMany({
                 where: whereClause,
                 include: {
-                    assignedUsers: {
+                    WarehouseUser: {
                         include: {
-                            user: {
+                            User: {
                                 select: {
                                     id: true,
                                     email: true,
@@ -1006,9 +1447,9 @@ async function managementRoutes(fastify) {
                     },
                     _count: {
                         select: {
-                            stock: true,
-                            transfersFrom: true,
-                            transfersTo: true
+                            Stock: true,
+                            Transfer_Transfer_fromWarehouseIdToWarehouse: true,
+                            Transfer_Transfer_toWarehouseIdToWarehouse: true
                         }
                     }
                 },
@@ -1017,7 +1458,19 @@ async function managementRoutes(fastify) {
                     { code: 'asc' }
                 ]
             });
-            return warehouses;
+            // Map PascalCase relation names to camelCase for frontend compatibility
+            return warehouses.map(w => ({
+                ...w,
+                assignedUsers: w.WarehouseUser?.map((wu) => ({
+                    ...wu,
+                    user: wu.User
+                })) || [],
+                _count: {
+                    stock: w._count?.Stock || 0,
+                    transfersFrom: w._count?.Transfer_Transfer_fromWarehouseIdToWarehouse || 0,
+                    transfersTo: w._count?.Transfer_Transfer_toWarehouseIdToWarehouse || 0
+                }
+            }));
         }
         catch (error) {
             console.error('Error fetching warehouses:', error);
@@ -1031,9 +1484,9 @@ async function managementRoutes(fastify) {
             const warehouse = await prisma.warehouse.findUnique({
                 where: { id },
                 include: {
-                    assignedUsers: {
+                    WarehouseUser: {
                         include: {
-                            user: {
+                            User: {
                                 select: {
                                     id: true,
                                     email: true,
@@ -1044,16 +1497,16 @@ async function managementRoutes(fastify) {
                             }
                         }
                     },
-                    stock: {
+                    Stock: {
                         include: {
-                            woodType: true
+                            WoodType: true
                         }
                     },
                     _count: {
                         select: {
-                            transfersFrom: true,
-                            transfersTo: true,
-                            stockAdjustments: true
+                            Transfer_Transfer_fromWarehouseIdToWarehouse: true,
+                            Transfer_Transfer_toWarehouseIdToWarehouse: true,
+                            StockAdjustment: true
                         }
                     }
                 }
@@ -1061,7 +1514,20 @@ async function managementRoutes(fastify) {
             if (!warehouse) {
                 return reply.status(404).send({ error: 'Warehouse not found' });
             }
-            return warehouse;
+            // Map PascalCase to camelCase for frontend
+            return {
+                ...warehouse,
+                assignedUsers: warehouse.WarehouseUser?.map((wu) => ({
+                    ...wu,
+                    user: wu.User
+                })) || [],
+                stock: warehouse.Stock || [],
+                _count: {
+                    transfersFrom: warehouse._count?.Transfer_Transfer_fromWarehouseIdToWarehouse || 0,
+                    transfersTo: warehouse._count?.Transfer_Transfer_toWarehouseIdToWarehouse || 0,
+                    stockAdjustments: warehouse._count?.StockAdjustment || 0
+                }
+            };
         }
         catch (error) {
             console.error('Error fetching warehouse:', error);
@@ -1088,19 +1554,25 @@ async function managementRoutes(fastify) {
             }
             const warehouse = await prisma.warehouse.create({
                 data: {
+                    id: crypto.randomUUID(),
                     code: data.code,
                     name: data.name,
                     address: data.address || null,
                     contactPerson: data.contactPerson || null,
                     stockControlEnabled: data.stockControlEnabled ?? false,
                     requiresApproval: data.requiresApproval ?? false,
-                    status: 'ACTIVE'
+                    status: 'ACTIVE',
+                    updatedAt: new Date()
                 },
                 include: {
-                    assignedUsers: true
+                    WarehouseUser: true
                 }
             });
-            return warehouse;
+            // Map to frontend format
+            return {
+                ...warehouse,
+                assignedUsers: warehouse.WarehouseUser || []
+            };
         }
         catch (error) {
             console.error('Error creating warehouse:', error);
@@ -1134,7 +1606,7 @@ async function managementRoutes(fastify) {
                     requiresApproval: data.requiresApproval
                 },
                 include: {
-                    assignedUsers: true
+                    WarehouseUser: true
                 }
             });
             return warehouse;
@@ -1191,6 +1663,7 @@ async function managementRoutes(fastify) {
             if (userIds && userIds.length > 0) {
                 await prisma.warehouseUser.createMany({
                     data: userIds.map(userId => ({
+                        id: crypto.randomUUID(),
                         warehouseId: id,
                         userId
                     }))
@@ -1200,9 +1673,9 @@ async function managementRoutes(fastify) {
             const warehouse = await prisma.warehouse.findUnique({
                 where: { id },
                 include: {
-                    assignedUsers: {
+                    WarehouseUser: {
                         include: {
-                            user: {
+                            User: {
                                 select: {
                                     id: true,
                                     email: true,
@@ -1215,7 +1688,14 @@ async function managementRoutes(fastify) {
                     }
                 }
             });
-            return warehouse;
+            // Map to frontend format
+            return warehouse ? {
+                ...warehouse,
+                assignedUsers: warehouse.WarehouseUser?.map((wu) => ({
+                    ...wu,
+                    user: wu.User
+                })) || []
+            } : warehouse;
         }
         catch (error) {
             console.error('Error updating assigned users:', error);
@@ -1230,8 +1710,8 @@ async function managementRoutes(fastify) {
             const stock = await prisma.stock.findMany({
                 where: { warehouseId: id },
                 include: {
-                    woodType: true,
-                    warehouse: {
+                    WoodType: true,
+                    Warehouse: {
                         select: {
                             code: true,
                             name: true
@@ -1239,11 +1719,15 @@ async function managementRoutes(fastify) {
                     }
                 },
                 orderBy: [
-                    { woodType: { name: 'asc' } },
+                    { WoodType: { name: 'asc' } },
                     { thickness: 'asc' }
                 ]
             });
-            return stock;
+            return stock.map(s => ({
+                ...s,
+                woodType: s.WoodType,
+                warehouse: s.Warehouse
+            }));
         }
         catch (error) {
             console.error('Error fetching stock:', error);
@@ -1255,13 +1739,13 @@ async function managementRoutes(fastify) {
         try {
             const stock = await prisma.stock.findMany({
                 where: {
-                    warehouse: {
+                    Warehouse: {
                         status: 'ACTIVE'
                     }
                 },
                 include: {
-                    woodType: true,
-                    warehouse: {
+                    WoodType: true,
+                    Warehouse: {
                         select: {
                             code: true,
                             name: true,
@@ -1270,9 +1754,9 @@ async function managementRoutes(fastify) {
                     }
                 },
                 orderBy: [
-                    { woodType: { name: 'asc' } },
+                    { WoodType: { name: 'asc' } },
                     { thickness: 'asc' },
-                    { warehouse: { name: 'asc' } }
+                    { Warehouse: { name: 'asc' } }
                 ]
             });
             // Group by wood type and thickness for summary
@@ -1280,7 +1764,7 @@ async function managementRoutes(fastify) {
                 const key = `${item.woodTypeId}_${item.thickness}`;
                 if (!acc[key]) {
                     acc[key] = {
-                        woodType: item.woodType,
+                        woodType: item.WoodType,
                         thickness: item.thickness,
                         totalNotDried: 0,
                         totalUnderDrying: 0,
@@ -1296,7 +1780,7 @@ async function managementRoutes(fastify) {
                 acc[key].totalDamaged += item.statusDamaged;
                 acc[key].totalInTransit += item.statusInTransitOut + item.statusInTransitIn;
                 acc[key].warehouses.push({
-                    warehouse: item.warehouse,
+                    warehouse: item.Warehouse,
                     quantities: {
                         notDried: item.statusNotDried,
                         underDrying: item.statusUnderDrying,
@@ -1309,7 +1793,11 @@ async function managementRoutes(fastify) {
                 return acc;
             }, {});
             return {
-                detailed: stock,
+                detailed: stock.map(s => ({
+                    ...s,
+                    woodType: s.WoodType,
+                    warehouse: s.Warehouse
+                })),
                 summary: Object.values(summary)
             };
         }
@@ -1323,7 +1811,7 @@ async function managementRoutes(fastify) {
         try {
             const lowStockItems = await prisma.stock.findMany({
                 where: {
-                    warehouse: {
+                    Warehouse: {
                         status: 'ACTIVE',
                         stockControlEnabled: true
                     },
@@ -1332,8 +1820,8 @@ async function managementRoutes(fastify) {
                     }
                 },
                 include: {
-                    woodType: true,
-                    warehouse: {
+                    WoodType: true,
+                    Warehouse: {
                         select: {
                             code: true,
                             name: true
@@ -1347,6 +1835,8 @@ async function managementRoutes(fastify) {
                 return item.minimumStockLevel && totalAvailable < item.minimumStockLevel;
             }).map(item => ({
                 ...item,
+                woodType: item.WoodType,
+                warehouse: item.Warehouse,
                 currentStock: item.statusNotDried + item.statusDried,
                 shortfall: item.minimumStockLevel - (item.statusNotDried + item.statusDried)
             }));
@@ -1385,8 +1875,8 @@ async function managementRoutes(fastify) {
                         minimumStockLevel: data.minimumStockLevel
                     },
                     include: {
-                        woodType: true,
-                        warehouse: true
+                        WoodType: true,
+                        Warehouse: true
                     }
                 });
             }
@@ -1394,6 +1884,7 @@ async function managementRoutes(fastify) {
                 // Create new record
                 stock = await prisma.stock.create({
                     data: {
+                        id: crypto.randomUUID(),
                         warehouseId: data.warehouseId,
                         woodTypeId: data.woodTypeId,
                         thickness: data.thickness,
@@ -1403,11 +1894,12 @@ async function managementRoutes(fastify) {
                         statusDried: 0,
                         statusDamaged: 0,
                         statusInTransitOut: 0,
-                        statusInTransitIn: 0
+                        statusInTransitIn: 0,
+                        updatedAt: new Date()
                     },
                     include: {
-                        woodType: true,
-                        warehouse: true
+                        WoodType: true,
+                        Warehouse: true
                     }
                 });
             }
@@ -1441,6 +1933,7 @@ async function managementRoutes(fastify) {
             if (!stock) {
                 stock = await prisma.stock.create({
                     data: {
+                        id: crypto.randomUUID(),
                         warehouseId: data.warehouseId,
                         woodTypeId: data.woodTypeId,
                         thickness: data.thickness,
@@ -1449,7 +1942,8 @@ async function managementRoutes(fastify) {
                         statusDried: 0,
                         statusDamaged: 0,
                         statusInTransitOut: 0,
-                        statusInTransitIn: 0
+                        statusInTransitIn: 0,
+                        updatedAt: new Date()
                     }
                 });
             }
@@ -1477,6 +1971,7 @@ async function managementRoutes(fastify) {
                 }),
                 prisma.stockAdjustment.create({
                     data: {
+                        id: crypto.randomUUID(),
                         warehouseId: data.warehouseId,
                         woodTypeId: data.woodTypeId,
                         thickness: data.thickness,
@@ -1489,9 +1984,9 @@ async function managementRoutes(fastify) {
                         adjustedById: userId
                     },
                     include: {
-                        woodType: true,
-                        warehouse: true,
-                        adjustedBy: {
+                        WoodType: true,
+                        Warehouse: true,
+                        User: {
                             select: {
                                 email: true,
                                 firstName: true,
@@ -1501,7 +1996,14 @@ async function managementRoutes(fastify) {
                     }
                 })
             ]);
-            return result[1]; // Return the adjustment record
+            // Map to frontend format
+            const adjustment = result[1];
+            return {
+                ...adjustment,
+                woodType: adjustment.WoodType,
+                warehouse: adjustment.Warehouse,
+                adjustedBy: adjustment.User
+            };
         }
         catch (error) {
             console.error('Error adjusting stock:', error);
@@ -1516,9 +2018,9 @@ async function managementRoutes(fastify) {
             const adjustments = await prisma.stockAdjustment.findMany({
                 where: whereClause,
                 include: {
-                    woodType: true,
-                    warehouse: true,
-                    adjustedBy: {
+                    WoodType: true,
+                    Warehouse: true,
+                    User: {
                         select: {
                             email: true,
                             firstName: true,
@@ -1529,7 +2031,13 @@ async function managementRoutes(fastify) {
                 orderBy: { adjustedAt: 'desc' },
                 take: 100 // Limit to last 100 adjustments
             });
-            return adjustments;
+            // Map to camelCase for frontend
+            return adjustments.map(adj => ({
+                ...adj,
+                woodType: adj.WoodType,
+                warehouse: adj.Warehouse,
+                adjustedBy: adj.User
+            }));
         }
         catch (error) {
             console.error('Error fetching adjustments:', error);
@@ -1566,20 +2074,35 @@ async function managementRoutes(fastify) {
     fastify.get('/stock/movements/:woodTypeId', async (request, reply) => {
         try {
             const { woodTypeId } = request.params;
-            const { days, warehouseId, movementType, thickness } = request.query;
+            const { days, warehouseId, movementType, thickness, startDate, endDate } = request.query;
             const filters = {
                 woodTypeId,
                 warehouseId,
                 thickness,
                 movementType: movementType
             };
-            if (days) {
+            // Handle date filtering - custom dates take precedence over days
+            if (startDate || endDate) {
+                // Custom date range
+                if (startDate) {
+                    filters.startDate = new Date(startDate);
+                }
+                if (endDate) {
+                    // Set end date to end of day
+                    const end = new Date(endDate);
+                    end.setHours(23, 59, 59, 999);
+                    filters.endDate = end;
+                }
+            }
+            else if (days) {
+                // Days-based filtering
                 const daysNum = parseInt(days);
                 if (!isNaN(daysNum)) {
                     filters.startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
                     filters.endDate = new Date();
                 }
             }
+            // If no date params, return all movements (no date filtering)
             const { getStockMovements } = await import('../services/stockMovementService.js');
             const movements = await getStockMovements(filters);
             return movements;

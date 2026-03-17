@@ -2,6 +2,18 @@
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import PDFDocument from 'pdfkit';
+import { formatInTimeZone } from 'date-fns-tz';
+const APP_TIMEZONE = 'Africa/Dar_es_Salaam';
+/** Format a UTC date in the app timezone */
+function formatTZ(date, fmt = 'yyyy-MM-dd hh:mm a') {
+    try {
+        const d = typeof date === 'string' ? new Date(date) : date;
+        return formatInTimeZone(d, APP_TIMEZONE, fmt);
+    }
+    catch {
+        return String(date);
+    }
+}
 async function factoryRoutes(fastify) {
     // SECURITY: Protect all factory routes with authentication
     fastify.addHook('onRequest', authenticateToken);
@@ -15,7 +27,7 @@ async function factoryRoutes(fastify) {
             const calculations = await prisma.woodCalculation.findMany({
                 where: { userId: user_id },
                 include: {
-                    woodType: true
+                    WoodType: true
                 },
                 orderBy: { createdAt: 'desc' }
             });
@@ -54,6 +66,7 @@ async function factoryRoutes(fastify) {
             }
             const calculation = await prisma.woodCalculation.create({
                 data: {
+                    id: crypto.randomUUID(),
                     userId: data.user_id,
                     woodTypeId: data.wood_type_id,
                     thickness: data.thickness,
@@ -63,10 +76,11 @@ async function factoryRoutes(fastify) {
                     volumeM3: data.volume_m3,
                     planksPerM3: data.planks_per_m3,
                     pricePerM3: data.price_per_m3,
-                    notes: data.notes || ''
+                    notes: data.notes || '',
+                    updatedAt: new Date()
                 },
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             // Transform response to match frontend expectations
@@ -130,11 +144,13 @@ async function factoryRoutes(fastify) {
             }
             const woodType = await prisma.woodType.create({
                 data: {
+                    id: crypto.randomUUID(),
                     name: data.name,
                     description: data.description || null,
                     density: data.density || null,
                     grade: data.grade || 'STANDARD',
-                    origin: data.origin || null
+                    origin: data.origin || null,
+                    updatedAt: new Date()
                 }
             });
             return woodType;
@@ -194,7 +210,7 @@ async function factoryRoutes(fastify) {
         try {
             const factories = await prisma.factory.findMany({
                 include: {
-                    user: {
+                    User: {
                         select: {
                             id: true,
                             email: true,
@@ -221,11 +237,13 @@ async function factoryRoutes(fastify) {
             }
             const factory = await prisma.factory.create({
                 data: {
+                    id: crypto.randomUUID(),
                     name,
-                    userId
+                    userId,
+                    updatedAt: new Date()
                 },
                 include: {
-                    user: {
+                    User: {
                         select: {
                             id: true,
                             email: true,
@@ -249,7 +267,7 @@ async function factoryRoutes(fastify) {
             const operations = await prisma.operation.findMany({
                 where: status ? { status } : undefined,
                 include: {
-                    woodType: true
+                    WoodType: true
                 },
                 orderBy: { createdAt: 'desc' }
             });
@@ -316,7 +334,7 @@ async function factoryRoutes(fastify) {
             const operation = await prisma.operation.findUnique({
                 where: { id },
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             if (!operation) {
@@ -360,6 +378,7 @@ async function factoryRoutes(fastify) {
             }
             const operation = await prisma.operation.create({
                 data: {
+                    id: crypto.randomUUID(),
                     serialNumber: data.serial_number,
                     woodTypeId: data.wood_type_id,
                     lotNumber: data.lot_number,
@@ -370,10 +389,11 @@ async function factoryRoutes(fastify) {
                     plankSizes: data.plank_sizes || [],
                     status: data.status || 'draft',
                     wastePercentage: data.waste_percentage || null,
-                    notes: data.notes || null
+                    notes: data.notes || null,
+                    updatedAt: new Date()
                 },
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             // Transform response
@@ -431,7 +451,7 @@ async function factoryRoutes(fastify) {
                 where: { id },
                 data: updateData,
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             console.log('PATCH /operations/:id - After save, plank sizes:', typeof operation.plankSizes, 'count:', Array.isArray(operation.plankSizes) ? operation.plankSizes.length : 'not array');
@@ -484,9 +504,11 @@ async function factoryRoutes(fastify) {
                             if (!existingApproval) {
                                 await prisma.approval.create({
                                     data: {
+                                        id: crypto.randomUUID(),
                                         operationId: op.id,
                                         approverRole: 'SUPERVISOR',
-                                        status: 'pending'
+                                        status: 'pending',
+                                        updatedAt: new Date()
                                     }
                                 });
                             }
@@ -531,7 +553,7 @@ async function factoryRoutes(fastify) {
                     endTime: data.end_time ? new Date(data.end_time) : new Date()
                 },
                 include: {
-                    woodType: true
+                    WoodType: true
                 }
             });
             // Transform response
@@ -587,25 +609,76 @@ async function factoryRoutes(fastify) {
     // Get all drying processes
     fastify.get('/drying-processes', async (request, reply) => {
         try {
+            // Auto-fix orphaned "Under Drying" stock on each fetch
+            try {
+                const activeProcesses = await prisma.dryingProcess.findMany({
+                    where: { status: 'IN_PROGRESS' },
+                    include: { DryingProcessItem: true }
+                });
+                const expectedUnderDrying = new Map();
+                for (const process of activeProcesses) {
+                    if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
+                        for (const item of process.DryingProcessItem) {
+                            const key = `${item.sourceWarehouseId}-${item.woodTypeId}-${item.thickness}`;
+                            expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + item.pieceCount);
+                        }
+                    }
+                    else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
+                        const key = `${process.sourceWarehouseId}-${process.woodTypeId}-${process.stockThickness}`;
+                        expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + process.pieceCount);
+                    }
+                }
+                const stockWithUnderDrying = await prisma.stock.findMany({
+                    where: { statusUnderDrying: { gt: 0 } }
+                });
+                for (const stock of stockWithUnderDrying) {
+                    const key = `${stock.warehouseId}-${stock.woodTypeId}-${stock.thickness}`;
+                    const expected = expectedUnderDrying.get(key) || 0;
+                    const orphaned = stock.statusUnderDrying - expected;
+                    if (orphaned > 0) {
+                        await prisma.stock.update({
+                            where: { id: stock.id },
+                            data: {
+                                statusUnderDrying: { decrement: orphaned },
+                                statusNotDried: { increment: orphaned }
+                            }
+                        });
+                        console.log(`Auto-fixed orphaned stock: ${orphaned} pieces moved from UnderDrying to NotDried`);
+                    }
+                }
+            }
+            catch (fixError) {
+                console.error('Error auto-fixing orphaned stock:', fixError);
+            }
             const processes = await prisma.dryingProcess.findMany({
                 include: {
-                    woodType: true,
-                    readings: {
+                    WoodType: true,
+                    DryingReading: {
                         orderBy: { readingTime: 'asc' }
                     },
-                    recharges: {
+                    ElectricityRecharge: {
                         orderBy: { rechargeDate: 'asc' }
                     },
-                    items: {
+                    DryingProcessItem: {
                         include: {
-                            woodType: true,
-                            sourceWarehouse: true
+                            WoodType: true,
+                            Warehouse: true
                         }
                     }
                 },
                 orderBy: { createdAt: 'desc' }
             });
-            return processes;
+            return processes.map(p => ({
+                ...p,
+                woodType: p.WoodType,
+                readings: p.DryingReading || [],
+                recharges: p.ElectricityRecharge || [],
+                items: p.DryingProcessItem?.map((item) => ({
+                    ...item,
+                    woodType: item.WoodType,
+                    sourceWarehouse: item.Warehouse
+                })) || []
+            }));
         }
         catch (error) {
             console.error('Error fetching drying processes:', error);
@@ -619,17 +692,17 @@ async function factoryRoutes(fastify) {
             const process = await prisma.dryingProcess.findUnique({
                 where: { id },
                 include: {
-                    woodType: true,
-                    readings: {
+                    WoodType: true,
+                    DryingReading: {
                         orderBy: { readingTime: 'asc' }
                     },
-                    recharges: {
+                    ElectricityRecharge: {
                         orderBy: { rechargeDate: 'asc' }
                     },
-                    items: {
+                    DryingProcessItem: {
                         include: {
-                            woodType: true,
-                            sourceWarehouse: true
+                            WoodType: true,
+                            Warehouse: true
                         }
                     }
                 }
@@ -637,7 +710,18 @@ async function factoryRoutes(fastify) {
             if (!process) {
                 return reply.status(404).send({ error: 'Drying process not found' });
             }
-            return process;
+            // Map to camelCase for frontend
+            return {
+                ...process,
+                woodType: process.WoodType,
+                readings: process.DryingReading || [],
+                recharges: process.ElectricityRecharge || [],
+                items: process.DryingProcessItem?.map((item) => ({
+                    ...item,
+                    woodType: item.WoodType,
+                    sourceWarehouse: item.Warehouse
+                })) || []
+            };
         }
         catch (error) {
             console.error('Error fetching drying process:', error);
@@ -678,6 +762,7 @@ async function factoryRoutes(fastify) {
                 // Create the drying process
                 const createdProcess = await tx.dryingProcess.create({
                     data: {
+                        id: crypto.randomUUID(),
                         batchNumber,
                         // OLD FIELDS - only for backward compatibility
                         ...(data.woodTypeId && { woodTypeId: data.woodTypeId }),
@@ -693,7 +778,8 @@ async function factoryRoutes(fastify) {
                         status: 'IN_PROGRESS',
                         useStock: isMultiWood || data.useStock || false,
                         createdById: user.userId,
-                        createdByName: userName
+                        createdByName: userName,
+                        updatedAt: new Date()
                     }
                 });
                 // If multi-wood, create items and update stock for each
@@ -713,11 +799,13 @@ async function factoryRoutes(fastify) {
                         // Create drying process item
                         await tx.dryingProcessItem.create({
                             data: {
+                                id: crypto.randomUUID(),
                                 dryingProcessId: createdProcess.id,
                                 woodTypeId: item.woodTypeId,
                                 thickness: item.thickness,
                                 pieceCount: item.pieceCount,
-                                sourceWarehouseId: item.warehouseId
+                                sourceWarehouseId: item.warehouseId,
+                                updatedAt: new Date()
                             }
                         });
                         // Update stock: NotDried -> UnderDrying
@@ -750,17 +838,27 @@ async function factoryRoutes(fastify) {
                 const completeProcess = await tx.dryingProcess.findUnique({
                     where: { id: createdProcess.id },
                     include: {
-                        woodType: true,
-                        readings: true,
-                        items: {
+                        WoodType: true,
+                        DryingReading: true,
+                        DryingProcessItem: {
                             include: {
-                                woodType: true,
-                                sourceWarehouse: true
+                                WoodType: true,
+                                Warehouse: true
                             }
                         }
                     }
                 });
-                return completeProcess;
+                // Map to camelCase for frontend
+                return {
+                    ...completeProcess,
+                    woodType: completeProcess?.WoodType,
+                    readings: completeProcess?.DryingReading || [],
+                    items: completeProcess?.DryingProcessItem?.map((item) => ({
+                        ...item,
+                        woodType: item.WoodType,
+                        sourceWarehouse: item.Warehouse
+                    })) || []
+                };
             }, {
                 maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
                 timeout: 30000, // Transaction timeout 30 seconds
@@ -787,18 +885,21 @@ async function factoryRoutes(fastify) {
                 const processWithReadings = await prisma.dryingProcess.findUnique({
                     where: { id },
                     include: {
-                        readings: {
+                        DryingReading: {
                             orderBy: { readingTime: 'asc' }
                         },
-                        recharges: {
+                        ElectricityRecharge: {
                             orderBy: { rechargeDate: 'asc' }
                         },
-                        items: true
+                        DryingProcessItem: true
                     }
                 });
-                if (processWithReadings && processWithReadings.readings.length > 0) {
+                // Map PascalCase to local variables for easier access
+                const readings = processWithReadings?.DryingReading || [];
+                const recharges = processWithReadings?.ElectricityRecharge || [];
+                if (processWithReadings && readings.length > 0) {
                     // Set endTime to last reading time (not button click time)
-                    const lastReading = processWithReadings.readings[processWithReadings.readings.length - 1];
+                    const lastReading = readings[readings.length - 1];
                     autoEndTime = lastReading.readingTime.toISOString();
                     // Get settings for cost calculation
                     const settings = {};
@@ -818,9 +919,9 @@ async function factoryRoutes(fastify) {
                     const maintenancePerHour = settings.maintenanceCostPerYear / 8760;
                     // Calculate electricity consumption with recharge awareness
                     let totalElectricityUsed = 0;
-                    const firstReading = processWithReadings.readings[0].electricityMeter;
-                    for (let i = 0; i < processWithReadings.readings.length; i++) {
-                        const currentReading = processWithReadings.readings[i];
+                    const firstReading = readings[0].electricityMeter;
+                    for (let i = 0; i < readings.length; i++) {
+                        const currentReading = readings[i];
                         const currentTime = new Date(currentReading.readingTime);
                         let prevReading;
                         let prevTime;
@@ -829,11 +930,11 @@ async function factoryRoutes(fastify) {
                             prevTime = new Date(processWithReadings.startTime);
                         }
                         else {
-                            prevReading = processWithReadings.readings[i - 1].electricityMeter;
-                            prevTime = new Date(processWithReadings.readings[i - 1].readingTime);
+                            prevReading = readings[i - 1].electricityMeter;
+                            prevTime = new Date(readings[i - 1].readingTime);
                         }
                         // Find recharges between prev and current reading
-                        const rechargesBetween = processWithReadings.recharges.filter(r => new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime);
+                        const rechargesBetween = recharges.filter((r) => new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime);
                         if (rechargesBetween.length > 0) {
                             // Recharge occurred - use formula: prevReading + recharged - currentReading
                             const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
@@ -882,11 +983,11 @@ async function factoryRoutes(fastify) {
                         ...(data.notes !== undefined && { notes: data.notes })
                     },
                     include: {
-                        woodType: true,
-                        readings: {
+                        WoodType: true,
+                        DryingReading: {
                             orderBy: { readingTime: 'asc' }
                         },
-                        recharges: {
+                        ElectricityRecharge: {
                             orderBy: { rechargeDate: 'asc' }
                         }
                     }
@@ -932,22 +1033,33 @@ async function factoryRoutes(fastify) {
                 const completeProcess = await tx.dryingProcess.findUnique({
                     where: { id },
                     include: {
-                        woodType: true,
-                        readings: {
+                        WoodType: true,
+                        DryingReading: {
                             orderBy: { readingTime: 'asc' }
                         },
-                        recharges: {
+                        ElectricityRecharge: {
                             orderBy: { rechargeDate: 'asc' }
                         },
-                        items: {
+                        DryingProcessItem: {
                             include: {
-                                woodType: true,
-                                sourceWarehouse: true
+                                WoodType: true,
+                                Warehouse: true
                             }
                         }
                     }
                 });
-                return completeProcess;
+                // Map to camelCase for frontend
+                return {
+                    ...completeProcess,
+                    woodType: completeProcess?.WoodType,
+                    readings: completeProcess?.DryingReading || [],
+                    recharges: completeProcess?.ElectricityRecharge || [],
+                    items: completeProcess?.DryingProcessItem?.map((item) => ({
+                        ...item,
+                        woodType: item.WoodType,
+                        sourceWarehouse: item.Warehouse
+                    })) || []
+                };
             }, {
                 maxWait: 30000, // Wait up to 30 seconds for Neon cold starts
                 timeout: 30000, // Transaction timeout 30 seconds
@@ -963,14 +1075,130 @@ async function factoryRoutes(fastify) {
     fastify.delete('/drying-processes/:id', async (request, reply) => {
         try {
             const { id } = request.params;
-            await prisma.dryingProcess.delete({
-                where: { id }
+            // Use transaction to restore stock before deleting
+            await prisma.$transaction(async (tx) => {
+                // Get the process with its items
+                const process = await tx.dryingProcess.findUnique({
+                    where: { id },
+                    include: {
+                        DryingProcessItem: true
+                    }
+                });
+                if (!process) {
+                    throw new Error('Drying process not found');
+                }
+                // Only restore stock if process is still IN_PROGRESS (not completed)
+                if (process.status === 'IN_PROGRESS') {
+                    // Restore stock for multi-wood items
+                    if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
+                        for (const item of process.DryingProcessItem) {
+                            // Find the stock record and restore: UnderDrying -> NotDried
+                            await tx.stock.updateMany({
+                                where: {
+                                    warehouseId: item.sourceWarehouseId,
+                                    woodTypeId: item.woodTypeId,
+                                    thickness: item.thickness
+                                },
+                                data: {
+                                    statusUnderDrying: { decrement: item.pieceCount },
+                                    statusNotDried: { increment: item.pieceCount }
+                                }
+                            });
+                        }
+                    }
+                    // Restore stock for old format (single wood)
+                    else if (process.useStock && process.sourceWarehouseId && process.stockThickness && process.woodTypeId && process.pieceCount) {
+                        await tx.stock.updateMany({
+                            where: {
+                                warehouseId: process.sourceWarehouseId,
+                                woodTypeId: process.woodTypeId,
+                                thickness: process.stockThickness
+                            },
+                            data: {
+                                statusUnderDrying: { decrement: process.pieceCount },
+                                statusNotDried: { increment: process.pieceCount }
+                            }
+                        });
+                    }
+                }
+                // Delete the process (cascade will delete items and readings)
+                await tx.dryingProcess.delete({
+                    where: { id }
+                });
+            }, {
+                maxWait: 30000,
+                timeout: 30000
             });
             return { success: true };
         }
         catch (error) {
             console.error('Error deleting drying process:', error);
             return reply.status(500).send({ error: 'Failed to delete drying process' });
+        }
+    });
+    // Fix orphaned "Under Drying" stock (admin only)
+    // This fixes stock that was left in "Under Drying" status when drying processes were deleted without proper cleanup
+    fastify.post('/drying-processes/fix-orphaned-stock', async (request, reply) => {
+        try {
+            // Get all active (IN_PROGRESS) drying processes with their items
+            const activeProcesses = await prisma.dryingProcess.findMany({
+                where: { status: 'IN_PROGRESS' },
+                include: { DryingProcessItem: true }
+            });
+            // Build a map of what SHOULD be under drying
+            const expectedUnderDrying = new Map();
+            for (const process of activeProcesses) {
+                // Multi-wood format
+                if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
+                    for (const item of process.DryingProcessItem) {
+                        const key = `${item.warehouseId}-${item.woodTypeId}-${item.thickness}`;
+                        expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + item.pieceCount);
+                    }
+                }
+                // Old format
+                else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
+                    const key = `${process.sourceWarehouseId}-${process.woodTypeId}-${process.stockThickness}`;
+                    expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + process.pieceCount);
+                }
+            }
+            // Get all stock with Under Drying > 0
+            const stockWithUnderDrying = await prisma.stock.findMany({
+                where: { statusUnderDrying: { gt: 0 } }
+            });
+            const fixes = [];
+            for (const stock of stockWithUnderDrying) {
+                const key = `${stock.warehouseId}-${stock.woodTypeId}-${stock.thickness}`;
+                const expected = expectedUnderDrying.get(key) || 0;
+                const actual = stock.statusUnderDrying;
+                const orphaned = actual - expected;
+                if (orphaned > 0) {
+                    // Move orphaned stock back to Not Dried
+                    await prisma.stock.update({
+                        where: { id: stock.id },
+                        data: {
+                            statusUnderDrying: { decrement: orphaned },
+                            statusNotDried: { increment: orphaned }
+                        }
+                    });
+                    fixes.push({
+                        stockId: stock.id,
+                        warehouseId: stock.warehouseId,
+                        woodTypeId: stock.woodTypeId,
+                        thickness: stock.thickness,
+                        orphanedCount: orphaned,
+                        action: 'Moved from UnderDrying to NotDried'
+                    });
+                }
+            }
+            return {
+                success: true,
+                message: fixes.length > 0 ? `Fixed ${fixes.length} orphaned stock records` : 'No orphaned stock found',
+                fixes
+            };
+        }
+        catch (error) {
+            console.error('Error fixing orphaned stock:', error);
+            return reply.status(500).send({ error: 'Failed to fix orphaned stock' });
         }
     });
     // Add reading to drying process
@@ -1003,6 +1231,7 @@ async function factoryRoutes(fastify) {
             const readingTimeISO = data.readingTime || new Date().toISOString();
             const reading = await prisma.dryingReading.create({
                 data: {
+                    id: crypto.randomUUID(),
                     dryingProcessId: id,
                     electricityMeter: data.electricityMeter,
                     humidity: data.humidity,
@@ -1011,7 +1240,8 @@ async function factoryRoutes(fastify) {
                     createdById: user.userId,
                     createdByName: userName,
                     updatedById: user.userId,
-                    updatedByName: userName
+                    updatedByName: userName,
+                    updatedAt: new Date()
                 }
             });
             // Send notifications to subscribed users (excluding the creator)
@@ -1027,10 +1257,11 @@ async function factoryRoutes(fastify) {
                 });
                 if (subscriptions.length > 0) {
                     const notifications = subscriptions.map(sub => ({
+                        id: crypto.randomUUID(),
                         userId: sub.userId,
                         type: 'DRYING_READING_ADDED',
                         title: 'New Drying Reading Added',
-                        message: `${userName} added a new reading to ${process.name} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
+                        message: `${userName} added a new reading to ${process.batchNumber} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
                         linkUrl: `/dashboard/factory/drying-process`,
                         isRead: false
                     }));
@@ -1061,8 +1292,8 @@ async function factoryRoutes(fastify) {
             const process = await prisma.dryingProcess.findUnique({
                 where: { id },
                 include: {
-                    woodType: true,
-                    readings: {
+                    WoodType: true,
+                    DryingReading: {
                         orderBy: {
                             readingTime: 'asc'
                         }
@@ -1072,16 +1303,17 @@ async function factoryRoutes(fastify) {
             if (!process) {
                 return reply.status(404).send({ error: 'Drying process not found' });
             }
+            const readings = process.DryingReading || [];
             // Calculate electricity usage
-            const electricityUsed = process.readings.length > 0 && process.startingElectricityUnits
-                ? process.readings[process.readings.length - 1].electricityMeter - process.startingElectricityUnits
+            const electricityUsed = readings.length > 0 && process.startingElectricityUnits
+                ? readings[readings.length - 1].electricityMeter - process.startingElectricityUnits
                 : 0;
             // Calculate running hours
             const runningHours = process.endTime
                 ? (new Date(process.endTime).getTime() - new Date(process.startTime).getTime()) / (1000 * 60 * 60)
                 : (new Date().getTime() - new Date(process.startTime).getTime()) / (1000 * 60 * 60);
-            const currentHumidity = process.readings.length > 0
-                ? process.readings[process.readings.length - 1].humidity
+            const currentHumidity = readings.length > 0
+                ? readings[readings.length - 1].humidity
                 : process.startingHumidity || 0;
             // Calculate costs (TODO: fetch from settings table when available)
             const ELECTRICITY_PRICE = 400; // TZS per unit
@@ -1138,7 +1370,7 @@ async function factoryRoutes(fastify) {
                         // Generated by and timestamp on same line
                         const genY = doc.y;
                         doc.fontSize(9).fillColor('#94a3b8').text(`Generated by: ${user?.email || 'system'}`, 50, genY);
-                        doc.text(new Date().toLocaleString(), 50, genY, { align: 'right', width: 500 });
+                        doc.text(formatTZ(new Date()), 50, genY, { align: 'right', width: 500 });
                         // Separator line
                         doc.moveTo(50, doc.y + 10).lineTo(545, doc.y + 10).strokeColor('#e2e8f0').lineWidth(1).stroke();
                         doc.moveDown(1.5);
@@ -1156,10 +1388,10 @@ async function factoryRoutes(fastify) {
                         doc.fillColor('#000').text(process.status.charAt(0) + process.status.slice(1).toLowerCase(), leftCol, infoY);
                         infoY += 18;
                         doc.fillColor('#64748b').text('Wood Type:', labelCol, infoY);
-                        doc.fillColor('#000').text(process.woodType.name, leftCol, infoY);
+                        doc.fillColor('#000').text(process.WoodType.name, leftCol, infoY);
                         infoY += 18;
                         doc.fillColor('#64748b').text('Grade:', labelCol, infoY);
-                        doc.fillColor('#000').text(process.woodType.grade, leftCol, infoY);
+                        doc.fillColor('#000').text(process.WoodType.grade, leftCol, infoY);
                         infoY += 18;
                         doc.fillColor('#64748b').text('Thickness:', labelCol, infoY);
                         doc.fillColor('#000').text(`${(process.thickness / 10).toFixed(1)}cm (${(process.thickness / 25.4).toFixed(2)}in)`, leftCol, infoY);
@@ -1168,11 +1400,11 @@ async function factoryRoutes(fastify) {
                         doc.fillColor('#000').text(`${process.pieceCount}`, leftCol, infoY);
                         infoY += 18;
                         doc.fillColor('#64748b').text('Start Time:', labelCol, infoY);
-                        doc.fillColor('#000').text(new Date(process.startTime).toLocaleString(), leftCol, infoY);
+                        doc.fillColor('#000').text(formatTZ(process.startTime), leftCol, infoY);
                         if (process.endTime) {
                             infoY += 18;
                             doc.fillColor('#64748b').text('End Time:', labelCol, infoY);
-                            doc.fillColor('#000').text(new Date(process.endTime).toLocaleString(), leftCol, infoY);
+                            doc.fillColor('#000').text(formatTZ(process.endTime), leftCol, infoY);
                         }
                         doc.y = infoY + 25;
                         // STATISTICS - Card style
@@ -1307,7 +1539,7 @@ async function factoryRoutes(fastify) {
                                         doc.y = 50;
                                     }
                                 }
-                                const readingTime = new Date(reading.readingTime).toLocaleString();
+                                const readingTime = formatTZ(reading.readingTime);
                                 doc.text(readingTime, col1, doc.y, { width: 155, lineBreak: false });
                                 doc.text(reading.electricityMeter.toFixed(2), col2, y, { lineBreak: false });
                                 doc.text(reading.humidity.toFixed(1), col3, y, { lineBreak: false });
@@ -1413,10 +1645,16 @@ async function factoryRoutes(fastify) {
     fastify.get('/drafts', async (request, reply) => {
         try {
             const { receipt_id } = request.query;
+            console.log(`GET /drafts - receipt_id: ${receipt_id}`);
             const drafts = await prisma.receiptDraft.findMany({
                 where: receipt_id ? { receiptId: receipt_id } : undefined,
                 orderBy: { updatedAt: 'desc' }
             });
+            console.log(`GET /drafts - Found ${drafts.length} drafts${receipt_id ? ` for ${receipt_id}` : ''}`);
+            if (drafts.length > 0 && receipt_id) {
+                const draft = drafts[0];
+                console.log(`GET /drafts - Draft has ${Array.isArray(draft.measurements) ? draft.measurements.length : 0} measurements`);
+            }
             return drafts;
         }
         catch (error) {
@@ -1439,10 +1677,12 @@ async function factoryRoutes(fastify) {
             }
             const draft = await prisma.receiptDraft.create({
                 data: {
+                    id: crypto.randomUUID(),
                     receiptId: data.receipt_id,
                     measurements: data.measurements,
                     measurementUnit: data.measurement_unit || 'imperial',
-                    updatedBy: data.updated_by
+                    updatedBy: data.updated_by,
+                    updatedAt: new Date()
                 }
             });
             // Update Wood Receipt status to PENDING when first draft is saved
@@ -1466,6 +1706,7 @@ async function factoryRoutes(fastify) {
                         const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
                         await prisma.receiptHistory.create({
                             data: {
+                                id: crypto.randomUUID(),
                                 receiptId: data.receipt_id,
                                 userId: data.updated_by,
                                 userName: user.email || user.id,
@@ -1483,8 +1724,16 @@ async function factoryRoutes(fastify) {
             return draft;
         }
         catch (error) {
-            console.error('Error creating draft:', error);
-            return reply.status(500).send({ error: 'Failed to create draft' });
+            console.error('Error creating draft - Full details:', {
+                error: error,
+                message: error instanceof Error ? error.message : 'Unknown error',
+                stack: error instanceof Error ? error.stack : undefined,
+                receiptId: request.body?.receipt_id
+            });
+            return reply.status(500).send({
+                error: 'Failed to create draft',
+                details: error instanceof Error ? error.message : 'Unknown error'
+            });
         }
     });
     // Update existing draft
@@ -1497,7 +1746,8 @@ async function factoryRoutes(fastify) {
                 data: {
                     ...(data.measurements && { measurements: data.measurements }),
                     ...(data.measurement_unit && { measurementUnit: data.measurement_unit }),
-                    ...(data.updated_by && { updatedBy: data.updated_by })
+                    ...(data.updated_by && { updatedBy: data.updated_by }),
+                    updatedAt: new Date()
                 }
             });
             // Update Wood Receipt status to PENDING when measurements are being filled
@@ -1525,6 +1775,7 @@ async function factoryRoutes(fastify) {
                             const measurementCount = Array.isArray(data.measurements) ? data.measurements.length : 0;
                             await prisma.receiptHistory.create({
                                 data: {
+                                    id: crypto.randomUUID(),
                                     receiptId: existingDraft.receiptId,
                                     userId: data.updated_by,
                                     userName: user.email || user.id,
@@ -1586,6 +1837,7 @@ async function factoryRoutes(fastify) {
             }
             const history = await prisma.receiptHistory.create({
                 data: {
+                    id: crypto.randomUUID(),
                     receiptId: data.receipt_id,
                     userId: data.user_id,
                     userName: data.user_name,
@@ -1615,9 +1867,9 @@ async function factoryRoutes(fastify) {
                     status: 'pending'
                 },
                 include: {
-                    operation: {
+                    Operation: {
                         include: {
-                            woodType: true
+                            WoodType: true
                         }
                     }
                 },
@@ -1649,16 +1901,18 @@ async function factoryRoutes(fastify) {
                     actionTakenAt: new Date()
                 },
                 include: {
-                    operation: true
+                    Operation: true
                 }
             });
             // If approved by supervisor, create admin approval request
             if (data.status === 'approved' && approval.approverRole === 'SUPERVISOR') {
                 await prisma.approval.create({
                     data: {
+                        id: crypto.randomUUID(),
                         operationId: approval.operationId,
                         approverRole: 'ADMIN',
-                        status: 'pending'
+                        status: 'pending',
+                        updatedAt: new Date()
                     }
                 });
                 // Update operation status to supervisor_approved
@@ -1703,8 +1957,8 @@ async function factoryRoutes(fastify) {
             const receipt = await prisma.woodReceipt.findUnique({
                 where: { lotNumber },
                 include: {
-                    woodType: true,
-                    warehouse: true
+                    WoodType: true,
+                    Warehouse: true
                 }
             });
             if (!receipt) {
@@ -1749,15 +2003,20 @@ async function factoryRoutes(fastify) {
             // Group measurements by thickness, respecting isCustom flag
             const stockByThickness = measurements.reduce((acc, m) => {
                 let thickness;
-                // Check if measurement has isCustom flag
-                if (m.isCustom === true) {
+                // Check if measurement has isCustom flag - handle both boolean and string values from JSON
+                const isCustom = m.isCustom === true || m.isCustom === 'true';
+                const isNotCustom = m.isCustom === false || m.isCustom === 'false';
+                if (isCustom) {
                     // User marked as custom → Always "Custom"
                     thickness = 'Custom';
                 }
-                else if (m.isCustom === false) {
-                    // User marked as standard → Use thickness value
+                else if (isNotCustom) {
+                    // User marked as standard → Use thickness value with Math.round for proper matching
                     const thicknessValue = parseFloat(m.thickness);
-                    thickness = `${thicknessValue}"`;
+                    const STANDARD_SIZES = [1, 2, 3];
+                    thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+                        ? `${Math.round(thicknessValue)}"`
+                        : 'Custom';
                 }
                 else {
                     // Legacy/fallback: No isCustom field, use auto-detection
@@ -1767,8 +2026,8 @@ async function factoryRoutes(fastify) {
                     else {
                         const thicknessValue = parseFloat(m.thickness);
                         const STANDARD_SIZES = [1, 2, 3];
-                        thickness = STANDARD_SIZES.includes(thicknessValue)
-                            ? `${thicknessValue}"`
+                        thickness = STANDARD_SIZES.includes(Math.round(thicknessValue))
+                            ? `${Math.round(thicknessValue)}"`
                             : 'Custom';
                     }
                 }
@@ -1804,16 +2063,19 @@ async function factoryRoutes(fastify) {
                                     }
                                 },
                                 update: {
-                                    statusNotDried: { increment: qty }
+                                    statusNotDried: { increment: qty },
+                                    updatedAt: new Date()
                                 },
                                 create: {
+                                    id: crypto.randomUUID(),
                                     warehouseId: receipt.warehouseId,
                                     woodTypeId: receipt.woodTypeId,
                                     thickness: thickness,
                                     statusNotDried: qty,
                                     statusUnderDrying: 0,
                                     statusDried: 0,
-                                    statusDamaged: 0
+                                    statusDamaged: 0,
+                                    updatedAt: new Date()
                                 }
                             });
                             console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
@@ -1853,14 +2115,17 @@ async function factoryRoutes(fastify) {
                     // Create new measurements
                     await tx.sleeperMeasurement.createMany({
                         data: measurements.map(m => ({
+                            id: crypto.randomUUID(),
                             receiptId: receiptRecord.id,
                             thickness: parseFloat(m.thickness) || 0,
                             width: parseFloat(m.width) || 0,
                             length: parseFloat(m.length) || 0,
                             qty: parseInt(m.qty) || 1,
                             volumeM3: parseFloat(m.m3) || 0,
-                            isCustom: m.isCustom === true,
-                            isComplimentary: m.isComplimentary === true
+                            // Handle both boolean and string values from JSON
+                            isCustom: m.isCustom === true || m.isCustom === 'true',
+                            isComplimentary: m.isComplimentary === true || m.isComplimentary === 'true',
+                            updatedAt: new Date()
                         }))
                     });
                     console.log('✅ Measurements saved successfully');
@@ -1889,6 +2154,7 @@ async function factoryRoutes(fastify) {
                 try {
                     await prisma.receiptHistory.create({
                         data: {
+                            id: crypto.randomUUID(),
                             receiptId: lotNumber,
                             userId: userId,
                             userName: completingUser.email || completingUser.id,
@@ -1928,13 +2194,14 @@ async function factoryRoutes(fastify) {
                 .map(([thickness, qty]) => `${thickness}: ${qty} pcs`)
                 .join(', ');
             const warehouseInfo = receipt.warehouse
-                ? ` → ${receipt.warehouse.name}`
+                ? ` → ${receipt.Warehouse.name}`
                 : '';
             const notifications = userIds.map(userId => ({
+                id: crypto.randomUUID(),
                 userId,
                 type: 'RECEIPT_COMPLETED',
                 title: 'Wood Receipt Completed',
-                message: `LOT ${lotNumber} (${receipt.woodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
+                message: `LOT ${lotNumber} (${receipt.WoodType.name})${warehouseInfo} has been completed with ${totalPieces} pieces (${totalVolumeM3.toFixed(2)} m³ total). ` +
                     `Paid: ${paidVolumeM3.toFixed(2)} m³ (${paidPieces} pcs)` +
                     (complimentaryPieces > 0 ? `, Complimentary: ${complimentaryVolumeM3.toFixed(2)} m³ (${complimentaryPieces} pcs). ` : '. ') +
                     `Breakdown: ${thicknessBreakdown}`,

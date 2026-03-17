@@ -8,7 +8,7 @@ async function electricityRoutes(fastify) {
         try {
             const recharges = await prisma.electricityRecharge.findMany({
                 include: {
-                    dryingProcess: {
+                    DryingProcess: {
                         select: {
                             batchNumber: true,
                             status: true
@@ -19,7 +19,11 @@ async function electricityRoutes(fastify) {
                     rechargeDate: 'desc'
                 }
             });
-            return recharges;
+            // Map PascalCase to camelCase for frontend
+            return recharges.map(r => ({
+                ...r,
+                dryingProcess: r.DryingProcess
+            }));
         }
         catch (error) {
             console.error('Error fetching electricity recharges:', error);
@@ -54,15 +58,16 @@ async function electricityRoutes(fastify) {
             // Calculate total kWh used from all drying processes
             const processes = await prisma.dryingProcess.findMany({
                 include: {
-                    readings: {
+                    DryingReading: {
                         orderBy: { readingTime: 'asc' }
                     }
                 }
             });
             let totalUsed = 0;
             for (const process of processes) {
-                if (process.readings.length > 0) {
-                    const readings = process.readings;
+                // Map PascalCase to camelCase
+                const readings = process.DryingReading || [];
+                if (readings.length > 0) {
                     // Calculate usage from consecutive readings
                     for (let i = 1; i < readings.length; i++) {
                         const prevReading = readings[i - 1].electricityMeter;
@@ -132,6 +137,7 @@ async function electricityRoutes(fastify) {
             const body = request.body;
             const recharge = await prisma.electricityRecharge.create({
                 data: {
+                    id: crypto.randomUUID(),
                     rechargeDate: new Date(body.rechargeDate),
                     token: body.token,
                     kwhAmount: body.kwhAmount,
@@ -143,7 +149,8 @@ async function electricityRoutes(fastify) {
                     debtCollected: body.debtCollected,
                     notes: body.notes,
                     dryingProcessId: body.dryingProcessId,
-                    meterReadingAfter: body.meterReadingAfter
+                    meterReadingAfter: body.meterReadingAfter,
+                    updatedAt: new Date()
                 }
             });
             return reply.status(201).send(recharge);
@@ -182,6 +189,7 @@ async function electricityRoutes(fastify) {
             const rechargeDate = dateMatch ? new Date(dateMatch[1]) : new Date();
             const recharge = await prisma.electricityRecharge.create({
                 data: {
+                    id: crypto.randomUUID(),
                     rechargeDate,
                     token,
                     kwhAmount,
@@ -191,7 +199,8 @@ async function electricityRoutes(fastify) {
                     ewuraFee,
                     reaFee,
                     debtCollected,
-                    notes: 'Parsed from SMS'
+                    notes: 'Parsed from SMS',
+                    updatedAt: new Date()
                 }
             });
             return reply.status(201).send(recharge);
