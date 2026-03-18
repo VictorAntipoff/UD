@@ -2077,56 +2077,78 @@ const WoodReceipt = () => {
             </Box>
           ) : cancelPreview ? (
             <Box>
-              <Typography sx={{ fontSize: '0.9375rem', mb: 2, color: '#334155' }}>
-                Are you sure you want to cancel <strong>{cancelPreview.receipt?.lotNumber}</strong>?
-                This will remove all stock that was added when this LOT was approved.
-              </Typography>
+              {/* LOT Summary */}
+              <Box sx={{ mb: 2.5, p: 2, backgroundColor: '#f8fafc', borderRadius: 1.5, border: '1px solid #e2e8f0' }}>
+                <Typography sx={{ fontSize: '0.8125rem', color: '#64748b', mb: 0.5 }}>LOT being cancelled</Typography>
+                <Typography sx={{ fontSize: '1.125rem', fontWeight: 700, color: '#0f172a' }}>
+                  {cancelPreview.receipt?.lotNumber}
+                </Typography>
+                <Typography sx={{ fontSize: '0.8125rem', color: '#475569', mt: 0.5 }}>
+                  {cancelPreview.receipt?.woodType} · {cancelPreview.receipt?.warehouse}
+                </Typography>
+              </Box>
 
-              {cancelPreview.stockToReverse?.length > 0 && (
-                <Box sx={{ mb: 2, p: 2, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
-                  {cancelPreview.stockToReverse.map((item: any, idx: number) => {
-                    const total = item.currentNotDried + item.currentUnderDrying + item.currentDried + item.currentDamaged;
-                    return (
-                      <Box key={idx} sx={{ mb: idx < cancelPreview.stockToReverse.length - 1 ? 1.5 : 0 }}>
-                        <Typography sx={{ fontSize: '0.875rem', fontWeight: 700, color: '#991b1b', mb: 0.5 }}>
-                          {item.quantity} pieces ({item.thickness}) will be removed from stock
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          {item.currentNotDried > 0 && (
-                            <Chip label={`${item.currentNotDried} Not Dried`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#e2e8f0' }} />
-                          )}
-                          {item.currentUnderDrying > 0 && (
-                            <Chip label={`${item.currentUnderDrying} Under Drying`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#fef3c7' }} />
-                          )}
-                          {item.currentDried > 0 && (
-                            <Chip label={`${item.currentDried} Dried`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#d1fae5' }} />
-                          )}
-                          {item.currentDamaged > 0 && (
-                            <Chip label={`${item.currentDamaged} Damaged`} size="small" sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#fee2e2' }} />
-                          )}
+              {/* Stock reversal summary */}
+              {cancelPreview.stockToReverse?.length > 0 ? (
+                <Box sx={{ mb: 2.5 }}>
+                  <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155', mb: 1 }}>
+                    Stock that will be removed:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {cancelPreview.stockToReverse.map((item: any, idx: number) => {
+                      const breakdown = [
+                        item.currentNotDried > 0 ? `${item.currentNotDried} raw` : null,
+                        item.currentUnderDrying > 0 ? `${item.currentUnderDrying} drying` : null,
+                        item.currentDried > 0 ? `${item.currentDried} dried` : null,
+                        item.currentDamaged > 0 ? `${item.currentDamaged} damaged` : null,
+                      ].filter(Boolean);
+                      return (
+                        <Box key={idx} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
+                          <Box>
+                            <Typography sx={{ fontSize: '0.875rem', fontWeight: 700, color: '#991b1b' }}>
+                              {item.quantity} pieces
+                            </Typography>
+                            {breakdown.length > 0 && (
+                              <Typography sx={{ fontSize: '0.75rem', color: '#b91c1c', mt: 0.25 }}>
+                                {breakdown.join(' · ')}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Chip
+                            label={item.thickness}
+                            size="small"
+                            sx={{ fontSize: '0.6875rem', height: 22, bgcolor: '#991b1b', color: '#fff', fontWeight: 600 }}
+                          />
                         </Box>
-                        {total > 0 && item.currentNotDried < item.quantity && (
-                          <Typography sx={{ fontSize: '0.75rem', color: '#b45309', mt: 0.5 }}>
-                            Note: {item.quantity - item.currentNotDried} of {item.quantity} pieces have already been processed (dried/under drying) and will also be removed
-                          </Typography>
-                        )}
-                      </Box>
-                    );
-                  })}
+                      );
+                    })}
+                  </Box>
                 </Box>
+              ) : (
+                <Box sx={{ mb: 2.5, p: 2, backgroundColor: '#f0fdf4', borderRadius: 1, border: '1px solid #bbf7d0' }}>
+                  <Typography sx={{ fontSize: '0.875rem', color: '#166534' }}>
+                    No stock to reverse — this LOT was not yet approved or no warehouse was assigned.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Warnings */}
+              {cancelPreview.warnings?.length > 0 && (
+                <Alert severity="warning" sx={{ mb: 2, fontSize: '0.8125rem' }}>
+                  {cancelPreview.warnings.map((w: string, i: number) => <div key={i}>{w}</div>)}
+                </Alert>
               )}
 
               {!cancelPreview.canCancel && (
                 <Alert severity="error" sx={{ mb: 2 }}>
-                  Cannot cancel this LOT — there is not enough stock in the warehouse to reverse.
-                  Some stock may have been transferred to another warehouse.
+                  <strong>Cannot cancel this LOT.</strong> Not enough stock in the warehouse to reverse — some pieces may have been transferred out.
                 </Alert>
               )}
 
               {cancelPreview.canCancel && (
-                <Box sx={{ mt: 2 }}>
-                  <Typography sx={{ fontSize: '0.8125rem', mb: 1 }}>
-                    Type <strong>{receiptToCancel?.lot_number}</strong> to confirm:
+                <Box sx={{ mt: 1 }}>
+                  <Typography sx={{ fontSize: '0.8125rem', color: '#475569', mb: 1 }}>
+                    Type <strong>{receiptToCancel?.lot_number}</strong> to confirm cancellation:
                   </Typography>
                   <TextField
                     fullWidth
