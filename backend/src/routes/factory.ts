@@ -916,8 +916,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
               }
             });
 
-            if (!stock || stock.statusNotDried < item.pieceCount) {
-              throw new Error(`Insufficient stock for wood type at thickness ${item.thickness}`);
+            const woodType = await tx.woodType.findUnique({ where: { id: item.woodTypeId } });
+            const available = stock?.statusNotDried || 0;
+
+            if (!stock || available < item.pieceCount) {
+              throw new Error(`Insufficient stock for ${woodType?.name || 'unknown'} at thickness ${item.thickness}: need ${item.pieceCount} but only ${available} Not Dried available`);
             }
 
             // Create drying process item
