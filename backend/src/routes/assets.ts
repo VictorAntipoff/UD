@@ -1899,7 +1899,7 @@ export default async function assetRoutes(fastify: FastifyInstance) {
           include: {
             category: true,
             location: true,
-            supplierRelation: { select: { name: true, contactEmail: true, contactPhone: true } },
+            supplierRelation: { select: { name: true, email: true, phone: true } },
             maintenanceRecords: {
               select: {
                 id: true,
@@ -1971,8 +1971,8 @@ export default async function assetRoutes(fastify: FastifyInstance) {
             purchasePrice: asset.purchasePrice,
             supplier: asset.supplierRelation ? asset.supplierRelation.name : asset.supplier,
             supplierContact: asset.supplierRelation ? {
-              email: asset.supplierRelation.contactEmail,
-              phone: asset.supplierRelation.contactPhone
+              email: asset.supplierRelation.email,
+              phone: asset.supplierRelation.phone
             } : null,
             invoiceNumber: asset.invoiceNumber,
 

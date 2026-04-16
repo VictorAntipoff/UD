@@ -81,13 +81,13 @@ model Asset {
   supplierId            String?
   productUrl            String?
   technicalManualUrl    String?
-  AssetCategory         AssetCategory      @relation(fields: [categoryId], references: [id])
-  AssetLocation         AssetLocation?     @relation(fields: [locationId], references: [id])
-  Supplier              Supplier?          @relation(fields: [supplierId], references: [id])
-  AssetAssignment       AssetAssignment[]
-  AssetDocument         AssetDocument[]
-  AssetMaintenance      AssetMaintenance[]
-  AssetTransfer         AssetTransfer[]
+  category              AssetCategory      @relation(fields: [categoryId], references: [id])
+  location              AssetLocation?     @relation(fields: [locationId], references: [id])
+  supplierRelation      Supplier?          @relation(fields: [supplierId], references: [id])
+  assignmentHistory     AssetAssignment[]
+  documents             AssetDocument[]
+  maintenanceRecords    AssetMaintenance[]
+  transfers             AssetTransfer[]
 
   @@index([assetTag])
   @@index([assignedToUserId])
@@ -124,9 +124,9 @@ model AssetCategory {
   updatedAt           DateTime
   code                String          @unique
   parentId            String?
-  Asset               Asset[]
-  AssetCategory       AssetCategory?  @relation("AssetCategoryToAssetCategory", fields: [parentId], references: [id], onDelete: Cascade)
-  other_AssetCategory AssetCategory[] @relation("AssetCategoryToAssetCategory")
+  assets              Asset[]
+  parent              AssetCategory?  @relation("AssetCategoryToAssetCategory", fields: [parentId], references: [id], onDelete: Cascade)
+  subcategories       AssetCategory[] @relation("AssetCategoryToAssetCategory")
 
   @@unique([name, parentId])
   @@index([code])
@@ -164,9 +164,9 @@ model AssetLocation {
   isActive                                                  Boolean         @default(true)
   createdAt                                                 DateTime        @default(now())
   updatedAt                                                 DateTime
-  Asset                                                     Asset[]
-  AssetTransfer_AssetTransfer_fromLocationIdToAssetLocation AssetTransfer[] @relation("AssetTransfer_fromLocationIdToAssetLocation")
-  AssetTransfer_AssetTransfer_toLocationIdToAssetLocation   AssetTransfer[] @relation("AssetTransfer_toLocationIdToAssetLocation")
+  assets                                                    Asset[]
+  transfersFrom                                             AssetTransfer[] @relation("AssetTransfer_fromLocationIdToAssetLocation")
+  transfersTo                                               AssetTransfer[] @relation("AssetTransfer_toLocationIdToAssetLocation")
 
   @@index([code])
   @@index([isActive])
@@ -224,10 +224,10 @@ model AssetTransfer {
   conditionAfter                                            String?
   createdAt                                                 DateTime               @default(now())
   updatedAt                                                 DateTime
-  Asset                                                     Asset                  @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  AssetLocation_AssetTransfer_fromLocationIdToAssetLocation AssetLocation          @relation("AssetTransfer_fromLocationIdToAssetLocation", fields: [fromLocationId], references: [id])
-  AssetLocation_AssetTransfer_toLocationIdToAssetLocation   AssetLocation          @relation("AssetTransfer_toLocationIdToAssetLocation", fields: [toLocationId], references: [id])
-  AssetTransferHistory                                      AssetTransferHistory[]
+  asset                                                     Asset                  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromLocation                                              AssetLocation          @relation("AssetTransfer_fromLocationIdToAssetLocation", fields: [fromLocationId], references: [id])
+  toLocation                                                AssetLocation          @relation("AssetTransfer_toLocationIdToAssetLocation", fields: [toLocationId], references: [id])
+  history                                                   AssetTransferHistory[]
 
   @@index([assetId])
   @@index([fromLocationId])
