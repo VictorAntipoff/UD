@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { Telegraf, Context } from 'telegraf';
 import { message } from 'telegraf/filters';
 import { CONFIG } from './config';
@@ -209,6 +210,19 @@ bot.on(message('text'), async (ctx) => {
 
 // Photo handler
 bot.on(message('photo'), photoHandler);
+
+const healthPort = Number(process.env.PORT) || 3000;
+createServer((req, res) => {
+  if (req.url === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok' }));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+}).listen(healthPort, () => {
+  console.log(`🩺 Health server listening on :${healthPort}/api/health`);
+});
 
 // Launch bot
 bot.launch({
