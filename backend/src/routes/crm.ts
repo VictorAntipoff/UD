@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import crypto from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 
 export default async function crmRoutes(fastify: FastifyInstance) {
@@ -35,6 +36,7 @@ export default async function crmRoutes(fastify: FastifyInstance) {
       // Create new subscriber
       const subscriber = await prisma.newsletterSubscriber.create({
         data: {
+          id: crypto.randomUUID(),
           email: email.toLowerCase(),
           source: 'coming-soon',
           status: 'active',
