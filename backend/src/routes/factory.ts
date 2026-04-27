@@ -19,6 +19,101 @@ function formatTZ(date: string | Date, fmt: string = 'yyyy-MM-dd hh:mm a'): stri
   }
 }
 
+/** Append a timestamped audit line to a notes string. */
+function appendHistoryNote(
+  existing: string | null | undefined,
+  action: string,
+  userName: string,
+  reason?: string | null
+): string {
+  const ts = formatInTimeZone(new Date(), APP_TIMEZONE, 'yyyy-MM-dd HH:mm');
+  const reasonPart = reason && reason.trim() ? ` — ${reason.trim()}` : '';
+  const line = `[${ts} — ${userName}] ${action}${reasonPart}`;
+  return existing && existing.trim() ? `${existing}\n${line}` : line;
+}
+
+/** Calculate the total cost of a drying process from its readings + recharges + settings. */
+async function calculateDryingTotalCost(prismaClient: any, processId: string): Promise<{
+  totalCost: number | null;
+  endTime: string | null;
+}> {
+  const processWithReadings = await prismaClient.dryingProcess.findUnique({
+    where: { id: processId },
+    include: {
+      DryingReading: { orderBy: { readingTime: 'asc' } },
+      ElectricityRecharge: { orderBy: { rechargeDate: 'asc' } },
+    },
+  });
+
+  const readings = processWithReadings?.DryingReading || [];
+  const recharges = processWithReadings?.ElectricityRecharge || [];
+
+  if (!processWithReadings || readings.length === 0) {
+    return { totalCost: null, endTime: null };
+  }
+
+  const lastReading = readings[readings.length - 1];
+  const endTime = lastReading.readingTime.toISOString();
+
+  const settings: Record<string, number> = {};
+  const settingsKeys = ['ovenPurchasePrice', 'ovenLifespanYears', 'maintenanceCostPerYear', 'laborCostPerHour'];
+  for (const key of settingsKeys) {
+    const setting = await prismaClient.setting.findUnique({ where: { key } });
+    settings[key] = setting ? parseFloat(setting.value) : 0;
+  }
+
+  const latestRecharge = await prismaClient.electricityRecharge.findFirst({
+    orderBy: { rechargeDate: 'desc' },
+  });
+  const electricityRate = latestRecharge ? (latestRecharge.totalPaid / latestRecharge.kwhAmount) : 292;
+
+  const annualDepreciation = settings.ovenPurchasePrice / settings.ovenLifespanYears;
+  const depreciationPerHour = annualDepreciation / 8760;
+  const maintenancePerHour = settings.maintenanceCostPerYear / 8760;
+
+  let totalElectricityUsed = 0;
+  const firstReading = readings[0].electricityMeter;
+
+  for (let i = 0; i < readings.length; i++) {
+    const currentReading = readings[i];
+    const currentTime = new Date(currentReading.readingTime);
+    let prevReading: number;
+    let prevTime: Date;
+    if (i === 0) {
+      prevReading = processWithReadings.startingElectricityUnits || firstReading;
+      prevTime = new Date(processWithReadings.startTime);
+    } else {
+      prevReading = readings[i - 1].electricityMeter;
+      prevTime = new Date(readings[i - 1].readingTime);
+    }
+    const rechargesBetween = recharges.filter((r: any) =>
+      new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
+    );
+    if (rechargesBetween.length > 0) {
+      const totalRecharged = rechargesBetween.reduce((sum: number, r: any) => sum + r.kwhAmount, 0);
+      const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+      totalElectricityUsed += Math.max(0, consumed);
+    } else {
+      const consumed = prevReading - currentReading.electricityMeter;
+      if (consumed > 0) totalElectricityUsed += consumed;
+    }
+  }
+
+  const startTime = new Date(processWithReadings.startTime).getTime();
+  const lastReadingTime = new Date(lastReading.readingTime).getTime();
+  const runningHours = (lastReadingTime - startTime) / (1000 * 60 * 60);
+
+  const electricityCost = totalElectricityUsed * electricityRate;
+  const depreciationCost = runningHours * depreciationPerHour;
+  const maintenanceCost = runningHours * maintenancePerHour;
+  const laborCost = runningHours * settings.laborCostPerHour;
+
+  return {
+    totalCost: electricityCost + depreciationCost + maintenanceCost + laborCost,
+    endTime,
+  };
+}
+
 interface WoodCalculationData {
   user_id: string;
   wood_type_id: string;
@@ -1021,6 +1116,26 @@ async function factoryRoutes(fastify: FastifyInstance) {
         notes?: string;
       };
 
+      // Status transitions must go through the dedicated workflow endpoints
+      // (request-close, approve-close, reject-close, reopen). Reject any attempt
+      // to change status through this generic PUT.
+      const existingForGuard = await prisma.dryingProcess.findUnique({ where: { id } });
+      if (!existingForGuard) return reply.status(404).send({ error: 'Drying process not found' });
+      if (data.status !== undefined && data.status !== existingForGuard.status) {
+        return reply.status(400).send({
+          error: 'Status changes must use the workflow endpoints (request-close, approve-close, reject-close, reopen).',
+        });
+      }
+      // Refuse field edits when locked (allow notes-only edits to support history viewing tools)
+      const editingNonNotesFields = Object.keys(data).some(
+        (k) => k !== 'notes' && k !== 'status' && (data as any)[k] !== undefined
+      );
+      if (existingForGuard.status !== 'IN_PROGRESS' && editingNonNotesFields) {
+        return reply.status(400).send({
+          error: `Cannot edit drying process fields: process is ${existingForGuard.status === 'PENDING_CLOSE' ? 'pending close approval' : 'completed'}. Reopen the process first.`,
+        });
+      }
+
       // If completing the process, calculate cost and set endTime to last reading time
       let calculatedCost = data.totalCost;
       let autoEndTime = data.endTime;
@@ -1237,6 +1352,452 @@ async function factoryRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // ===== DRYING CLOSE WORKFLOW =====
+  // Operator action: request close → status PENDING_CLOSE
+  // No stock movement here. Calculates and saves cost preview.
+  fastify.post('/drying-processes/:id/request-close', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const data = (request.body || {}) as { notes?: string };
+      const user = (request as any).user;
+
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
+
+      const current = await prisma.dryingProcess.findUnique({ where: { id } });
+      if (!current) return reply.status(404).send({ error: 'Drying process not found' });
+      if (current.status !== 'IN_PROGRESS') {
+        return reply.status(400).send({
+          error: `Cannot request close: process status is ${current.status}, expected IN_PROGRESS`,
+        });
+      }
+
+      const { totalCost } = await calculateDryingTotalCost(prisma, id);
+
+      const newNotes = appendHistoryNote(
+        current.notes,
+        'Close requested',
+        userName,
+        data.notes || null
+      );
+
+      const updated = await prisma.dryingProcess.update({
+        where: { id },
+        data: {
+          status: 'PENDING_CLOSE',
+          totalCost: totalCost ?? current.totalCost,
+          notes: newNotes,
+          updatedAt: new Date(),
+        },
+        include: {
+          WoodType: true,
+          DryingReading: { orderBy: { readingTime: 'asc' } },
+          ElectricityRecharge: { orderBy: { rechargeDate: 'asc' } },
+          DryingProcessItem: { include: { WoodType: true, Warehouse: true } },
+        },
+      });
+
+      // Notify admins (in-app)
+      try {
+        const admins = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        if (admins.length > 0) {
+          await prisma.notification.createMany({
+            data: admins.map((a) => ({
+              id: crypto.randomUUID(),
+              userId: a.id,
+              type: 'DRYING_CLOSE_REQUESTED',
+              title: 'Drying close approval needed',
+              message: `${userName} requested closing ${current.batchNumber}. Cost preview: ${totalCost?.toFixed(2) ?? 'n/a'}`,
+              linkUrl: `/dashboard/factory/drying-process`,
+              isRead: false,
+            })),
+          });
+        }
+      } catch (notifError) {
+        console.error('Error sending close-request notifications:', notifError);
+      }
+
+      return {
+        ...updated,
+        woodType: (updated as any)?.WoodType,
+        readings: (updated as any)?.DryingReading || [],
+        recharges: (updated as any)?.ElectricityRecharge || [],
+        items: (updated as any)?.DryingProcessItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType,
+          sourceWarehouse: item.Warehouse,
+        })) || [],
+      };
+    } catch (error) {
+      console.error('Error requesting close:', error);
+      return reply.status(500).send({ error: 'Failed to request close' });
+    }
+  });
+
+  // Admin action: approve close → status COMPLETED, stock UnderDrying → Dried.
+  fastify.post('/drying-processes/:id/approve-close', async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      if (user.role !== 'ADMIN') {
+        return reply.status(403).send({ error: 'Only admins can approve drying close' });
+      }
+      const { id } = request.params as { id: string };
+
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
+
+      const current = await prisma.dryingProcess.findUnique({ where: { id } });
+      if (!current) return reply.status(404).send({ error: 'Drying process not found' });
+      if (current.status !== 'PENDING_CLOSE') {
+        return reply.status(400).send({
+          error: `Cannot approve close: process status is ${current.status}, expected PENDING_CLOSE`,
+        });
+      }
+
+      // Recalculate cost fresh on approval
+      const { totalCost, endTime } = await calculateDryingTotalCost(prisma, id);
+
+      const result = await prisma.$transaction(async (tx) => {
+        const newNotes = appendHistoryNote(current.notes, 'Close approved', userName);
+
+        const updated = await tx.dryingProcess.update({
+          where: { id },
+          data: {
+            status: 'COMPLETED',
+            totalCost: totalCost ?? current.totalCost,
+            endTime: endTime ? new Date(endTime) : current.endTime,
+            notes: newNotes,
+            updatedAt: new Date(),
+          },
+        });
+
+        if (current.useStock) {
+          const items = await tx.dryingProcessItem.findMany({ where: { dryingProcessId: id } });
+          if (items.length > 0) {
+            for (const item of items) {
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: item.sourceWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness,
+                },
+                data: {
+                  statusUnderDrying: { decrement: item.pieceCount },
+                  statusDried: { increment: item.pieceCount },
+                },
+              });
+            }
+          } else if (current.sourceWarehouseId && current.stockThickness && current.woodTypeId && current.pieceCount) {
+            await tx.stock.updateMany({
+              where: {
+                warehouseId: current.sourceWarehouseId,
+                woodTypeId: current.woodTypeId,
+                thickness: current.stockThickness,
+              },
+              data: {
+                statusUnderDrying: { decrement: current.pieceCount },
+                statusDried: { increment: current.pieceCount },
+              },
+            });
+          }
+        }
+
+        return updated;
+      }, { maxWait: 30000, timeout: 30000 });
+
+      // Notify creator (in-app)
+      try {
+        if (current.createdById) {
+          await prisma.notification.create({
+            data: {
+              id: crypto.randomUUID(),
+              userId: current.createdById,
+              type: 'DRYING_CLOSE_APPROVED',
+              title: 'Drying close approved',
+              message: `${userName} approved closing ${current.batchNumber}.`,
+              linkUrl: `/dashboard/factory/drying-process`,
+              isRead: false,
+            },
+          });
+        }
+      } catch (notifError) {
+        console.error('Error sending close-approved notification:', notifError);
+      }
+
+      const complete = await prisma.dryingProcess.findUnique({
+        where: { id },
+        include: {
+          WoodType: true,
+          DryingReading: { orderBy: { readingTime: 'asc' } },
+          ElectricityRecharge: { orderBy: { rechargeDate: 'asc' } },
+          DryingProcessItem: { include: { WoodType: true, Warehouse: true } },
+        },
+      });
+      return {
+        ...complete,
+        woodType: (complete as any)?.WoodType,
+        readings: (complete as any)?.DryingReading || [],
+        recharges: (complete as any)?.ElectricityRecharge || [],
+        items: (complete as any)?.DryingProcessItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType,
+          sourceWarehouse: item.Warehouse,
+        })) || [],
+      };
+    } catch (error) {
+      console.error('Error approving close:', error);
+      return reply.status(500).send({ error: 'Failed to approve close' });
+    }
+  });
+
+  // Admin action: reject close → status back to IN_PROGRESS, clear cost preview, no stock change.
+  fastify.post('/drying-processes/:id/reject-close', async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      if (user.role !== 'ADMIN') {
+        return reply.status(403).send({ error: 'Only admins can reject drying close' });
+      }
+      const { id } = request.params as { id: string };
+      const data = (request.body || {}) as { reason?: string };
+
+      if (!data.reason || !data.reason.trim()) {
+        return reply.status(400).send({ error: 'A reason is required to reject a close request' });
+      }
+
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
+
+      const current = await prisma.dryingProcess.findUnique({ where: { id } });
+      if (!current) return reply.status(404).send({ error: 'Drying process not found' });
+      if (current.status !== 'PENDING_CLOSE') {
+        return reply.status(400).send({
+          error: `Cannot reject close: process status is ${current.status}, expected PENDING_CLOSE`,
+        });
+      }
+
+      const newNotes = appendHistoryNote(current.notes, 'Close rejected', userName, data.reason);
+
+      const updated = await prisma.dryingProcess.update({
+        where: { id },
+        data: {
+          status: 'IN_PROGRESS',
+          totalCost: null,
+          notes: newNotes,
+          updatedAt: new Date(),
+        },
+        include: {
+          WoodType: true,
+          DryingReading: { orderBy: { readingTime: 'asc' } },
+          ElectricityRecharge: { orderBy: { rechargeDate: 'asc' } },
+          DryingProcessItem: { include: { WoodType: true, Warehouse: true } },
+        },
+      });
+
+      // Notify creator
+      try {
+        if (current.createdById) {
+          await prisma.notification.create({
+            data: {
+              id: crypto.randomUUID(),
+              userId: current.createdById,
+              type: 'DRYING_CLOSE_REJECTED',
+              title: 'Drying close rejected',
+              message: `${userName} rejected closing ${current.batchNumber}: ${data.reason}`,
+              linkUrl: `/dashboard/factory/drying-process`,
+              isRead: false,
+            },
+          });
+        }
+      } catch (notifError) {
+        console.error('Error sending close-rejected notification:', notifError);
+      }
+
+      return {
+        ...updated,
+        woodType: (updated as any)?.WoodType,
+        readings: (updated as any)?.DryingReading || [],
+        recharges: (updated as any)?.ElectricityRecharge || [],
+        items: (updated as any)?.DryingProcessItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType,
+          sourceWarehouse: item.Warehouse,
+        })) || [],
+      };
+    } catch (error) {
+      console.error('Error rejecting close:', error);
+      return reply.status(500).send({ error: 'Failed to reject close' });
+    }
+  });
+
+  // Admin action: reopen a COMPLETED process → status IN_PROGRESS, reverse stock Dried → UnderDrying.
+  fastify.post('/drying-processes/:id/reopen', async (request, reply) => {
+    try {
+      const user = (request as any).user;
+      if (user.role !== 'ADMIN') {
+        return reply.status(403).send({ error: 'Only admins can reopen drying processes' });
+      }
+      const { id } = request.params as { id: string };
+      const data = (request.body || {}) as { reason?: string };
+
+      if (!data.reason || !data.reason.trim()) {
+        return reply.status(400).send({ error: 'A reason is required to reopen a drying process' });
+      }
+
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
+
+      const current = await prisma.dryingProcess.findUnique({ where: { id } });
+      if (!current) return reply.status(404).send({ error: 'Drying process not found' });
+      if (current.status !== 'COMPLETED') {
+        return reply.status(400).send({
+          error: `Cannot reopen: process status is ${current.status}, expected COMPLETED`,
+        });
+      }
+
+      const result = await prisma.$transaction(async (tx) => {
+        // Stock-safety check: refuse if any item's pieces are no longer available in Dried.
+        if (current.useStock) {
+          const items = await tx.dryingProcessItem.findMany({ where: { dryingProcessId: id } });
+          if (items.length > 0) {
+            for (const item of items) {
+              const stock = await tx.stock.findFirst({
+                where: {
+                  warehouseId: item.sourceWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness,
+                },
+              });
+              const dried = (stock as any)?.statusDried ?? 0;
+              if (dried < item.pieceCount) {
+                throw new Error(
+                  `Cannot reopen: only ${dried} dried pieces available for ${item.thickness} (process needs ${item.pieceCount}). Pieces may have been transferred or used downstream.`
+                );
+              }
+            }
+            for (const item of items) {
+              await tx.stock.updateMany({
+                where: {
+                  warehouseId: item.sourceWarehouseId,
+                  woodTypeId: item.woodTypeId,
+                  thickness: item.thickness,
+                },
+                data: {
+                  statusDried: { decrement: item.pieceCount },
+                  statusUnderDrying: { increment: item.pieceCount },
+                },
+              });
+            }
+          } else if (current.sourceWarehouseId && current.stockThickness && current.woodTypeId && current.pieceCount) {
+            const stock = await tx.stock.findFirst({
+              where: {
+                warehouseId: current.sourceWarehouseId,
+                woodTypeId: current.woodTypeId,
+                thickness: current.stockThickness,
+              },
+            });
+            const dried = (stock as any)?.statusDried ?? 0;
+            if (dried < current.pieceCount) {
+              throw new Error(
+                `Cannot reopen: only ${dried} dried pieces available (process needs ${current.pieceCount}). Pieces may have been transferred or used downstream.`
+              );
+            }
+            await tx.stock.updateMany({
+              where: {
+                warehouseId: current.sourceWarehouseId,
+                woodTypeId: current.woodTypeId,
+                thickness: current.stockThickness,
+              },
+              data: {
+                statusDried: { decrement: current.pieceCount },
+                statusUnderDrying: { increment: current.pieceCount },
+              },
+            });
+          }
+        }
+
+        const newNotes = appendHistoryNote(current.notes, 'Reopened', userName, data.reason);
+
+        return tx.dryingProcess.update({
+          where: { id },
+          data: {
+            status: 'IN_PROGRESS',
+            endTime: null,
+            totalCost: null,
+            notes: newNotes,
+            updatedAt: new Date(),
+          },
+        });
+      }, { maxWait: 30000, timeout: 30000 });
+
+      // Notify creator
+      try {
+        if (current.createdById) {
+          await prisma.notification.create({
+            data: {
+              id: crypto.randomUUID(),
+              userId: current.createdById,
+              type: 'DRYING_REOPENED',
+              title: 'Drying process reopened',
+              message: `${userName} reopened ${current.batchNumber}: ${data.reason}`,
+              linkUrl: `/dashboard/factory/drying-process`,
+              isRead: false,
+            },
+          });
+        }
+      } catch (notifError) {
+        console.error('Error sending reopen notification:', notifError);
+      }
+
+      const complete = await prisma.dryingProcess.findUnique({
+        where: { id },
+        include: {
+          WoodType: true,
+          DryingReading: { orderBy: { readingTime: 'asc' } },
+          ElectricityRecharge: { orderBy: { rechargeDate: 'asc' } },
+          DryingProcessItem: { include: { WoodType: true, Warehouse: true } },
+        },
+      });
+      return {
+        ...complete,
+        woodType: (complete as any)?.WoodType,
+        readings: (complete as any)?.DryingReading || [],
+        recharges: (complete as any)?.ElectricityRecharge || [],
+        items: (complete as any)?.DryingProcessItem?.map((item: any) => ({
+          ...item,
+          woodType: item.WoodType,
+          sourceWarehouse: item.Warehouse,
+        })) || [],
+      };
+    } catch (error: any) {
+      console.error('Error reopening drying process:', error);
+      const msg = (error?.message || '').startsWith('Cannot reopen:') ? error.message : 'Failed to reopen drying process';
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
   // Delete drying process
   fastify.delete('/drying-processes/:id', async (request, reply) => {
     try {
@@ -1415,6 +1976,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       if (!process) {
         return reply.status(404).send({ error: 'Drying process not found' });
+      }
+
+      if (process.status !== 'IN_PROGRESS') {
+        return reply.status(400).send({
+          error: `Cannot add reading: process is ${process.status === 'PENDING_CLOSE' ? 'pending close approval' : 'completed'}. Reopen the process first.`,
+        });
       }
 
       // Frontend sends UTC time in ISO format from parseLocalToUTC()
@@ -1871,6 +2438,19 @@ async function factoryRoutes(fastify: FastifyInstance) {
         ? `${userDetails.firstName} ${userDetails.lastName}`
         : (userDetails?.email || 'System');
 
+      // Refuse edits when the parent process is locked (PENDING_CLOSE / COMPLETED)
+      const existingReading = await prisma.dryingReading.findUnique({
+        where: { id },
+        include: { DryingProcess: { select: { status: true } } },
+      });
+      if (!existingReading) return reply.status(404).send({ error: 'Reading not found' });
+      const parentStatus = (existingReading as any).DryingProcess?.status;
+      if (parentStatus !== 'IN_PROGRESS') {
+        return reply.status(400).send({
+          error: `Cannot edit reading: process is ${parentStatus === 'PENDING_CLOSE' ? 'pending close approval' : 'completed'}. Reopen the process first.`,
+        });
+      }
+
       const reading = await prisma.dryingReading.update({
         where: { id },
         data: {
@@ -1895,6 +2475,18 @@ async function factoryRoutes(fastify: FastifyInstance) {
   fastify.delete('/drying-readings/:id', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+
+      const existingReading = await prisma.dryingReading.findUnique({
+        where: { id },
+        include: { DryingProcess: { select: { status: true } } },
+      });
+      if (!existingReading) return reply.status(404).send({ error: 'Reading not found' });
+      const parentStatus = (existingReading as any).DryingProcess?.status;
+      if (parentStatus !== 'IN_PROGRESS') {
+        return reply.status(400).send({
+          error: `Cannot delete reading: process is ${parentStatus === 'PENDING_CLOSE' ? 'pending close approval' : 'completed'}. Reopen the process first.`,
+        });
+      }
 
       await prisma.dryingReading.delete({
         where: { id }

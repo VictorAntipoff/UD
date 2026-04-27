@@ -32,7 +32,7 @@ import {
   AccordionDetails,
   Alert
 } from '@mui/material';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { styled, alpha } from '@mui/material/styles';
 import DryIcon from '@mui/icons-material/Dry';
 import AddIcon from '@mui/icons-material/Add';
@@ -233,6 +233,40 @@ export default function DryingProcess() {
   const [expandedProcesses, setExpandedProcesses] = useState<string[]>([]);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+
+  // Confirmation dialog for close-workflow actions (request, approve, reject, reopen)
+  type ActionDialogVariant = 'info' | 'warning' | 'danger' | 'success';
+  type ActionDialogState = {
+    open: boolean;
+    title: string;
+    body: ReactNode;
+    confirmLabel: string;
+    confirmColor: ActionDialogVariant;
+    requireReason?: boolean;
+    reasonPlaceholder?: string;
+    onConfirm: (reason: string) => Promise<void> | void;
+  };
+  const [actionDialog, setActionDialog] = useState<ActionDialogState>({
+    open: false,
+    title: '',
+    body: null,
+    confirmLabel: 'Confirm',
+    confirmColor: 'info',
+    onConfirm: async () => {},
+  });
+  const [actionDialogReason, setActionDialogReason] = useState('');
+  const [actionDialogSubmitting, setActionDialogSubmitting] = useState(false);
+  const [actionDialogError, setActionDialogError] = useState<string | null>(null);
+
+  const openActionDialog = (cfg: Omit<ActionDialogState, 'open'>) => {
+    setActionDialogReason('');
+    setActionDialogError(null);
+    setActionDialog({ ...cfg, open: true });
+  };
+  const closeActionDialog = () => {
+    if (actionDialogSubmitting) return;
+    setActionDialog((s) => ({ ...s, open: false }));
+  };
 
   const [newProcess, setNewProcess] = useState({
     warehouseId: '',
@@ -727,24 +761,116 @@ export default function DryingProcess() {
     );
   };
 
-  const handleCompleteProcess = async (process: DryingProcess) => {
-    try {
-      // Check if we have enough readings
-      const readings = process.readings;
-      if (readings.length < 2) {
-        alert('Need at least 2 readings to complete process');
-        return;
-      }
-
-      // Backend will automatically set endTime to last reading time and calculate costs
-      await api.put(`/factory/drying-processes/${process.id}`, {
-        status: 'COMPLETED'
-      });
-
-      await fetchData();
-    } catch (error) {
-      console.error('Error completing process:', error);
+  const handleRequestClose = (process: DryingProcess) => {
+    if (process.readings.length < 2) {
+      alert('Need at least 2 readings before requesting close');
+      return;
     }
+    openActionDialog({
+      title: `Request close for ${process.batchNumber}?`,
+      body: (
+        <Stack spacing={1.5}>
+          <Typography variant="body2" sx={{ color: '#475569' }}>
+            Once submitted, no new readings, edits, or recharges can be added to this process
+            until an admin approves or rejects the request.
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#475569' }}>
+            The cost will be calculated automatically and shown to the admin for review.
+            Stock will only move from <b>Under Drying</b> to <b>Dried</b> after admin approval.
+          </Typography>
+        </Stack>
+      ),
+      confirmLabel: 'Request Close',
+      confirmColor: 'success',
+      requireReason: false,
+      onConfirm: async () => {
+        await api.post(`/factory/drying-processes/${process.id}/request-close`);
+        await fetchData();
+      },
+    });
+  };
+
+  const handleApproveClose = (process: DryingProcess) => {
+    const totalPieces = process.items?.length
+      ? process.items.reduce((s, i) => s + i.pieceCount, 0)
+      : process.pieceCount || 0;
+    openActionDialog({
+      title: `Approve close for ${process.batchNumber}?`,
+      body: (
+        <Stack spacing={1.5}>
+          <Typography variant="body2" sx={{ color: '#475569' }}>This will:</Typography>
+          <Box component="ul" sx={{ pl: 3, m: 0, color: '#475569' }}>
+            <li><Typography variant="body2">Mark the process <b>COMPLETED</b></Typography></li>
+            <li><Typography variant="body2">Move <b>{totalPieces}</b> pieces from Under Drying → Dried</Typography></li>
+            <li><Typography variant="body2">Lock all readings and finalize the calculated cost</Typography></li>
+          </Box>
+          {process.totalCost ? (
+            <Typography variant="body2" sx={{ color: '#475569', mt: 1 }}>
+              Cost preview: <b>TZS {process.totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}</b>
+              <br />
+              <Typography component="span" variant="caption" sx={{ color: '#64748b' }}>
+                (Final value will be recalculated on approval.)
+              </Typography>
+            </Typography>
+          ) : null}
+        </Stack>
+      ),
+      confirmLabel: 'Approve',
+      confirmColor: 'success',
+      requireReason: false,
+      onConfirm: async () => {
+        await api.post(`/factory/drying-processes/${process.id}/approve-close`);
+        await fetchData();
+      },
+    });
+  };
+
+  const handleRejectClose = (process: DryingProcess) => {
+    openActionDialog({
+      title: `Reject close for ${process.batchNumber}?`,
+      body: (
+        <Typography variant="body2" sx={{ color: '#475569' }}>
+          The process will return to <b>In Progress</b>. The operator can then add or fix readings
+          and re-request closing. Your reason will be visible to the operator and recorded in history.
+        </Typography>
+      ),
+      confirmLabel: 'Reject',
+      confirmColor: 'danger',
+      requireReason: true,
+      reasonPlaceholder: 'e.g. Last reading is missing the meter photo',
+      onConfirm: async (reason) => {
+        await api.post(`/factory/drying-processes/${process.id}/reject-close`, { reason });
+        await fetchData();
+      },
+    });
+  };
+
+  const handleReopenProcess = (process: DryingProcess) => {
+    openActionDialog({
+      title: `Reopen ${process.batchNumber}?`,
+      body: (
+        <Stack spacing={1.5}>
+          <Typography variant="body2" sx={{ color: '#475569' }}>This will:</Typography>
+          <Box component="ul" sx={{ pl: 3, m: 0, color: '#475569' }}>
+            <li><Typography variant="body2">Set status back to <b>IN_PROGRESS</b></Typography></li>
+            <li><Typography variant="body2">Move pieces from <b>Dried</b> → <b>Under Drying</b> (reverse the close)</Typography></li>
+            <li><Typography variant="body2">Clear the previously calculated cost</Typography></li>
+          </Box>
+          <Typography variant="caption" sx={{ color: '#64748b' }}>
+            If the dried pieces have already been transferred or used downstream, the system will refuse
+            to reopen rather than create negative stock.
+          </Typography>
+        </Stack>
+      ),
+      confirmLabel: 'Reopen',
+      confirmColor: 'warning',
+      requireReason: true,
+      reasonPlaceholder: 'e.g. Process was closed by mistake before all readings were entered',
+      onConfirm: async (reason) => {
+        await api.post(`/factory/drying-processes/${process.id}/reopen`, { reason });
+        await fetchData();
+      },
+    });
   };
 
   const handleDeleteProcess = async (id: string) => {
@@ -763,6 +889,7 @@ export default function DryingProcess() {
   const getStatusColor = (status: string) => {
     const colors: any = {
       'IN_PROGRESS': '#3b82f6',
+      'PENDING_CLOSE': '#f59e0b',
       'COMPLETED': '#10b981',
       'CANCELLED': '#ef4444'
     };
@@ -772,6 +899,7 @@ export default function DryingProcess() {
   const getStatusLabel = (status: string) => {
     const labels: any = {
       'IN_PROGRESS': 'In Progress',
+      'PENDING_CLOSE': 'Pending Approval',
       'COMPLETED': 'Completed',
       'CANCELLED': 'Cancelled'
     };
@@ -1193,8 +1321,8 @@ export default function DryingProcess() {
         </Box>
       ) : (
         <>
-          {/* In Progress Section */}
-          {processes.filter(p => p.status === 'IN_PROGRESS').length > 0 && (
+          {/* In Progress + Pending Approval Section */}
+          {processes.filter(p => p.status === 'IN_PROGRESS' || p.status === 'PENDING_CLOSE').length > 0 && (
             <Box sx={{ mb: 4 }}>
               <Typography
                 variant="h6"
@@ -1211,7 +1339,7 @@ export default function DryingProcess() {
                 <DryIcon sx={{ fontSize: 24, color: '#3b82f6' }} />
                 Drying in Progress
                 <Chip
-                  label={processes.filter(p => p.status === 'IN_PROGRESS').length}
+                  label={processes.filter(p => p.status === 'IN_PROGRESS' || p.status === 'PENDING_CLOSE').length}
                   size="small"
                   sx={{
                     backgroundColor: '#3b82f6',
@@ -1222,7 +1350,7 @@ export default function DryingProcess() {
                 />
               </Typography>
               <Grid container spacing={3}>
-                {processes.filter(p => p.status === 'IN_PROGRESS').map((process) => {
+                {processes.filter(p => p.status === 'IN_PROGRESS' || p.status === 'PENDING_CLOSE').map((process) => {
                   const electricityUsed = calculateElectricityUsed(process);
                   const currentHumidity = process.readings.length > 0
                     ? process.readings[process.readings.length - 1].humidity
@@ -1391,7 +1519,7 @@ export default function DryingProcess() {
                               startIcon={<CheckCircleIcon />}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleCompleteProcess(process);
+                                handleRequestClose(process);
                               }}
                               sx={{
                                 color: '#10b981',
@@ -1413,8 +1541,75 @@ export default function DryingProcess() {
                               }}
                               variant="outlined"
                             >
-                              Complete
+                              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Request Close</Box>
+                              <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Close</Box>
                             </Button>
+                          </>
+                        )}
+                        {process.status === 'PENDING_CLOSE' && (
+                          <>
+                            <Chip
+                              label="Pending Approval"
+                              size="small"
+                              sx={{
+                                backgroundColor: alpha('#f59e0b', 0.12),
+                                color: '#b45309',
+                                fontWeight: 600,
+                                fontSize: '0.7rem',
+                                border: '1px solid #fcd34d',
+                              }}
+                            />
+                            {isAdmin && (
+                              <>
+                                <Button
+                                  size="small"
+                                  startIcon={<CheckCircleIcon />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleApproveClose(process);
+                                  }}
+                                  sx={{
+                                    color: '#10b981',
+                                    borderColor: '#10b981',
+                                    fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                                    textTransform: 'none',
+                                    px: { xs: 1.5, sm: 2 },
+                                    py: { xs: 0.5, sm: 0.75 },
+                                    whiteSpace: 'nowrap',
+                                    '&:hover': {
+                                      borderColor: '#059669',
+                                      backgroundColor: alpha('#10b981', 0.04),
+                                    }
+                                  }}
+                                  variant="outlined"
+                                >
+                                  Approve
+                                </Button>
+                                <Button
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRejectClose(process);
+                                  }}
+                                  sx={{
+                                    color: '#ef4444',
+                                    borderColor: '#ef4444',
+                                    fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                                    textTransform: 'none',
+                                    px: { xs: 1.5, sm: 2 },
+                                    py: { xs: 0.5, sm: 0.75 },
+                                    whiteSpace: 'nowrap',
+                                    '&:hover': {
+                                      borderColor: '#dc2626',
+                                      backgroundColor: alpha('#ef4444', 0.04),
+                                    }
+                                  }}
+                                  variant="outlined"
+                                >
+                                  Reject
+                                </Button>
+                              </>
+                            )}
                           </>
                         )}
                         {isAdmin && (
@@ -1484,6 +1679,28 @@ export default function DryingProcess() {
                   </AccordionSummary>
 
                   <AccordionDetails sx={{ p: 0 }}>
+
+                  {process.status === 'PENDING_CLOSE' && (
+                    <Alert
+                      severity="warning"
+                      icon={false}
+                      sx={{
+                        m: 3,
+                        mb: 0,
+                        backgroundColor: '#fffbeb',
+                        border: '1px solid #fcd34d',
+                        '& .MuiAlert-message': { width: '100%' },
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#b45309', mb: 0.5 }}>
+                        Pending admin approval — locked
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#92400e' }}>
+                        No new readings, edits, or recharges can be added until an admin approves or rejects this close request.
+                        {process.totalCost ? ` Cost preview: TZS ${process.totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}.` : ''}
+                      </Typography>
+                    </Alert>
+                  )}
 
                   {/* Process Stats */}
                   <Box sx={{ p: 3 }}>
@@ -1722,16 +1939,27 @@ export default function DryingProcess() {
                                     </TableCell>
                                     {isAdmin && (
                                       <TableCell>
-                                        <IconButton
-                                          size="small"
-                                          onClick={() => openEditReadingDialog(reading)}
-                                          sx={{
-                                            color: '#3b82f6',
-                                            '&:hover': { backgroundColor: alpha('#3b82f6', 0.1) }
-                                          }}
-                                        >
-                                          <EditIcon sx={{ fontSize: 16 }} />
-                                        </IconButton>
+                                        {process.status === 'IN_PROGRESS' ? (
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => openEditReadingDialog(reading)}
+                                            sx={{
+                                              color: '#3b82f6',
+                                              '&:hover': { backgroundColor: alpha('#3b82f6', 0.1) }
+                                            }}
+                                          >
+                                            <EditIcon sx={{ fontSize: 16 }} />
+                                          </IconButton>
+                                        ) : (
+                                          <IconButton
+                                            size="small"
+                                            disabled
+                                            title="Readings are locked. Reopen the process to edit."
+                                            sx={{ color: '#cbd5e1' }}
+                                          >
+                                            <EditIcon sx={{ fontSize: 16 }} />
+                                          </IconButton>
+                                        )}
                                       </TableCell>
                                     )}
                                   </TableRow>
@@ -2297,6 +2525,23 @@ export default function DryingProcess() {
                                 </Button>
                                 {isAdmin && (
                                   <>
+                                    <Button
+                                      size="small"
+                                      onClick={() => handleReopenProcess(process)}
+                                      sx={{
+                                        color: '#f59e0b',
+                                        borderColor: '#f59e0b',
+                                        fontSize: '0.75rem',
+                                        textTransform: 'none',
+                                        '&:hover': {
+                                          borderColor: '#d97706',
+                                          backgroundColor: alpha('#f59e0b', 0.04),
+                                        }
+                                      }}
+                                      variant="outlined"
+                                    >
+                                      Reopen
+                                    </Button>
                                     <IconButton
                                       size="small"
                                       onClick={() => {
@@ -2394,6 +2639,25 @@ export default function DryingProcess() {
                                 </IconButton>
                                 {isAdmin && (
                                   <>
+                                    <Button
+                                      size="small"
+                                      onClick={() => handleReopenProcess(process)}
+                                      sx={{
+                                        color: '#f59e0b',
+                                        borderColor: '#f59e0b',
+                                        fontSize: '0.7rem',
+                                        textTransform: 'none',
+                                        minWidth: 'auto',
+                                        px: 1,
+                                        '&:hover': {
+                                          borderColor: '#d97706',
+                                          backgroundColor: alpha('#f59e0b', 0.04),
+                                        }
+                                      }}
+                                      variant="outlined"
+                                    >
+                                      Reopen
+                                    </Button>
                                     <IconButton
                                       size="small"
                                       onClick={() => {
@@ -3979,6 +4243,104 @@ export default function DryingProcess() {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Shared confirmation dialog for close-workflow actions */}
+      <Dialog
+        open={actionDialog.open}
+        onClose={closeActionDialog}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ pb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            {actionDialog.confirmColor === 'danger' ? (
+              <DeleteIcon sx={{ color: '#ef4444', fontSize: 28 }} />
+            ) : actionDialog.confirmColor === 'warning' ? (
+              <ElectricBoltIcon sx={{ color: '#f59e0b', fontSize: 28 }} />
+            ) : actionDialog.confirmColor === 'success' ? (
+              <CheckCircleIcon sx={{ color: '#10b981', fontSize: 28 }} />
+            ) : (
+              <DryIcon sx={{ color: '#3b82f6', fontSize: 28 }} />
+            )}
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
+              {actionDialog.title}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 3 }}>
+          <Box sx={{ mb: actionDialog.requireReason ? 2.5 : 0 }}>{actionDialog.body}</Box>
+          {actionDialog.requireReason && (
+            <TextField
+              autoFocus
+              fullWidth
+              multiline
+              minRows={2}
+              maxRows={4}
+              label="Reason (required)"
+              placeholder={actionDialog.reasonPlaceholder || ''}
+              value={actionDialogReason}
+              onChange={(e) => {
+                setActionDialogReason(e.target.value);
+                if (actionDialogError) setActionDialogError(null);
+              }}
+              error={!!actionDialogError}
+              helperText={actionDialogError || 'This will be recorded in the process history.'}
+              size="small"
+            />
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5, gap: 1 }}>
+          <Button
+            onClick={closeActionDialog}
+            disabled={actionDialogSubmitting}
+            sx={{ textTransform: 'none', color: '#64748b' }}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={actionDialogSubmitting}
+            onClick={async () => {
+              if (actionDialog.requireReason && !actionDialogReason.trim()) {
+                setActionDialogError('Please enter a reason.');
+                return;
+              }
+              setActionDialogSubmitting(true);
+              setActionDialogError(null);
+              try {
+                await actionDialog.onConfirm(actionDialogReason.trim());
+                setActionDialog((s) => ({ ...s, open: false }));
+              } catch (err: any) {
+                // Backend errors already trigger the global toast via api interceptor;
+                // keep dialog open so the user can retry or cancel.
+              } finally {
+                setActionDialogSubmitting(false);
+              }
+            }}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 600,
+              px: 3,
+              backgroundColor:
+                actionDialog.confirmColor === 'danger' ? '#ef4444'
+                : actionDialog.confirmColor === 'warning' ? '#f59e0b'
+                : actionDialog.confirmColor === 'success' ? '#10b981'
+                : '#3b82f6',
+              '&:hover': {
+                backgroundColor:
+                  actionDialog.confirmColor === 'danger' ? '#dc2626'
+                  : actionDialog.confirmColor === 'warning' ? '#d97706'
+                  : actionDialog.confirmColor === 'success' ? '#059669'
+                  : '#2563eb',
+              },
+            }}
+          >
+            {actionDialogSubmitting ? 'Working…' : actionDialog.confirmLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </StyledContainer>
   );
-} 
+}
