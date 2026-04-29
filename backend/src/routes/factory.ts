@@ -13,6 +13,7 @@ import { sendTelegramMessage, sendTelegramMessageToMany } from '../services/tele
 import {
   filterRecipientsByPreference,
   userWantsChannel,
+  excludeActorUnlessOptedIn,
 } from '../services/notificationPreferences.js';
 import PDFDocument from 'pdfkit';
 import { formatInTimeZone } from 'date-fns-tz';
@@ -1086,7 +1087,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
           where: { role: 'ADMIN', isActive: true },
           select: { id: true },
         });
-        const recipientIds = admins.map(a => a.id).filter(id => id !== user.userId);
+        const recipientIds = await excludeActorUnlessOptedIn(admins.map(a => a.id), user.userId);
         if (recipientIds.length > 0) {
           // Build a concise summary of what's being dried
           let summary: string;
@@ -1948,7 +1949,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
             where: { role: 'ADMIN', isActive: true },
             select: { id: true },
           });
-          const recipientIds = admins.map(a => a.id).filter(rid => rid !== user.userId);
+          const recipientIds = await excludeActorUnlessOptedIn(admins.map(a => a.id), user.userId);
           if (recipientIds.length > 0) {
             const items = captured.DryingProcessItem || [];
             const totalPieces = items.reduce((s, it) => s + it.pieceCount, 0);
@@ -2137,7 +2138,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
         });
         const adminIds = admins.map((a) => a.id);
         // Other-than-operator: admins who didn't add the reading themselves
-        const adminsExceptOperator = adminIds.filter((id) => id !== user.userId);
+        // (unless they opted into self-notifications)
+        const adminsExceptOperator = await excludeActorUnlessOptedIn(adminIds, user.userId);
 
         // ─── In-app: respect each recipient's inApp preference ───
         const inAppAdmins = await filterRecipientsByPreference(adminsExceptOperator, 'DRYING_READING_ADDED', 'inApp');

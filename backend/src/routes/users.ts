@@ -581,15 +581,44 @@ async function usersRoutes(fastify: FastifyInstance) {
   // GET /me/notification-preferences
   // Returns the catalog of all events with the calling user's current
   // inApp/telegram flags (or the default if no subscription row exists yet).
+  // Also returns the user-level `notifyOnOwnActions` flag.
   fastify.get('/me/notification-preferences', async (request, reply) => {
     try {
       const userId = (request as any).user?.userId;
       if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
-      const prefs = await getUserPreferences(userId);
-      return { events: prefs };
+      const [prefs, user] = await Promise.all([
+        getUserPreferences(userId),
+        prisma.user.findUnique({ where: { id: userId }, select: { notifyOnOwnActions: true } }),
+      ]);
+      return {
+        events: prefs,
+        notifyOnOwnActions: user?.notifyOnOwnActions ?? false,
+      };
     } catch (error: any) {
       console.error('Error fetching notification preferences:', error);
       return reply.status(500).send({ error: 'Failed to fetch preferences' });
+    }
+  });
+
+  // PUT /me/notify-on-own-actions
+  // Body: { enabled: boolean }
+  // When true, the actor is included in fan-out lists for the events they trigger.
+  fastify.put('/me/notify-on-own-actions', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+      const { enabled } = (request.body || {}) as { enabled?: boolean };
+      if (typeof enabled !== 'boolean') {
+        return reply.status(400).send({ error: 'enabled (boolean) is required' });
+      }
+      await prisma.user.update({
+        where: { id: userId },
+        data: { notifyOnOwnActions: enabled },
+      });
+      return { notifyOnOwnActions: enabled };
+    } catch (error: any) {
+      console.error('Error updating notifyOnOwnActions:', error);
+      return reply.status(500).send({ error: 'Failed to update setting' });
     }
   });
 

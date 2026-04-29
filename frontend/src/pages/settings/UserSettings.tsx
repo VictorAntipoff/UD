@@ -130,6 +130,8 @@ export default function UserSettings() {
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [prefsSaving, setPrefsSaving] = useState<string | null>(null); // eventType being saved
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [notifyOnOwnActions, setNotifyOnOwnActions] = useState(false);
+  const [notifyOnOwnSaving, setNotifyOnOwnSaving] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -292,6 +294,7 @@ export default function UserSettings() {
         if (cancelled) return;
         const events: PreferenceRow[] = res.data?.events ?? [];
         setPrefs(events);
+        setNotifyOnOwnActions(Boolean(res.data?.notifyOnOwnActions));
         // Default all groups collapsed for a cleaner first view
         const initial: Record<string, boolean> = {};
         for (const ev of events) {
@@ -327,6 +330,23 @@ export default function UserSettings() {
       });
     } finally {
       setPrefsSaving(null);
+    }
+  };
+
+  const handleNotifyOnOwnToggle = async (nextValue: boolean) => {
+    setNotifyOnOwnActions(nextValue);
+    setNotifyOnOwnSaving(true);
+    try {
+      await api.put('/api/users/me/notify-on-own-actions', { enabled: nextValue });
+    } catch (err: any) {
+      setNotifyOnOwnActions(!nextValue);
+      setNotification({
+        open: true,
+        message: err?.response?.data?.error ?? 'Failed to update setting',
+        type: 'error',
+      });
+    } finally {
+      setNotifyOnOwnSaving(false);
     }
   };
 
@@ -1027,6 +1047,38 @@ export default function UserSettings() {
                 <Alert severity="info">No notification events configured.</Alert>
               ) : (
                 <Stack spacing={3}>
+                  {/* User-level: include yourself in fan-out */}
+                  <Box sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    px: 2, py: 1.5,
+                    backgroundColor: notifyOnOwnActions ? '#fef3c7' : '#f8fafc',
+                    border: '1px solid',
+                    borderColor: notifyOnOwnActions ? '#fde68a' : '#e2e8f0',
+                    borderRadius: 1,
+                    transition: 'background-color 0.2s, border-color 0.2s',
+                  }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2" sx={{ color: '#1e293b', fontWeight: 600 }}>
+                        Notify me about my own actions
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#64748b' }}>
+                        When ON, you get notifications for actions you take yourself (good for solo admins or testing).
+                        When OFF, you only hear about what other people do.
+                      </Typography>
+                    </Box>
+                    <Switch
+                      checked={notifyOnOwnActions}
+                      onChange={(e) => handleNotifyOnOwnToggle(e.target.checked)}
+                      disabled={notifyOnOwnSaving}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#f59e0b' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#f59e0b' },
+                      }}
+                    />
+                  </Box>
+
                   {/* Group preferences by their group field */}
                   {Array.from(new Set(prefs.map(p => p.group))).map((group) => {
                     const groupPrefs = prefs.filter(p => p.group === group);

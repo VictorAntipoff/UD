@@ -48,6 +48,26 @@ export async function userWantsChannel(
 }
 
 /**
+ * Strip the actor from a recipient list — UNLESS that user has opted into
+ * "notify me about my own actions" (User.notifyOnOwnActions = true).
+ * Useful for solo admins who want a paper trail of everything they do.
+ */
+export async function excludeActorUnlessOptedIn(
+  userIds: string[],
+  actorUserId: string | null | undefined
+): Promise<string[]> {
+  if (!actorUserId) return userIds;
+  if (!userIds.includes(actorUserId)) return userIds;
+
+  const actor = await prisma.user.findUnique({
+    where: { id: actorUserId },
+    select: { notifyOnOwnActions: true },
+  });
+  if (actor?.notifyOnOwnActions) return userIds;
+  return userIds.filter((id) => id !== actorUserId);
+}
+
+/**
  * Filter a list of recipient userIds to only those who want the given event/channel.
  * Used by dispatch sites that fan out to many recipients (e.g. "all admins").
  */

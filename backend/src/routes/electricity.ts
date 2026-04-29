@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
-import { filterRecipientsByPreference } from '../services/notificationPreferences.js';
+import { filterRecipientsByPreference, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
 import { sendTelegramMessage } from '../services/telegramNotify.js';
 import crypto from 'node:crypto';
 
@@ -216,7 +216,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
           where: { role: 'ADMIN', isActive: true },
           select: { id: true },
         });
-        const recipientIds = admins.map(a => a.id).filter(id => id !== actor?.userId);
+        const recipientIds = await excludeActorUnlessOptedIn(admins.map(a => a.id), actor?.userId);
 
         if (recipientIds.length > 0) {
           let batchInfo = '';
@@ -353,7 +353,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
           where: { role: 'ADMIN', isActive: true },
           select: { id: true },
         });
-        const recipientIds = admins.map(a => a.id).filter(rid => rid !== actor?.userId);
+        const recipientIds = await excludeActorUnlessOptedIn(admins.map(a => a.id), actor?.userId);
 
         if (recipientIds.length > 0) {
           const totalTzs = existing.totalPaid.toLocaleString('en-US', { maximumFractionDigits: 0 });

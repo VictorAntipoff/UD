@@ -8,7 +8,7 @@ import {
 } from '../middleware/auth.js';
 import { postReceiptSync, postStockEntry } from '../services/stockLedger.js';
 import { sendTelegramMessage } from '../services/telegramNotify.js';
-import { filterRecipientsByPreference, userWantsChannel } from '../services/notificationPreferences.js';
+import { filterRecipientsByPreference, userWantsChannel, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
 import crypto from 'node:crypto';
 
 async function managementRoutes(fastify: FastifyInstance) {
@@ -2183,7 +2183,7 @@ async function managementRoutes(fastify: FastifyInstance) {
           where: { role: 'ADMIN', isActive: true },
           select: { id: true },
         });
-        const recipientIds = admins.map(a => a.id).filter(id => id !== userId);  // skip self
+        const recipientIds = await excludeActorUnlessOptedIn(admins.map(a => a.id), userId);
         if (recipientIds.length > 0) {
           const adjustedBy = (adjustment as any).User;
           const adjusterName = adjustedBy

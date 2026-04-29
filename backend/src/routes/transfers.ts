@@ -17,7 +17,7 @@ import {
   postTransferReverseSourceSide,
 } from '../services/stockLedger.js';
 import { sendTelegramMessage } from '../services/telegramNotify.js';
-import { filterRecipientsByPreference, userWantsChannel } from '../services/notificationPreferences.js';
+import { filterRecipientsByPreference, userWantsChannel, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
 import type { WoodStatus } from '@prisma/client';
 import crypto from 'node:crypto';
 
@@ -864,9 +864,10 @@ async function transferRoutes(fastify: FastifyInstance) {
         // Compute recipient list — creator + optional notifyUserId, dedup'd, exclude self.
         const fromName = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse?.name ?? '?';
         const toName   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse?.name ?? '?';
-        const recipientIds = [...new Set(
-          [transfer.createdById, notifyUserId].filter((id): id is string => Boolean(id) && id !== currentUser.id)
+        const candidates = [...new Set(
+          [transfer.createdById, notifyUserId].filter((id): id is string => Boolean(id))
         )];
+        const recipientIds = await excludeActorUnlessOptedIn(candidates, currentUser.id);
         // Filter by per-user inApp preference
         const inAppIds = await filterRecipientsByPreference(recipientIds, 'TRANSFER_COMPLETED', 'inApp');
         for (const rid of inAppIds) {

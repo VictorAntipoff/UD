@@ -787,6 +787,9 @@ model User {
   // Unique-when-not-null (partial unique index in DB) so two accounts can't share one chat.
   telegramChatId                       String?                    @unique
   telegramLinkedAt                     DateTime?
+  // When true, fan-out includes the actor — they get notified about their own actions.
+  // Useful for solo admins who want a paper trail of everything they do. Default off.
+  notifyOnOwnActions                   Boolean                    @default(false)
   Comment                              Comment[]
   Design                               Design[]
   Factory                              Factory[]
