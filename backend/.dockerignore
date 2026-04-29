@@ -1,0 +1,33 @@
+# Files that must NOT be copied into the build container.
+#
+# Critical: dist/ is excluded so any stale compiled output that may have been
+# committed to Git in the past (against .gitignore intent) does not overwrite
+# the fresh `npm run build` output during Nixpacks' source-copy step.
+#
+# Without this, Railway deploys can crash at startup because the container
+# ends up with old compiled JS that doesn't match the source.
+dist/
+
+# Don't ship local node_modules — Nixpacks does its own install
+node_modules/
+
+# Never ship secrets / local env
+.env
+.env.*
+!.env.example
+
+# Local-only artefacts
+*.log
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/
+
+# Local database snapshot (only used by Prisma in dev)
+prisma/dev.db
+prisma/dev.db-journal
+prisma/migrations/.gitkeep
+
+# Test/script outputs
+coverage/
+*.tsbuildinfo
