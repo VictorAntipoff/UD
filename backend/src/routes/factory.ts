@@ -1076,6 +1076,55 @@ async function factoryRoutes(fastify: FastifyInstance) {
         timeout: 30000, // Transaction timeout 30 seconds
       });
 
+      // Notify admins (in-app + Telegram) — high-visibility creation event.
+      try {
+        const admins = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        const recipientIds = admins.map(a => a.id).filter(id => id !== user.userId);
+        if (recipientIds.length > 0) {
+          // Build a concise summary of what's being dried
+          let summary: string;
+          let detailsLine: string;
+          const items = (process as any).items || [];
+          if (items.length > 0) {
+            const totalPieces = items.reduce((s: number, it: any) => s + (it.pieceCount || 0), 0);
+            const woodSummary = items
+              .map((it: any) => `${it.woodType?.name ?? '?'} ${it.thickness} (${it.pieceCount}pcs)`)
+              .join(', ');
+            summary = `${totalPieces} pieces of ${items.length} wood type(s)`;
+            detailsLine = woodSummary;
+          } else {
+            // Legacy single-wood format
+            summary = `${process.pieceCount ?? '?'} pieces`;
+            detailsLine = `${(process as any).woodType?.name ?? '?'} (${process.thickness ?? '?'}${process.thicknessUnit ?? ''})`;
+          }
+          await prisma.notification.createMany({
+            data: recipientIds.map(rid => ({
+              id: crypto.randomUUID(),
+              userId: rid,
+              type: 'DRYING_CREATED',
+              title: 'New drying process started',
+              message: `${userName} started ${process.batchNumber}: ${summary} — ${detailsLine}`,
+              linkUrl: `/dashboard/factory/drying-process`,
+              isRead: false,
+            })),
+          });
+          const tgText =
+            `🆕 *New drying process started*\n` +
+            `Batch: *${process.batchNumber}*\n` +
+            `Started by: ${userName}\n` +
+            `Wood: ${detailsLine}\n` +
+            `Total: ${summary}`;
+          for (const rid of recipientIds) {
+            void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+          }
+        }
+      } catch (notifyError) {
+        console.error('Error sending drying-created notification:', notifyError);
+      }
+
       return process;
     } catch (error) {
       console.error('Error creating drying process:', error);
@@ -1791,6 +1840,26 @@ async function factoryRoutes(fastify: FastifyInstance) {
   fastify.delete('/drying-processes/:id', async (request, reply) => {
     try {
       const { id } = request.params as { id: string };
+      const user = (request as any).user;
+      const userDetails = await prisma.user.findUnique({
+        where: { id: user.userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      const userName = userDetails && userDetails.firstName && userDetails.lastName
+        ? `${userDetails.firstName} ${userDetails.lastName}`
+        : (userDetails?.email || 'System');
+
+      // Capture process info BEFORE the transaction so we can notify after delete.
+      const captured = await prisma.dryingProcess.findUnique({
+        where: { id },
+        select: {
+          batchNumber: true,
+          status: true,
+          DryingProcessItem: {
+            select: { pieceCount: true, thickness: true, WoodType: { select: { name: true } } },
+          },
+        },
+      });
 
       // Use transaction to restore stock before deleting
       await prisma.$transaction(async (tx) => {
@@ -1841,6 +1910,49 @@ async function factoryRoutes(fastify: FastifyInstance) {
         maxWait: 30000,
         timeout: 30000
       });
+
+      // Notify admins (in-app + Telegram) — destruction events are high-audit.
+      try {
+        if (captured) {
+          const admins = await prisma.user.findMany({
+            where: { role: 'ADMIN', isActive: true },
+            select: { id: true },
+          });
+          const recipientIds = admins.map(a => a.id).filter(rid => rid !== user.userId);
+          if (recipientIds.length > 0) {
+            const items = captured.DryingProcessItem || [];
+            const totalPieces = items.reduce((s, it) => s + it.pieceCount, 0);
+            const wasInProgress = captured.status === 'IN_PROGRESS';
+            const stockNote = wasInProgress
+              ? ` (${totalPieces} pieces returned to Not Dried)`
+              : ' (was already completed — no stock change)';
+            await prisma.notification.createMany({
+              data: recipientIds.map(rid => ({
+                id: crypto.randomUUID(),
+                userId: rid,
+                type: 'DRYING_DELETED',
+                title: 'Drying process deleted',
+                message: `${userName} deleted ${captured.batchNumber} (status was ${captured.status})${stockNote}`,
+                linkUrl: `/dashboard/factory/drying-process`,
+                isRead: false,
+              })),
+            });
+            const tgText =
+              `🗑 *Drying process deleted*\n` +
+              `Batch: *${captured.batchNumber}*\n` +
+              `Was: ${captured.status}\n` +
+              `Deleted by: ${userName}\n\n` +
+              (wasInProgress
+                ? `${totalPieces} pieces returned from Under Drying → Not Dried.`
+                : `Process was already ${captured.status} — no stock changes.`);
+            for (const rid of recipientIds) {
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+            }
+          }
+        }
+      } catch (notifyError) {
+        console.error('Error sending drying-deleted notification:', notifyError);
+      }
 
       return { success: true };
     } catch (error) {
