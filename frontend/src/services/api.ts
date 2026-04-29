@@ -1,6 +1,11 @@
 import axios from 'axios';
 
-const BASE_URL = 'http://localhost:3010';
+// Read backend URL from build-time env (Vite). Falls back to localhost for dev.
+// In production, set VITE_API_URL=https://ud-production.up.railway.app in
+// frontend/.env.production (already configured) so the bundle calls the
+// correct host. Hardcoding 'http://localhost:3010' would break prod with
+// CORS / mixed-content errors.
+const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:3010';
 
 export const api = axios.create({
   baseURL: BASE_URL,
