@@ -1,6 +1,19 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import {
+  sendTelegramMessageToChatId,
+  formatWelcomeMessage,
+  isTelegramConfigured,
+} from '../services/telegramNotify.js';
+import {
+  pendingLinkCodes,
+  userActiveLinkCode,
+  generateLinkCode,
+  pruneExpiredLinkCodes,
+  LINK_CODE_TTL_MS,
+  type PendingLinkCode,
+} from '../lib/telegramLinkStore.js';
 
 async function usersRoutes(fastify: FastifyInstance) {
   // SECURITY: Protect all user routes with authentication
@@ -269,6 +282,293 @@ async function usersRoutes(fastify: FastifyInstance) {
     } catch (error) {
       console.error('Error unlocking user account:', error);
       return reply.status(500).send({ error: 'Failed to unlock user account' });
+    }
+  });
+
+  // ===== TELEGRAM LINK ENDPOINTS =====
+  // The current user manages their own Telegram link. Admins manage other users'
+  // links through the existing PUT /:userId endpoint (extended below would be
+  // separate work; out of scope for this batch).
+
+  // GET /me/telegram — read current link status of the calling user.
+  fastify.get('/me/telegram', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          telegramChatId: true,
+          telegramLinkedAt: true,
+        },
+      });
+      if (!user) return reply.status(404).send({ error: 'User not found' });
+
+      return {
+        linked: Boolean(user.telegramChatId),
+        chatId: user.telegramChatId,
+        linkedAt: user.telegramLinkedAt,
+        botUsername: 'ud_system_bot',
+        configured: isTelegramConfigured(),
+      };
+    } catch (error: any) {
+      console.error('Error fetching telegram link:', error);
+      return reply.status(500).send({ error: 'Failed to fetch telegram link' });
+    }
+  });
+
+  // PUT /me/telegram — set or clear the calling user's chat ID.
+  // Body: { chatId: string | null }
+  fastify.put('/me/telegram', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+      const { chatId } = (request.body as { chatId?: string | null } | null) ?? {};
+
+      // null/empty => unlink
+      if (chatId === null || chatId === '' || chatId === undefined) {
+        const updated = await prisma.user.update({
+          where: { id: userId },
+          data: { telegramChatId: null, telegramLinkedAt: null },
+          select: { id: true, telegramChatId: true, telegramLinkedAt: true },
+        });
+        return { linked: false, chatId: null, linkedAt: null };
+      }
+
+      // Validate format: Telegram chat IDs are numeric (sometimes negative for groups)
+      const trimmed = String(chatId).trim();
+      if (!/^-?\d+$/.test(trimmed)) {
+        return reply.status(400).send({
+          error: 'chatId must be a numeric Telegram chat ID. Send any message to @ud_system_bot to discover yours.',
+        });
+      }
+
+      // Detect "already linked to a different user" (the partial unique index would
+      // catch this anyway, but a clear API error is friendlier than a 500).
+      const existing = await prisma.user.findFirst({
+        where: { telegramChatId: trimmed, NOT: { id: userId } },
+        select: { id: true, email: true },
+      });
+      if (existing) {
+        return reply.status(400).send({
+          error: 'This Telegram chat is already linked to another user account. Each chat can be linked to one user only.',
+        });
+      }
+
+      try {
+        const updated = await prisma.user.update({
+          where: { id: userId },
+          data: {
+            telegramChatId: trimmed,
+            telegramLinkedAt: new Date(),
+          },
+          select: { id: true, telegramChatId: true, telegramLinkedAt: true },
+        });
+        return { linked: true, chatId: updated.telegramChatId, linkedAt: updated.telegramLinkedAt };
+      } catch (e: any) {
+        if (e?.code === 'P2002') {
+          return reply.status(400).send({
+            error: 'This Telegram chat is already linked to another user account.',
+          });
+        }
+        throw e;
+      }
+    } catch (error: any) {
+      console.error('Error updating telegram link:', error);
+      return reply.status(500).send({ error: 'Failed to update telegram link' });
+    }
+  });
+
+  // POST /me/telegram/test — send the welcome message to the calling user's
+  // linked chat. Confirms end-to-end the link works.
+  fastify.post('/me/telegram/test', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { firstName: true, telegramChatId: true },
+      });
+      if (!user) return reply.status(404).send({ error: 'User not found' });
+      if (!user.telegramChatId) {
+        return reply.status(400).send({
+          error: 'Telegram is not linked. Save your chat ID first, then test.',
+        });
+      }
+
+      const result = await sendTelegramMessageToChatId({
+        chatId: user.telegramChatId,
+        text: formatWelcomeMessage({ firstName: user.firstName }),
+        parseMode: 'Markdown',
+      });
+      if (!result.ok) {
+        return reply.status(400).send({
+          error: `Telegram refused the message: ${result.error ?? result.skipped ?? 'unknown'}. Make sure you have started a chat with @ud_system_bot, then try again.`,
+        });
+      }
+      return { ok: true, telegramMessageId: result.telegramMessageId };
+    } catch (error: any) {
+      console.error('Error sending telegram welcome:', error);
+      return reply.status(500).send({ error: 'Failed to send welcome message' });
+    }
+  });
+
+  // POST /me/telegram/start-link
+  // Mint a one-time code the user will send to @ud_system_bot, so we can
+  // discover their chat ID without them having to type it manually.
+  fastify.post('/me/telegram/start-link', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+      if (!isTelegramConfigured()) {
+        return reply.status(400).send({ error: 'Telegram is not configured on the server.' });
+      }
+
+      pruneExpiredLinkCodes();
+
+      // If user already has an active (non-expired) code, return it
+      const existing = userActiveLinkCode.get(userId);
+      if (existing) {
+        const p = pendingLinkCodes.get(existing);
+        if (p && p.expiresAt > Date.now()) {
+          return {
+            code: p.code,
+            expiresAt: new Date(p.expiresAt).toISOString(),
+            botUsername: 'ud_system_bot',
+            instructions: `Open Telegram, find @ud_system_bot, and send this exact text: ${p.code}`,
+          };
+        }
+      }
+
+      const now = Date.now();
+      const code = generateLinkCode();
+      const entry: PendingLinkCode = {
+        userId,
+        code,
+        createdAt: now,
+        expiresAt: now + LINK_CODE_TTL_MS,
+      };
+      pendingLinkCodes.set(code, entry);
+      userActiveLinkCode.set(userId, code);
+
+      return {
+        code,
+        expiresAt: new Date(entry.expiresAt).toISOString(),
+        botUsername: 'ud_system_bot',
+        instructions: `Open Telegram, find @ud_system_bot, and send this exact text: ${code}`,
+      };
+    } catch (error: any) {
+      console.error('Error starting telegram link:', error);
+      return reply.status(500).send({ error: 'Failed to start telegram link' });
+    }
+  });
+
+  // POST /me/telegram/find-me
+  // Polls Telegram getUpdates looking for a message matching the user's active
+  // link code. If found: saves the chat ID on the User and confirms link.
+  // The user must have sent the exact code text to @ud_system_bot first.
+  fastify.post('/me/telegram/find-me', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      if (!token) return reply.status(400).send({ error: 'Telegram is not configured on the server.' });
+
+      pruneExpiredLinkCodes();
+
+      const code = userActiveLinkCode.get(userId);
+      const entry = code ? pendingLinkCodes.get(code) : undefined;
+      if (!code || !entry) {
+        return reply.status(400).send({
+          error: 'No active link code. Click "Start linking" to get a new code.',
+        });
+      }
+
+      // Poll Telegram for recent updates. The bot's offset/long-poll cursor
+      // doesn't matter here — we read all currently-buffered updates and look
+      // for our exact code in any message text.
+      const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates?timeout=0`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      const json = (await res.json()) as any;
+      if (!json?.ok) {
+        const errMsg = json?.description ?? `HTTP ${res.status}`;
+        return reply.status(502).send({ error: `Telegram API error: ${errMsg}` });
+      }
+
+      const updates = json.result || [];
+      // Find any update whose message text matches our code (case-insensitive,
+      // tolerating whitespace).
+      let matched: { chatId: string; chatLabel: string } | null = null;
+      const normalizedCode = code.replace(/\s+/g, '').toUpperCase();
+      for (const u of updates) {
+        const msg = u.message ?? u.edited_message ?? null;
+        if (!msg?.text || !msg?.chat?.id) continue;
+        const text = String(msg.text).replace(/\s+/g, '').toUpperCase();
+        if (text === normalizedCode) {
+          matched = {
+            chatId: String(msg.chat.id),
+            chatLabel:
+              msg.chat.username
+                ? '@' + msg.chat.username
+                : `${msg.chat.first_name ?? ''} ${msg.chat.last_name ?? ''}`.trim() ||
+                  `chat:${msg.chat.id}`,
+          };
+        }
+      }
+
+      if (!matched) {
+        return reply.status(404).send({
+          error: `We did not see your code yet. Make sure you sent the exact text "${code}" to @ud_system_bot, then try again. (Recent updates checked: ${updates.length})`,
+        });
+      }
+
+      // Make sure no other user is already linked to that chat
+      const conflict = await prisma.user.findFirst({
+        where: { telegramChatId: matched.chatId, NOT: { id: userId } },
+        select: { id: true, email: true },
+      });
+      if (conflict) {
+        return reply.status(400).send({
+          error: 'That Telegram chat is already linked to another user account.',
+        });
+      }
+
+      // Save the link
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          telegramChatId: matched.chatId,
+          telegramLinkedAt: new Date(),
+        },
+        select: { id: true, firstName: true, telegramChatId: true, telegramLinkedAt: true },
+      });
+
+      // Consume the code
+      pendingLinkCodes.delete(code);
+      userActiveLinkCode.delete(userId);
+
+      // Send a confirmation/welcome message
+      void sendTelegramMessageToChatId({
+        chatId: matched.chatId,
+        text: formatWelcomeMessage({ firstName: updated.firstName }),
+        parseMode: 'Markdown',
+      });
+
+      return {
+        linked: true,
+        chatId: updated.telegramChatId,
+        linkedAt: updated.telegramLinkedAt,
+        chatLabel: matched.chatLabel,
+      };
+    } catch (error: any) {
+      console.error('Error finding telegram link:', error);
+      return reply.status(500).send({ error: 'Failed to look up Telegram chat' });
     }
   });
 }

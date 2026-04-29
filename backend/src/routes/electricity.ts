@@ -163,6 +163,25 @@ async function electricityRoutes(fastify: FastifyInstance) {
     try {
       const body = request.body as ElectricityRechargeBody;
 
+      // When the recharge is tied to a drying process, anchor it to the most
+      // recent reading. The recharge's effective time then comes from that
+      // reading instead of a user-entered date — preventing the wrong-date
+      // bug where the cost formula misallocates kWh between windows.
+      let linkedReadingId: string | undefined;
+      if (body.dryingProcessId) {
+        const lastReading = await prisma.dryingReading.findFirst({
+          where: { dryingProcessId: body.dryingProcessId },
+          orderBy: { readingTime: 'desc' },
+          select: { id: true },
+        });
+        if (!lastReading) {
+          return reply.status(400).send({
+            error: 'Cannot log recharge: this drying process has no readings yet. Please add a reading first, then log the recharge.',
+          });
+        }
+        linkedReadingId = lastReading.id;
+      }
+
       const recharge = await prisma.electricityRecharge.create({
         data: {
           id: crypto.randomUUID(),
@@ -178,6 +197,7 @@ async function electricityRoutes(fastify: FastifyInstance) {
           notes: body.notes,
           dryingProcessId: body.dryingProcessId,
           meterReadingAfter: body.meterReadingAfter,
+          linkedReadingId,
           updatedAt: new Date()
         }
       });

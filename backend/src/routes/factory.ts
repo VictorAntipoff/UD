@@ -3,6 +3,13 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import {
+  postDryingStart,
+  postDryingEnd,
+  postDryingReopen,
+  postDryingCancel,
+} from '../services/stockLedger.js';
+import { sendTelegramMessage, sendTelegramMessageToMany } from '../services/telegramNotify.js';
 import PDFDocument from 'pdfkit';
 import { formatInTimeZone } from 'date-fns-tz';
 import crypto from 'node:crypto';
@@ -41,7 +48,10 @@ async function calculateDryingTotalCost(prismaClient: any, processId: string): P
     where: { id: processId },
     include: {
       DryingReading: { orderBy: { readingTime: 'asc' } },
-      ElectricityRecharge: { orderBy: { rechargeDate: 'asc' } },
+      ElectricityRecharge: {
+        orderBy: { rechargeDate: 'asc' },
+        include: { LinkedReading: { select: { id: true, readingTime: true } } },
+      },
     },
   });
 
@@ -51,6 +61,12 @@ async function calculateDryingTotalCost(prismaClient: any, processId: string): P
   if (!processWithReadings || readings.length === 0) {
     return { totalCost: null, endTime: null };
   }
+
+  // Effective time of a recharge: prefer the linked reading's time (anchor),
+  // fall back to the legacy rechargeDate field. This decouples cost allocation
+  // from user-entered dates that may be wrong.
+  const rechargeEffectiveTime = (r: any): Date =>
+    r.LinkedReading?.readingTime ? new Date(r.LinkedReading.readingTime) : new Date(r.rechargeDate);
 
   const lastReading = readings[readings.length - 1];
   const endTime = lastReading.readingTime.toISOString();
@@ -86,9 +102,10 @@ async function calculateDryingTotalCost(prismaClient: any, processId: string): P
       prevReading = readings[i - 1].electricityMeter;
       prevTime = new Date(readings[i - 1].readingTime);
     }
-    const rechargesBetween = recharges.filter((r: any) =>
-      new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
-    );
+    const rechargesBetween = recharges.filter((r: any) => {
+      const t = rechargeEffectiveTime(r);
+      return t > prevTime && t <= currentTime;
+    });
     if (rechargesBetween.length > 0) {
       const totalRecharged = rechargesBetween.reduce((sum: number, r: any) => sum + r.kwhAmount, 0);
       const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
@@ -788,57 +805,22 @@ async function factoryRoutes(fastify: FastifyInstance) {
   // Get all drying processes
   fastify.get('/drying-processes', async (request, reply) => {
     try {
-      // Auto-fix orphaned "Under Drying" stock on each fetch
-      try {
-        const activeProcesses = await prisma.dryingProcess.findMany({
-          where: { status: 'IN_PROGRESS' },
-          include: { DryingProcessItem: true }
-        });
-
-        const expectedUnderDrying = new Map<string, number>();
-        for (const process of activeProcesses) {
-          if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
-            for (const item of process.DryingProcessItem) {
-              const key = `${item.sourceWarehouseId}-${item.woodTypeId}-${item.thickness}`;
-              expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + item.pieceCount);
-            }
-          } else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
-            const key = `${process.sourceWarehouseId}-${process.woodTypeId}-${process.stockThickness}`;
-            expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + process.pieceCount);
-          }
-        }
-
-        const stockWithUnderDrying = await prisma.stock.findMany({
-          where: { statusUnderDrying: { gt: 0 } }
-        });
-
-        for (const stock of stockWithUnderDrying) {
-          const key = `${stock.warehouseId}-${stock.woodTypeId}-${stock.thickness}`;
-          const expected = expectedUnderDrying.get(key) || 0;
-          const orphaned = stock.statusUnderDrying - expected;
-          if (orphaned > 0) {
-            await prisma.stock.update({
-              where: { id: stock.id },
-              data: {
-                statusUnderDrying: { decrement: orphaned },
-                statusNotDried: { increment: orphaned }
-              }
-            });
-            console.log(`Auto-fixed orphaned stock: ${orphaned} pieces moved from UnderDrying to NotDried`);
-          }
-        }
-      } catch (fixError) {
-        console.error('Error auto-fixing orphaned stock:', fixError);
-      }
+      // NOTE: a silent auto-fixer used to live here that mutated stock on every
+      // page fetch. It silently corrupted data when its assumptions were wrong
+      // (e.g. when PENDING_CLOSE was added). It has been removed — stock changes
+      // are now only intentional, traceable operations. Use the read-only
+      // GET /drying-processes/orphan-report endpoint to detect drift.
 
       const processes = await prisma.dryingProcess.findMany({
         include: {
           WoodType: true,
           DryingReading: {
-            orderBy: { readingTime: 'asc' }
+            orderBy: { readingTime: 'asc' },
+            include: { LinkedRecharges: true },
           },
           ElectricityRecharge: {
-            orderBy: { rechargeDate: 'asc' }
+            orderBy: { rechargeDate: 'asc' },
+            include: { LinkedReading: { select: { id: true, readingTime: true } } },
           },
           DryingProcessItem: {
             include: {
@@ -853,7 +835,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
       return processes.map(p => ({
         ...p,
         woodType: (p as any).WoodType,
-        readings: (p as any).DryingReading || [],
+        readings: ((p as any).DryingReading || []).map((r: any) => ({
+          ...r,
+          linkedRecharges: r.LinkedRecharges || [],
+        })),
         recharges: (p as any).ElectricityRecharge || [],
         items: (p as any).DryingProcessItem?.map((item: any) => ({
           ...item,
@@ -877,10 +862,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
         include: {
           WoodType: true,
           DryingReading: {
-            orderBy: { readingTime: 'asc' }
+            orderBy: { readingTime: 'asc' },
+            include: { LinkedRecharges: true },
           },
           ElectricityRecharge: {
-            orderBy: { rechargeDate: 'asc' }
+            orderBy: { rechargeDate: 'asc' },
+            include: { LinkedReading: { select: { id: true, readingTime: true } } },
           },
           DryingProcessItem: {
             include: {
@@ -899,7 +886,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
       return {
         ...process,
         woodType: (process as any).WoodType,
-        readings: (process as any).DryingReading || [],
+        readings: ((process as any).DryingReading || []).map((r: any) => ({
+          ...r,
+          linkedRecharges: r.LinkedRecharges || [],
+        })),
         recharges: (process as any).ElectricityRecharge || [],
         items: (process as any).DryingProcessItem?.map((item: any) => ({
           ...item,
@@ -999,10 +989,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
           }
         });
 
-        // If multi-wood, create items and update stock for each
+        // If multi-wood, create items and post stock movements for each
         if (isMultiWood && data.items) {
           for (const item of data.items) {
-            // Validate stock availability
+            // Validate stock availability up-front (clearer error than CHECK violation)
             const stock = await tx.stock.findFirst({
               where: {
                 warehouseId: item.warehouseId,
@@ -1010,10 +1000,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
                 thickness: item.thickness
               }
             });
-
             const woodType = await tx.woodType.findUnique({ where: { id: item.woodTypeId } });
             const available = stock?.statusNotDried || 0;
-
             if (!stock || available < item.pieceCount) {
               throw new Error(`Insufficient stock for ${woodType?.name || 'unknown'} at thickness ${item.thickness}: need ${item.pieceCount} but only ${available} Not Dried available`);
             }
@@ -1031,31 +1019,30 @@ async function factoryRoutes(fastify: FastifyInstance) {
               }
             });
 
-            // Update stock: NotDried -> UnderDrying
-            await tx.stock.update({
-              where: {
-                id: stock.id
-              },
-              data: {
-                statusNotDried: { decrement: item.pieceCount },
-                statusUnderDrying: { increment: item.pieceCount }
-              }
-            });
+            // Stock: NotDried -> UnderDrying via the ledger helper.
+            // Writes both the Stock update + paired stock_movements rows atomically.
+            await postDryingStart({
+              warehouseId: item.warehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              pieceCount: item.pieceCount,
+              processId: createdProcess.id,
+              batchNumber: createdProcess.batchNumber,
+              user: { id: user.userId, name: userName },
+            }, tx);
           }
         }
         // OLD FORMAT - single wood stock update
-        else if (data.useStock && data.warehouseId && data.stockThickness && data.woodTypeId) {
-          await tx.stock.updateMany({
-            where: {
-              warehouseId: data.warehouseId,
-              woodTypeId: data.woodTypeId,
-              thickness: data.stockThickness
-            },
-            data: {
-              statusNotDried: { decrement: data.pieceCount! },
-              statusUnderDrying: { increment: data.pieceCount! }
-            }
-          });
+        else if (data.useStock && data.warehouseId && data.stockThickness && data.woodTypeId && data.pieceCount) {
+          await postDryingStart({
+            warehouseId: data.warehouseId,
+            woodTypeId: data.woodTypeId,
+            thickness: data.stockThickness,
+            pieceCount: data.pieceCount,
+            processId: createdProcess.id,
+            batchNumber: createdProcess.batchNumber,
+            user: { id: user.userId, name: userName },
+          }, tx);
         }
 
         // Fetch complete process with relations
@@ -1149,7 +1136,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
               orderBy: { readingTime: 'asc' }
             },
             ElectricityRecharge: {
-              orderBy: { rechargeDate: 'asc' }
+              orderBy: { rechargeDate: 'asc' },
+              include: { LinkedReading: { select: { id: true, readingTime: true } } }
             },
             DryingProcessItem: true
           }
@@ -1158,6 +1146,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
         // Map PascalCase to local variables for easier access
         const readings = (processWithReadings as any)?.DryingReading || [];
         const recharges = (processWithReadings as any)?.ElectricityRecharge || [];
+        const rechargeEffectiveTime = (r: any): Date =>
+          r.LinkedReading?.readingTime ? new Date(r.LinkedReading.readingTime) : new Date(r.rechargeDate);
 
         if (processWithReadings && readings.length > 0) {
           // Set endTime to last reading time (not button click time)
@@ -1203,10 +1193,11 @@ async function factoryRoutes(fastify: FastifyInstance) {
               prevTime = new Date(readings[i - 1].readingTime);
             }
 
-            // Find recharges between prev and current reading
-            const rechargesBetween = recharges.filter((r: any) =>
-              new Date(r.rechargeDate) > prevTime && new Date(r.rechargeDate) <= currentTime
-            );
+            // Find recharges between prev and current reading (using linkedReading anchor when set)
+            const rechargesBetween = recharges.filter((r: any) => {
+              const t = rechargeEffectiveTime(r);
+              return t > prevTime && t <= currentTime;
+            });
 
             if (rechargesBetween.length > 0) {
               // Recharge occurred - use formula: prevReading + recharged - currentReading
@@ -1270,43 +1261,10 @@ async function factoryRoutes(fastify: FastifyInstance) {
           }
         });
 
-        // If completing the process, update warehouse stock
-        if (data.status === 'COMPLETED' && currentProcess?.useStock) {
-          // Check if it's a multi-wood process (has items)
-          const processItems = await tx.dryingProcessItem.findMany({
-            where: { dryingProcessId: id }
-          });
-
-          if (processItems.length > 0) {
-            // MULTI-WOOD: Update stock for each item
-            for (const item of processItems) {
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: item.sourceWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness
-                },
-                data: {
-                  statusUnderDrying: { decrement: item.pieceCount },
-                  statusDried: { increment: item.pieceCount }
-                }
-              });
-            }
-          } else if (currentProcess.sourceWarehouseId && currentProcess.stockThickness && currentProcess.woodTypeId) {
-            // OLD SINGLE-WOOD: Update stock using old fields
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: currentProcess.sourceWarehouseId,
-                woodTypeId: currentProcess.woodTypeId,
-                thickness: currentProcess.stockThickness
-              },
-              data: {
-                statusUnderDrying: { decrement: currentProcess.pieceCount! },
-                statusDried: { increment: currentProcess.pieceCount! }
-              }
-            });
-          }
-        }
+        // NOTE: status changes via this PUT are refused upstream (line ~1110).
+        // The legacy "if completing, move stock" branch is dead code — removed.
+        // Status transitions go through dedicated workflow endpoints:
+        // request-close, approve-close, reject-close, reopen.
 
         // Fetch updated process with all relations
         const completeProcess = await tx.dryingProcess.findUnique({
@@ -1402,7 +1360,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Notify admins (in-app)
+      // Notify admins (in-app + Telegram)
       try {
         const admins = await prisma.user.findMany({
           where: { role: 'ADMIN', isActive: true },
@@ -1420,6 +1378,14 @@ async function factoryRoutes(fastify: FastifyInstance) {
               isRead: false,
             })),
           });
+          // Telegram (parallel; failures logged inside helper, never throws)
+          const tgText =
+            `🔔 *Drying close approval needed*\n` +
+            `Batch: *${current.batchNumber}*\n` +
+            `Requested by: ${userName}\n` +
+            `Cost preview: TZS ${totalCost ? totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'n/a'}\n\n` +
+            `Open the UD app to review and approve or reject.`;
+          void sendTelegramMessageToMany(admins.map((a) => a.id), tgText, { parseMode: 'Markdown' });
         }
       } catch (notifError) {
         console.error('Error sending close-request notifications:', notifError);
@@ -1488,37 +1454,33 @@ async function factoryRoutes(fastify: FastifyInstance) {
           const items = await tx.dryingProcessItem.findMany({ where: { dryingProcessId: id } });
           if (items.length > 0) {
             for (const item of items) {
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: item.sourceWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness,
-                },
-                data: {
-                  statusUnderDrying: { decrement: item.pieceCount },
-                  statusDried: { increment: item.pieceCount },
-                },
-              });
+              await postDryingEnd({
+                warehouseId: item.sourceWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.pieceCount,
+                processId: id,
+                batchNumber: current.batchNumber,
+                user: { id: user.userId, name: userName },
+              }, tx);
             }
           } else if (current.sourceWarehouseId && current.stockThickness && current.woodTypeId && current.pieceCount) {
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: current.sourceWarehouseId,
-                woodTypeId: current.woodTypeId,
-                thickness: current.stockThickness,
-              },
-              data: {
-                statusUnderDrying: { decrement: current.pieceCount },
-                statusDried: { increment: current.pieceCount },
-              },
-            });
+            await postDryingEnd({
+              warehouseId: current.sourceWarehouseId,
+              woodTypeId: current.woodTypeId,
+              thickness: current.stockThickness,
+              pieceCount: current.pieceCount,
+              processId: id,
+              batchNumber: current.batchNumber,
+              user: { id: user.userId, name: userName },
+            }, tx);
           }
         }
 
         return updated;
       }, { maxWait: 30000, timeout: 30000 });
 
-      // Notify creator (in-app)
+      // Notify creator (in-app + Telegram)
       try {
         if (current.createdById) {
           await prisma.notification.create({
@@ -1531,6 +1493,14 @@ async function factoryRoutes(fastify: FastifyInstance) {
               linkUrl: `/dashboard/factory/drying-process`,
               isRead: false,
             },
+          });
+          void sendTelegramMessage({
+            userId: current.createdById,
+            text:
+              `✅ *Drying close approved*\n` +
+              `Batch: *${current.batchNumber}*\n` +
+              `Approved by: ${userName}`,
+            parseMode: 'Markdown',
           });
         }
       } catch (notifError) {
@@ -1611,7 +1581,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Notify creator
+      // Notify creator (in-app + Telegram)
       try {
         if (current.createdById) {
           await prisma.notification.create({
@@ -1624,6 +1594,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
               linkUrl: `/dashboard/factory/drying-process`,
               isRead: false,
             },
+          });
+          void sendTelegramMessage({
+            userId: current.createdById,
+            text:
+              `❌ *Drying close rejected*\n` +
+              `Batch: *${current.batchNumber}*\n` +
+              `Rejected by: ${userName}\n` +
+              `Reason: ${data.reason}\n\n` +
+              `The process is back in progress. You can fix readings and re-request closing.`,
+            parseMode: 'Markdown',
           });
         }
       } catch (notifError) {
@@ -1678,7 +1658,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
       }
 
       const result = await prisma.$transaction(async (tx) => {
-        // Stock-safety check: refuse if any item's pieces are no longer available in Dried.
+        // Stock-safety check up-front: refuse with clear message if pieces are gone.
+        // (The DB CHECK on Stock would also catch this, but the explicit error is friendlier.)
         if (current.useStock) {
           const items = await tx.dryingProcessItem.findMany({ where: { dryingProcessId: id } });
           if (items.length > 0) {
@@ -1698,17 +1679,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
               }
             }
             for (const item of items) {
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: item.sourceWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness,
-                },
-                data: {
-                  statusDried: { decrement: item.pieceCount },
-                  statusUnderDrying: { increment: item.pieceCount },
-                },
-              });
+              await postDryingReopen({
+                warehouseId: item.sourceWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.pieceCount,
+                processId: id,
+                batchNumber: current.batchNumber,
+                user: { id: user.userId, name: userName },
+                reason: data.reason,
+              }, tx);
             }
           } else if (current.sourceWarehouseId && current.stockThickness && current.woodTypeId && current.pieceCount) {
             const stock = await tx.stock.findFirst({
@@ -1724,17 +1704,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
                 `Cannot reopen: only ${dried} dried pieces available (process needs ${current.pieceCount}). Pieces may have been transferred or used downstream.`
               );
             }
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: current.sourceWarehouseId,
-                woodTypeId: current.woodTypeId,
-                thickness: current.stockThickness,
-              },
-              data: {
-                statusDried: { decrement: current.pieceCount },
-                statusUnderDrying: { increment: current.pieceCount },
-              },
-            });
+            await postDryingReopen({
+              warehouseId: current.sourceWarehouseId,
+              woodTypeId: current.woodTypeId,
+              thickness: current.stockThickness,
+              pieceCount: current.pieceCount,
+              processId: id,
+              batchNumber: current.batchNumber,
+              user: { id: user.userId, name: userName },
+              reason: data.reason,
+            }, tx);
           }
         }
 
@@ -1752,7 +1731,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         });
       }, { maxWait: 30000, timeout: 30000 });
 
-      // Notify creator
+      // Notify creator (in-app + Telegram)
       try {
         if (current.createdById) {
           await prisma.notification.create({
@@ -1765,6 +1744,16 @@ async function factoryRoutes(fastify: FastifyInstance) {
               linkUrl: `/dashboard/factory/drying-process`,
               isRead: false,
             },
+          });
+          void sendTelegramMessage({
+            userId: current.createdById,
+            text:
+              `🔓 *Drying process reopened*\n` +
+              `Batch: *${current.batchNumber}*\n` +
+              `Reopened by: ${userName}\n` +
+              `Reason: ${data.reason}\n\n` +
+              `Stock has been moved from Dried back to Under Drying.`,
+            parseMode: 'Markdown',
           });
         }
       } catch (notifError) {
@@ -1817,38 +1806,30 @@ async function factoryRoutes(fastify: FastifyInstance) {
           throw new Error('Drying process not found');
         }
 
-        // Only restore stock if process is still IN_PROGRESS (not completed)
+        // Only restore stock if process is still IN_PROGRESS (not completed).
+        // Restoration uses the ledger helper: UnderDrying → NotDried, with a
+        // matching pair of stock_movements rows for full audit trail.
         if (process.status === 'IN_PROGRESS') {
-          // Restore stock for multi-wood items
           if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
             for (const item of process.DryingProcessItem) {
-              // Find the stock record and restore: UnderDrying -> NotDried
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: item.sourceWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness
-                },
-                data: {
-                  statusUnderDrying: { decrement: item.pieceCount },
-                  statusNotDried: { increment: item.pieceCount }
-                }
-              });
+              await postDryingCancel({
+                warehouseId: item.sourceWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.pieceCount,
+                processId: process.id,
+                batchNumber: process.batchNumber,
+              }, tx);
             }
-          }
-          // Restore stock for old format (single wood)
-          else if (process.useStock && process.sourceWarehouseId && process.stockThickness && process.woodTypeId && process.pieceCount) {
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: process.sourceWarehouseId,
-                woodTypeId: process.woodTypeId,
-                thickness: process.stockThickness
-              },
-              data: {
-                statusUnderDrying: { decrement: process.pieceCount },
-                statusNotDried: { increment: process.pieceCount }
-              }
-            });
+          } else if (process.useStock && process.sourceWarehouseId && process.stockThickness && process.woodTypeId && process.pieceCount) {
+            await postDryingCancel({
+              warehouseId: process.sourceWarehouseId,
+              woodTypeId: process.woodTypeId,
+              thickness: process.stockThickness,
+              pieceCount: process.pieceCount,
+              processId: process.id,
+              batchNumber: process.batchNumber,
+            }, tx);
           }
         }
 
@@ -1868,75 +1849,71 @@ async function factoryRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Fix orphaned "Under Drying" stock (admin only)
-  // This fixes stock that was left in "Under Drying" status when drying processes were deleted without proper cleanup
-  fastify.post('/drying-processes/fix-orphaned-stock', async (request, reply) => {
+  // Read-only stock-drift report (replaces the old auto-fixer that silently mutated stock).
+  // Admins can review what looks off and decide what to do — no automatic changes.
+  fastify.get('/drying-processes/orphan-report', async (request, reply) => {
     try {
-      // Get all active (IN_PROGRESS) drying processes with their items
+      const user = (request as any).user;
+      if (user.role !== 'ADMIN') {
+        return reply.status(403).send({ error: 'Admin only' });
+      }
+
       const activeProcesses = await prisma.dryingProcess.findMany({
-        where: { status: 'IN_PROGRESS' },
+        where: { status: { in: ['IN_PROGRESS', 'PENDING_CLOSE'] } },
         include: { DryingProcessItem: true }
       });
 
-      // Build a map of what SHOULD be under drying
       const expectedUnderDrying = new Map<string, number>();
-
       for (const process of activeProcesses) {
-        // Multi-wood format
         if (process.DryingProcessItem && process.DryingProcessItem.length > 0) {
           for (const item of process.DryingProcessItem) {
-            const key = `${item.warehouseId}-${item.woodTypeId}-${item.thickness}`;
+            const key = `${item.sourceWarehouseId}-${item.woodTypeId}-${item.thickness}`;
             expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + item.pieceCount);
           }
-        }
-        // Old format
-        else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
+        } else if (process.useStock && process.sourceWarehouseId && process.woodTypeId && process.stockThickness && process.pieceCount) {
           const key = `${process.sourceWarehouseId}-${process.woodTypeId}-${process.stockThickness}`;
           expectedUnderDrying.set(key, (expectedUnderDrying.get(key) || 0) + process.pieceCount);
         }
       }
 
-      // Get all stock with Under Drying > 0
-      const stockWithUnderDrying = await prisma.stock.findMany({
-        where: { statusUnderDrying: { gt: 0 } }
+      // Compare every stock row with what active processes expect to be in UnderDrying
+      const allStock = await prisma.stock.findMany({
+        where: { statusUnderDrying: { not: 0 } },
+        include: { Warehouse: true, WoodType: true },
       });
 
-      const fixes: any[] = [];
-
-      for (const stock of stockWithUnderDrying) {
+      const drift: any[] = [];
+      for (const stock of allStock) {
         const key = `${stock.warehouseId}-${stock.woodTypeId}-${stock.thickness}`;
         const expected = expectedUnderDrying.get(key) || 0;
-        const actual = stock.statusUnderDrying;
-        const orphaned = actual - expected;
-
-        if (orphaned > 0) {
-          // Move orphaned stock back to Not Dried
-          await prisma.stock.update({
-            where: { id: stock.id },
-            data: {
-              statusUnderDrying: { decrement: orphaned },
-              statusNotDried: { increment: orphaned }
-            }
-          });
-          fixes.push({
+        const actual = (stock as any).statusUnderDrying;
+        if (actual !== expected) {
+          drift.push({
             stockId: stock.id,
-            warehouseId: stock.warehouseId,
-            woodTypeId: stock.woodTypeId,
+            warehouse: (stock as any).Warehouse?.name,
+            woodType: (stock as any).WoodType?.name,
             thickness: stock.thickness,
-            orphanedCount: orphaned,
-            action: 'Moved from UnderDrying to NotDried'
+            actualUnderDrying: actual,
+            expectedUnderDrying: expected,
+            difference: actual - expected,
+            note: actual > expected
+              ? 'More UnderDrying than active processes account for. Could be from a deleted process.'
+              : 'Fewer UnderDrying than active processes need. Process is missing stock.',
           });
         }
       }
 
       return {
-        success: true,
-        message: fixes.length > 0 ? `Fixed ${fixes.length} orphaned stock records` : 'No orphaned stock found',
-        fixes
+        ok: drift.length === 0,
+        message: drift.length === 0
+          ? 'No drift detected. All UnderDrying stock matches active drying processes.'
+          : `Detected ${drift.length} stock row(s) with drift. Review and decide.`,
+        drift,
+        checkedAt: new Date().toISOString(),
       };
     } catch (error) {
-      console.error('Error fixing orphaned stock:', error);
-      return reply.status(500).send({ error: 'Failed to fix orphaned stock' });
+      console.error('Error generating orphan report:', error);
+      return reply.status(500).send({ error: 'Failed to generate orphan report' });
     }
   });
 
@@ -2029,6 +2006,32 @@ async function factoryRoutes(fastify: FastifyInstance) {
           await prisma.notification.createMany({
             data: notifications
           });
+        }
+
+        // Telegram notifications for reading-added.
+        // Recipients (deduplicated): creator + all active admins.
+        // Creator gets a "Reading saved" confirmation; admins get visibility.
+        const admins = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        const adminIds = admins.map((a) => a.id);
+        const tgRecipients = [...new Set([user.userId, ...adminIds])];
+
+        // Confirmation message for the operator (different wording)
+        const confirmText =
+          `✓ *Reading saved* — ${process.batchNumber}\n` +
+          `Humidity: *${data.humidity}%*  •  Electricity: *${data.electricityMeter}* units`;
+        // Message for admins (third-person)
+        const adminText =
+          `📊 *Reading added* — ${process.batchNumber}\n` +
+          `By: ${userName}\n` +
+          `Humidity: *${data.humidity}%*  •  Electricity: *${data.electricityMeter}* units`;
+
+        // Operator gets the confirmation; everyone else gets the admin view
+        for (const rid of tgRecipients) {
+          const text = rid === user.userId ? confirmText : adminText;
+          void sendTelegramMessage({ userId: rid, text, parseMode: 'Markdown', silent: true });
         }
       } catch (notifError) {
         console.error('Error sending drying reading notifications:', notifError);
@@ -3004,56 +3007,25 @@ async function factoryRoutes(fastify: FastifyInstance) {
         if (receipt.warehouseId && receipt.warehouse?.stockControlEnabled) {
           console.log('🔄 Starting stock sync for LOT', lotNumber);
 
-          // Update stock for each thickness
+          // Update stock for each thickness via the ledger helper.
+          // postReceiptSync writes the Stock cache + paired audit row atomically.
+          const { postReceiptSync } = await import('../services/stockLedger.js');
           for (const [thickness, quantity] of Object.entries(stockByThickness)) {
-            const qty = quantity as number; // Type cast from unknown to number
-
+            const qty = quantity as number;
             console.log(`  → Syncing ${thickness}: ${qty} pieces to warehouse ${receipt.warehouseId}`);
 
             try {
-              await tx.stock.upsert({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: receipt.warehouseId,
-                    woodTypeId: receipt.woodTypeId,
-                    thickness: thickness
-                  }
-                },
-                update: {
-                  statusNotDried: { increment: qty },
-                  updatedAt: new Date()
-                },
-                create: {
-                  id: crypto.randomUUID(),
-                  warehouseId: receipt.warehouseId,
-                  woodTypeId: receipt.woodTypeId,
-                  thickness: thickness,
-                  statusNotDried: qty,
-                  statusUnderDrying: 0,
-                  statusDried: 0,
-                  statusDamaged: 0,
-                  updatedAt: new Date()
-                }
-              });
-              console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
-
-              // Log stock movement
-              const { createStockMovement } = await import('../services/stockMovementService.js');
-              await createStockMovement({
+              await postReceiptSync({
                 warehouseId: receipt.warehouseId,
                 woodTypeId: receipt.woodTypeId,
-                thickness: thickness,
-                movementType: 'RECEIPT_SYNC',
-                quantityChange: qty,
-                toStatus: 'NOT_DRIED',
-                referenceType: 'RECEIPT',
-                referenceId: receipt.id,
-                referenceNumber: lotNumber,
-                userId: userId,
-                details: `Receipt ${lotNumber} synced to stock`
+                thickness,
+                pieceCount: qty,
+                receiptId: receipt.id,
+                lotNumber,
+                user: { id: userId },
               }, tx);
-
-            } catch (stockError) {
+              console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
+            } catch (stockError: any) {
               console.error(`  ❌ FAILED to sync ${thickness}: ${qty} pieces`, stockError);
               throw new Error(`Stock sync failed for thickness ${thickness}: ${stockError.message}`);
             }

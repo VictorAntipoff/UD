@@ -349,6 +349,7 @@ model DryingReading {
   photoTimestamp        DateTime?
   source                String?       @default("MANUAL")
   DryingProcess         DryingProcess @relation(fields: [dryingProcessId], references: [id], onDelete: Cascade)
+  LinkedRecharges       ElectricityRecharge[] @relation("RechargeLinkedReading")
 
   @@index([createdById])
   @@index([dryingProcessId])
@@ -372,9 +373,12 @@ model ElectricityRecharge {
   updatedAt         DateTime
   dryingProcessId   String?
   meterReadingAfter Float?
+  linkedReadingId   String?
   DryingProcess     DryingProcess? @relation(fields: [dryingProcessId], references: [id], onDelete: Cascade)
+  LinkedReading     DryingReading? @relation("RechargeLinkedReading", fields: [linkedReadingId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([dryingProcessId])
+  @@index([linkedReadingId])
   @@index([rechargeDate])
 }
 
@@ -469,6 +473,7 @@ model NotificationSubscription {
   updatedAt DateTime
   email     Boolean  @default(false)
   inApp     Boolean  @default(true)
+  telegram  Boolean  @default(false)
   User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, eventType])
@@ -778,6 +783,10 @@ model User {
   failedLoginAttempts                  Int                        @default(0)
   lastFailedLoginAt                    DateTime?
   permissions                          Json?
+  // Telegram link: numeric chat ID for the user's Telegram conversation with the bot.
+  // Unique-when-not-null (partial unique index in DB) so two accounts can't share one chat.
+  telegramChatId                       String?                    @unique
+  telegramLinkedAt                     DateTime?
   Comment                              Comment[]
   Design                               Design[]
   Factory                              Factory[]
@@ -962,10 +971,16 @@ model stock_movements {
   userId          String?
   userName        String?
   details         String?
+  // Phase A audit columns. Multi-leg entries share an entryGroupId and the DB
+  // trigger enforces that all rows in a group sum to 0 (double-entry).
+  entryGroupId    String?
+  priorBalance    Int?
+  postBalance     Int?
   Warehouse       Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
   WoodType        WoodType      @relation(fields: [woodTypeId], references: [id])
 
   @@index([createdAt])
+  @@index([entryGroupId])
   @@index([movementType])
   @@index([referenceId])
   @@index([warehouseId, woodTypeId, thickness])
@@ -1022,4 +1037,6 @@ enum WoodStatus {
   UNDER_DRYING
   DRIED
   DAMAGED
+  IN_TRANSIT_OUT
+  IN_TRANSIT_IN
 }

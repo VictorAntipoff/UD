@@ -421,6 +421,7 @@ const setupServer = async () => {
   const crmRoutes = (await import('./routes/crm.js')).default;
   const telegramRoutes = (await import('./routes/telegram.js')).default;
   const telegramAdminRoutes = (await import('./routes/telegram-admin.js')).default;
+  const telegramLinkRoutes = (await import('./routes/telegram-link.js')).default;
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(projectRoutes, { prefix: '/api/projects' });
@@ -436,6 +437,9 @@ const setupServer = async () => {
   await app.register(crmRoutes);
   await app.register(telegramRoutes, { prefix: '/api/telegram' });
   await app.register(telegramAdminRoutes, { prefix: '/api/telegram-admin' });
+  // Internal endpoint called by the @ud_system_bot Telegraf service to link a chat.
+  // Protected by TELEGRAM_LINK_SECRET header — see backend/src/routes/telegram-link.ts.
+  await app.register(telegramLinkRoutes, { prefix: '/api/telegram' });
 
   // Register static file serving for public files
   await app.register(fastifyStatic, {

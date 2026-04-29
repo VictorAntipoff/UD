@@ -6,6 +6,7 @@ import {
   requireStockAdjustment,
   requireRole
 } from '../middleware/auth.js';
+import { postReceiptSync, postStockEntry } from '../services/stockLedger.js';
 import crypto from 'node:crypto';
 
 async function managementRoutes(fastify: FastifyInstance) {
@@ -539,53 +540,52 @@ async function managementRoutes(fastify: FastifyInstance) {
               throw new Error(`Stock record not found for ${movement.thickness} - cannot reverse`);
             }
 
-            // Deduct using priority: NOT_DRIED → UNDER_DRYING → DRIED → DAMAGED
+            // Plan the deduction across buckets, priority NOT_DRIED → UNDER_DRYING → DRIED → DAMAGED
             let remaining = movement.quantityChange;
             const deductions = { notDried: 0, underDrying: 0, dried: 0, damaged: 0 };
-
             const takeFrom = (available: number, key: keyof typeof deductions) => {
               const toTake = Math.min(remaining, available);
               deductions[key] = toTake;
               remaining -= toTake;
             };
-
-            takeFrom(stock.statusNotDried, 'notDried');
+            takeFrom(stock.statusNotDried,    'notDried');
             takeFrom(stock.statusUnderDrying, 'underDrying');
-            takeFrom(stock.statusDried, 'dried');
-            takeFrom(stock.statusDamaged, 'damaged');
+            takeFrom(stock.statusDried,       'dried');
+            takeFrom(stock.statusDamaged,     'damaged');
 
             if (remaining > 0) {
               throw new Error(`Insufficient stock for ${movement.thickness}: need ${movement.quantityChange} but only ${movement.quantityChange - remaining} available. ${remaining} pieces may have been transferred out.`);
             }
 
-            // Update stock
-            await tx.stock.update({
-              where: { id: stock.id },
-              data: {
-                statusNotDried: { decrement: deductions.notDried },
-                statusUnderDrying: { decrement: deductions.underDrying },
-                statusDried: { decrement: deductions.dried },
-                statusDamaged: { decrement: deductions.damaged },
-                updatedAt: new Date()
-              }
-            });
+            // Build a multi-leg balanced entry. Each non-zero deduction is one
+            // negative leg. The legs sum to -movement.quantityChange, so we add
+            // a single positive "phantom" leg that cancels them — but in this
+            // case we don't need a phantom: receipt-cancel is a write-OFF of
+            // pieces that were never physically present (the receipt is
+            // cancelled). We model that with a single-leg per bucket entry,
+            // each its own audit row. No entryGroupId: each leg is its own
+            // single-leg entry referencing the same cancelled receipt.
+            const legs: Array<{ status: 'NOT_DRIED' | 'UNDER_DRYING' | 'DRIED' | 'DAMAGED'; delta: number }> = [];
+            if (deductions.notDried > 0)    legs.push({ status: 'NOT_DRIED',    delta: -deductions.notDried });
+            if (deductions.underDrying > 0) legs.push({ status: 'UNDER_DRYING', delta: -deductions.underDrying });
+            if (deductions.dried > 0)       legs.push({ status: 'DRIED',        delta: -deductions.dried });
+            if (deductions.damaged > 0)     legs.push({ status: 'DAMAGED',      delta: -deductions.damaged });
 
-            // Record reversal stock movement
-            const { createStockMovement } = await import('../services/stockMovementService.js');
-            await createStockMovement({
-              warehouseId: movement.warehouseId,
-              woodTypeId: movement.woodTypeId,
-              thickness: movement.thickness,
-              movementType: 'MANUAL_ADJUSTMENT',
-              quantityChange: -movement.quantityChange,
-              fromStatus: 'NOT_DRIED',
-              referenceType: 'RECEIPT',
-              referenceId: receipt.id,
-              referenceNumber: receipt.lotNumber,
-              userId: user?.userId,
-              userName: user?.email || user?.userId,
-              details: `LOT ${receipt.lotNumber} cancelled - reversed ${movement.quantityChange} pieces (${deductions.notDried} from Not Dried, ${deductions.underDrying} from Under Drying, ${deductions.dried} from Dried, ${deductions.damaged} from Damaged)`
-            }, tx);
+            for (const leg of legs) {
+              await postStockEntry({
+                legs: [{
+                  warehouseId: movement.warehouseId,
+                  woodTypeId: movement.woodTypeId,
+                  thickness: movement.thickness,
+                  status: leg.status,
+                  delta: leg.delta,
+                }],
+                reference: { type: 'RECEIPT', id: receipt.id, number: receipt.lotNumber },
+                movementType: 'MANUAL_ADJUSTMENT',
+                user: { id: user?.userId, name: user?.email || user?.userId },
+                details: `LOT ${receipt.lotNumber} cancelled — write-off ${Math.abs(leg.delta)} pieces from ${leg.status}`,
+              }, tx);
+            }
 
             stockReversals.push({
               thickness: movement.thickness,
@@ -1154,48 +1154,17 @@ async function managementRoutes(fastify: FastifyInstance) {
             console.log(`  → Syncing ${thickness}: ${qty} pieces to warehouse ${existingReceipt.warehouseId}`);
 
             try {
-              await tx.stock.upsert({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: existingReceipt.warehouseId,
-                    woodTypeId: existingReceipt.woodTypeId,
-                    thickness: thickness
-                  }
-                },
-                update: {
-                  statusNotDried: { increment: qty },
-                  updatedAt: new Date()
-                },
-                create: {
-                  id: crypto.randomUUID(),
-                  warehouseId: existingReceipt.warehouseId,
-                  woodTypeId: existingReceipt.woodTypeId,
-                  thickness: thickness,
-                  statusNotDried: qty,
-                  statusUnderDrying: 0,
-                  statusDried: 0,
-                  statusDamaged: 0,
-                  updatedAt: new Date()
-                }
-              });
-              console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
-
-              // Log stock movement
-              const { createStockMovement } = await import('../services/stockMovementService.js');
-              await createStockMovement({
+              // Stock cache update + paired audit row, atomic via the ledger helper.
+              await postReceiptSync({
                 warehouseId: existingReceipt.warehouseId,
                 woodTypeId: existingReceipt.woodTypeId,
-                thickness: thickness,
-                movementType: 'RECEIPT_SYNC',
-                quantityChange: qty,
-                toStatus: 'NOT_DRIED',
-                referenceType: 'RECEIPT',
-                referenceId: existingReceipt.id,
-                referenceNumber: existingReceipt.lotNumber,
-                userId: user?.userId,
-                details: `Receipt ${existingReceipt.lotNumber} approved and synced to stock`
+                thickness,
+                pieceCount: qty,
+                receiptId: existingReceipt.id,
+                lotNumber: existingReceipt.lotNumber,
+                user: { id: user?.userId },
               }, tx);
-
+              console.log(`  ✅ Successfully synced ${thickness}: ${qty} pieces`);
             } catch (stockError: any) {
               console.error(`  ❌ FAILED to sync ${thickness}: ${qty} pieces`, stockError);
               throw new Error(`Stock sync failed for thickness ${thickness}: ${stockError.message}`);
@@ -1376,111 +1345,97 @@ async function managementRoutes(fastify: FastifyInstance) {
         });
       }
 
-      if (force) {
-        console.log(`⚠️ Force re-syncing stock for LOT ${receipt.lotNumber} (previously synced at ${receipt.receiptConfirmedAt})`);
+      const user = (request as any).user;
 
-        // IMPORTANT: First, reverse the previous stock sync to prevent double-counting
-        // Get all previous stock movements for this receipt
-        const previousMovements = await prisma.stock_movements.findMany({
-          where: {
-            referenceType: 'RECEIPT',
-            referenceId: receipt.id,
-            movementType: 'RECEIPT_SYNC'
-          }
-        });
+      // Wrap reversal + new sync + receipt updates in ONE transaction so a
+      // partial failure cannot leave stock in a half-corrected state.
+      await prisma.$transaction(async (tx) => {
+        // Update the receipt with the warehouse if not already set
+        if (!receipt.warehouseId || receipt.warehouseId !== warehouseId) {
+          await tx.woodReceipt.update({
+            where: { id },
+            data: { warehouseId: warehouseId }
+          });
+        }
 
-        if (previousMovements.length > 0) {
-          console.log(`🔄 Reversing ${previousMovements.length} previous stock movements for LOT ${receipt.lotNumber}`);
+        if (force) {
+          console.log(`⚠️ Force re-syncing stock for LOT ${receipt.lotNumber} (previously synced at ${receipt.receiptConfirmedAt})`);
 
-          for (const movement of previousMovements) {
-            // Decrement the stock that was previously added
-            await prisma.stock.updateMany({
-              where: {
-                warehouseId: movement.warehouseId,
-                woodTypeId: movement.woodTypeId,
-                thickness: movement.thickness
-              },
-              data: {
-                statusNotDried: { decrement: movement.quantityChange },
-                updatedAt: new Date()
-              }
-            });
-            console.log(`  ↩️ Reversed ${movement.thickness}: -${movement.quantityChange} pieces`);
-          }
-
-          // Delete the old movements to keep history clean
-          await prisma.stock_movements.deleteMany({
+          // Audit-preserving reversal: post a new entry with the OPPOSITE delta
+          // for each prior RECEIPT_SYNC. We do NOT delete the old rows — the
+          // journal must show the full correction history.
+          const previousMovements = await tx.stock_movements.findMany({
             where: {
               referenceType: 'RECEIPT',
               referenceId: receipt.id,
-              movementType: 'RECEIPT_SYNC'
+              movementType: 'RECEIPT_SYNC',
+              quantityChange: { gt: 0 }, // only reverse the originals, not earlier reversals
             }
           });
-          console.log(`  🗑️ Cleaned up old stock movement records`);
-        }
-      }
 
-      // Update the receipt with the warehouse if not already set
-      if (!receipt.warehouseId || receipt.warehouseId !== warehouseId) {
-        await prisma.woodReceipt.update({
-          where: { id },
-          data: { warehouseId: warehouseId }
-        });
-      }
-
-      // Update stock
-      const user = (request as any).user;
-      const { createStockMovement } = await import('../services/stockMovementService.js');
-
-      for (const [thickness, quantity] of Object.entries(stockByThickness)) {
-        const qty = quantity as number;
-        // Use set instead of increment for re-sync to avoid accumulation
-        await prisma.stock.upsert({
-          where: {
-            warehouseId_woodTypeId_thickness: {
-              warehouseId: warehouseId,
-              woodTypeId: receipt.woodTypeId,
-              thickness: thickness
+          // Aggregate net by (warehouse, woodType, thickness, status) so we
+          // only reverse what's currently effective. (If an earlier reversal
+          // already happened, the net is what we care about.)
+          const allMovements = await tx.stock_movements.findMany({
+            where: {
+              referenceType: 'RECEIPT',
+              referenceId: receipt.id,
+              movementType: 'RECEIPT_SYNC',
             }
-          },
-          update: {
-            statusNotDried: { increment: qty },
-            updatedAt: new Date()
-          },
-          create: {
-            id: crypto.randomUUID(),
+          });
+          const netByKey = new Map<string, { warehouseId: string; woodTypeId: string; thickness: string; net: number }>();
+          for (const m of allMovements) {
+            const key = `${m.warehouseId}|${m.woodTypeId}|${m.thickness}`;
+            const cur = netByKey.get(key);
+            if (cur) {
+              cur.net += m.quantityChange;
+            } else {
+              netByKey.set(key, {
+                warehouseId: m.warehouseId,
+                woodTypeId: m.woodTypeId,
+                thickness: m.thickness,
+                net: m.quantityChange,
+              });
+            }
+          }
+
+          if (netByKey.size > 0) {
+            console.log(`🔄 Posting reversal for ${netByKey.size} prior sync row(s) for LOT ${receipt.lotNumber}`);
+            for (const { warehouseId: whId, woodTypeId, thickness, net } of netByKey.values()) {
+              if (net <= 0) continue; // already reversed
+              await postStockEntry({
+                legs: [{ warehouseId: whId, woodTypeId, thickness, status: 'NOT_DRIED', delta: -net }],
+                reference: { type: 'RECEIPT', id: receipt.id, number: receipt.lotNumber },
+                movementType: 'RECEIPT_SYNC',
+                user: { id: user?.userId },
+                details: `Reversal of previous sync for ${receipt.lotNumber} (re-sync requested)`,
+              }, tx);
+              console.log(`  ↩️ Posted reversal: ${thickness} -${net} NotDried`);
+            }
+          }
+        }
+
+        // Apply the new sync — post a single-leg RECEIPT_SYNC per thickness.
+        // The journal now reads: original sync → reversal (if force) → new sync.
+        for (const [thickness, quantity] of Object.entries(stockByThickness)) {
+          const qty = quantity as number;
+          await postReceiptSync({
             warehouseId: warehouseId,
             woodTypeId: receipt.woodTypeId,
-            thickness: thickness,
-            statusNotDried: qty,
-            statusUnderDrying: 0,
-            statusDried: 0,
-            statusDamaged: 0,
-            updatedAt: new Date()
-          }
-        });
+            thickness,
+            pieceCount: qty,
+            receiptId: receipt.id,
+            lotNumber: receipt.lotNumber,
+            user: { id: user?.userId },
+          }, tx);
+        }
 
-        // Log stock movement
-        await createStockMovement({
-          warehouseId: warehouseId,
-          woodTypeId: receipt.woodTypeId,
-          thickness: thickness,
-          movementType: 'RECEIPT_SYNC',
-          quantityChange: qty,
-          toStatus: 'NOT_DRIED',
-          referenceType: 'RECEIPT',
-          referenceId: receipt.id,
-          referenceNumber: receipt.lotNumber,
-          userId: user?.userId,
-          details: `Manual stock sync for ${receipt.lotNumber}${force ? ' (re-sync - corrected categorization)' : ''}`
+        // Mark receipt as confirmed to prevent double-sync
+        await tx.woodReceipt.update({
+          where: { id },
+          data: { receiptConfirmedAt: new Date() }
         });
-      }
-
-      // Mark receipt as confirmed to prevent double-sync
-      await prisma.woodReceipt.update({
-        where: { id },
-        data: { receiptConfirmedAt: new Date() }
-      });
+      }, { maxWait: 30000, timeout: 60000 });
 
       console.log(`✅ Synced stock for LOT ${receipt.lotNumber} to warehouse ${warehouse.name}${force ? ' (forced)' : ''}`);
 
@@ -2132,61 +2087,57 @@ async function managementRoutes(fastify: FastifyInstance) {
         });
       }
 
-      // Get or create stock record
-      let stock = await prisma.stock.findUnique({
+      // Validate woodStatus
+      const validStatuses = ['NOT_DRIED', 'UNDER_DRYING', 'DRIED', 'DAMAGED'] as const;
+      type AdjustableStatus = typeof validStatuses[number];
+      if (!validStatuses.includes(data.woodStatus)) {
+        return reply.status(400).send({ error: `Invalid wood status: ${data.woodStatus}` });
+      }
+      const status = data.woodStatus as AdjustableStatus;
+      const statusFieldMap: Record<AdjustableStatus, 'statusNotDried' | 'statusUnderDrying' | 'statusDried' | 'statusDamaged'> = {
+        NOT_DRIED:    'statusNotDried',
+        UNDER_DRYING: 'statusUnderDrying',
+        DRIED:        'statusDried',
+        DAMAGED:      'statusDamaged',
+      };
+      const statusField = statusFieldMap[status];
+
+      // Get current quantity (the helper will ensure the row exists; we just
+      // need to know the prior value to compute the delta + populate adjustment record).
+      const existingStock = await prisma.stock.findUnique({
         where: {
           warehouseId_woodTypeId_thickness: {
             warehouseId: data.warehouseId,
             woodTypeId: data.woodTypeId,
-            thickness: data.thickness
-          }
-        }
+            thickness: data.thickness,
+          },
+        },
       });
+      const quantityBefore = (existingStock?.[statusField] as number | undefined) ?? 0;
+      const quantityChange = data.quantityAfter - quantityBefore;
 
-      if (!stock) {
-        stock = await prisma.stock.create({
-          data: {
-            id: crypto.randomUUID(),
+      if (quantityChange === 0) {
+        return reply.status(400).send({ error: 'No change: quantityAfter equals current quantity.' });
+      }
+
+      // Apply the adjustment via the ledger helper (single-leg delta entry)
+      // and create the StockAdjustment audit row in the same transaction.
+      const adjustment = await prisma.$transaction(async (tx) => {
+        await postStockEntry({
+          legs: [{
             warehouseId: data.warehouseId,
             woodTypeId: data.woodTypeId,
             thickness: data.thickness,
-            statusNotDried: 0,
-            statusUnderDrying: 0,
-            statusDried: 0,
-            statusDamaged: 0,
-            statusInTransitOut: 0,
-            statusInTransitIn: 0,
-            updatedAt: new Date()
-          }
-        });
-      }
+            status,
+            delta: quantityChange,
+          }],
+          reference: { type: 'STOCK_ADJUSTMENT', id: crypto.randomUUID(), number: undefined },
+          movementType: 'MANUAL_ADJUSTMENT',
+          user: { id: userId },
+          details: `${data.reason}${data.notes ? ' — ' + data.notes : ''}`,
+        }, tx);
 
-      // Get current quantity for the specified status
-      // Map WoodStatus enum to stock field names
-      const statusFieldMap: Record<string, keyof typeof stock> = {
-        'NOT_DRIED': 'statusNotDried',
-        'UNDER_DRYING': 'statusUnderDrying',
-        'DRIED': 'statusDried',
-        'DAMAGED': 'statusDamaged'
-      };
-
-      const statusField = statusFieldMap[data.woodStatus];
-      if (!statusField) {
-        return reply.status(400).send({ error: `Invalid wood status: ${data.woodStatus}` });
-      }
-
-      const quantityBefore = stock[statusField] as number;
-      const quantityChange = data.quantityAfter - quantityBefore;
-
-      // Update stock and create adjustment record in a transaction
-      const result = await prisma.$transaction([
-        prisma.stock.update({
-          where: { id: stock.id },
-          data: {
-            [statusField]: data.quantityAfter
-          }
-        }),
-        prisma.stockAdjustment.create({
+        return tx.stockAdjustment.create({
           data: {
             id: crypto.randomUUID(),
             warehouseId: data.warehouseId,
@@ -2198,29 +2149,21 @@ async function managementRoutes(fastify: FastifyInstance) {
             quantityChange,
             reason: data.reason,
             notes: data.notes || null,
-            adjustedById: userId
+            adjustedById: userId,
           },
           include: {
             WoodType: true,
             Warehouse: true,
-            User: {
-              select: {
-                email: true,
-                firstName: true,
-                lastName: true
-              }
-            }
-          }
-        })
-      ]);
+            User: { select: { email: true, firstName: true, lastName: true } },
+          },
+        });
+      }, { maxWait: 30000, timeout: 30000 });
 
-      // Map to frontend format
-      const adjustment = result[1];
       return {
         ...adjustment,
         woodType: (adjustment as any).WoodType,
         warehouse: (adjustment as any).Warehouse,
-        adjustedBy: (adjustment as any).User
+        adjustedBy: (adjustment as any).User,
       };
     } catch (error) {
       console.error('Error adjusting stock:', error);

@@ -6,6 +6,17 @@ import {
   canApproveTransfer,
   requireTransferApproval
 } from '../middleware/auth.js';
+import {
+  postTransferStartSourceSide,
+  postTransferStartDestSide,
+  postTransferCompleteSourceSide,
+  postTransferCompleteDestSide,
+  postTransferCancelSourceSide,
+  postTransferCancelDestSide,
+  postTransferReverseDestSide,
+  postTransferReverseSourceSide,
+} from '../services/stockLedger.js';
+import type { WoodStatus } from '@prisma/client';
 import crypto from 'node:crypto';
 
 // Helper function to convert wood status to field name (e.g., NOT_DRIED -> statusNotDried)
@@ -339,54 +350,35 @@ async function transferRoutes(fastify: FastifyInstance) {
           include: transferInclude
         });
 
-        // If transfer is auto-approved and either warehouse has stock control, process stock updates
+        // If transfer is auto-approved and either warehouse has stock control,
+        // post stock entries via the ledger helper. src and dest are independent.
         if (initialStatus === 'APPROVED' && (fromWarehouse.stockControlEnabled || toWarehouse.stockControlEnabled)) {
           for (const item of data.items) {
-            const statusField = getStatusFieldName(item.woodStatus);
-
-            // Deduct from source warehouse (only if source has stock control)
+            // Source side: woodStatus → IN_TRANSIT_OUT (balanced group), if src has stock control
             if (fromWarehouse.stockControlEnabled) {
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: data.fromWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness
-                },
-                data: {
-                  [statusField]: { decrement: item.quantity },
-                  statusInTransitOut: { increment: item.quantity }
-                }
-              });
+              await postTransferStartSourceSide({
+                warehouseId: data.fromWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.quantity,
+                woodStatus: item.woodStatus as WoodStatus,
+                transferId: transfer.id,
+                transferNumber: transfer.transferNumber,
+                user: { id: userId },
+              }, tx);
             }
-
-            // If destination warehouse has stock control, mark as in-transit-in
+            // Destination side: IN_TRANSIT_IN (single-leg), if dest has stock control
             if (toWarehouse.stockControlEnabled) {
-              await tx.stock.upsert({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: data.toWarehouseId,
-                    woodTypeId: item.woodTypeId,
-                    thickness: item.thickness
-                  }
-                },
-                create: {
-                  id: crypto.randomUUID(),
-                  warehouseId: data.toWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness,
-                  statusNotDried: 0,
-                  statusUnderDrying: 0,
-                  statusDried: 0,
-                  statusDamaged: 0,
-                  statusInTransitOut: 0,
-                  statusInTransitIn: item.quantity,
-                  updatedAt: new Date()
-                },
-                update: {
-                  statusInTransitIn: { increment: item.quantity },
-                  updatedAt: new Date()
-                }
-              });
+              await postTransferStartDestSide({
+                warehouseId: data.toWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.quantity,
+                woodStatus: item.woodStatus as WoodStatus,
+                transferId: transfer.id,
+                transferNumber: transfer.transferNumber,
+                user: { id: userId },
+              }, tx);
             }
           }
 
@@ -554,52 +546,32 @@ async function transferRoutes(fastify: FastifyInstance) {
           include: transferInclude
         });
 
+        const fromWh = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+        const toWh   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
         for (const item of (transfer as any).TransferItem) {
-          const statusField = getStatusFieldName(item.woodStatus);
-
-          // If source warehouse has stock control, deduct from source
-          if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: transfer.fromWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness
-              },
-              data: {
-                [statusField]: { decrement: item.quantity },
-                statusInTransitOut: { increment: item.quantity }
-              }
-            });
+          if (fromWh.stockControlEnabled) {
+            await postTransferStartSourceSide({
+              warehouseId: transfer.fromWarehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              pieceCount: item.quantity,
+              woodStatus: item.woodStatus as WoodStatus,
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              user: { id: userId },
+            }, tx);
           }
-
-          // If destination warehouse has stock control, mark as in-transit-in
-          if ((transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
-            await tx.stock.upsert({
-              where: {
-                warehouseId_woodTypeId_thickness: {
-                  warehouseId: transfer.toWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness
-                }
-              },
-              create: {
-                id: crypto.randomUUID(),
-                warehouseId: transfer.toWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness,
-                statusNotDried: 0,
-                statusUnderDrying: 0,
-                statusDried: 0,
-                statusDamaged: 0,
-                statusInTransitOut: 0,
-                statusInTransitIn: item.quantity,
-                updatedAt: new Date()
-              },
-              update: {
-                statusInTransitIn: { increment: item.quantity },
-                updatedAt: new Date()
-              }
-            });
+          if (toWh.stockControlEnabled) {
+            await postTransferStartDestSide({
+              warehouseId: transfer.toWarehouseId,
+              woodTypeId: item.woodTypeId,
+              thickness: item.thickness,
+              pieceCount: item.quantity,
+              woodStatus: item.woodStatus as WoodStatus,
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              user: { id: userId },
+            }, tx);
           }
         }
 
@@ -762,85 +734,36 @@ async function transferRoutes(fastify: FastifyInstance) {
           include: transferInclude
         });
 
-        // Update stock for each item using CURRENT quantities
+        // Update stock via the ledger helper (independent src/dest blocks).
+        const fromWh = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+        const toWh   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
         for (const item of currentTransferData.TransferItem) {
-          const statusField = getStatusFieldName(item.woodStatus);
-
-          // If source warehouse has stock control, remove from in-transit-out
-          if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
-            await tx.stock.updateMany({
-              where: {
-                warehouseId: transfer.fromWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness
-              },
-              data: {
-                statusInTransitOut: { decrement: item.quantity }
-              }
-            });
-
-            // Log stock movement OUT
-            const { createStockMovement } = await import('../services/stockMovementService.js');
-            await createStockMovement({
+          // Source side: drain IN_TRANSIT_OUT
+          if (fromWh.stockControlEnabled) {
+            await postTransferCompleteSourceSide({
               warehouseId: transfer.fromWarehouseId,
               woodTypeId: item.woodTypeId,
               thickness: item.thickness,
-              movementType: 'TRANSFER_OUT',
-              quantityChange: -item.quantity,
-              fromStatus: item.woodStatus as any,
-              referenceType: 'TRANSFER',
-              referenceId: transfer.id,
-              referenceNumber: transfer.transferNumber,
-              userId: currentUser.id,
-              details: `Transfer to ${(transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.name}`
+              pieceCount: item.quantity,
+              woodStatus: item.woodStatus as WoodStatus,
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              user: { id: currentUser.id },
+              details: `Transfer to ${toWh.name}`,
             }, tx);
           }
-
-          // If destination warehouse has stock control, add to stock and remove from in-transit-in
-          if ((transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
-            await tx.stock.upsert({
-              where: {
-                warehouseId_woodTypeId_thickness: {
-                  warehouseId: transfer.toWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness
-                }
-              },
-              create: {
-                id: crypto.randomUUID(),
-                warehouseId: transfer.toWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness,
-                statusNotDried: 0,
-                statusUnderDrying: 0,
-                statusDried: 0,
-                statusDamaged: 0,
-                statusInTransitOut: 0,
-                statusInTransitIn: 0,
-                [statusField]: item.quantity,
-                updatedAt: new Date()
-              },
-              update: {
-                [statusField]: { increment: item.quantity },
-                statusInTransitIn: { decrement: item.quantity },
-                updatedAt: new Date()
-              }
-            });
-
-            // Log stock movement IN
-            const { createStockMovement } = await import('../services/stockMovementService.js');
-            await createStockMovement({
+          // Destination side: IN_TRANSIT_IN → woodStatus (balanced)
+          if (toWh.stockControlEnabled) {
+            await postTransferCompleteDestSide({
               warehouseId: transfer.toWarehouseId,
               woodTypeId: item.woodTypeId,
               thickness: item.thickness,
-              movementType: 'TRANSFER_IN',
-              quantityChange: item.quantity,
-              toStatus: item.woodStatus as any,
-              referenceType: 'TRANSFER',
-              referenceId: transfer.id,
-              referenceNumber: transfer.transferNumber,
-              userId: currentUser.id,
-              details: `Transfer from ${(transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.name}`
+              pieceCount: item.quantity,
+              woodStatus: item.woodStatus as WoodStatus,
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              user: { id: currentUser.id },
+              details: `Transfer from ${fromWh.name}`,
             }, tx);
           }
         }
@@ -1267,36 +1190,32 @@ async function transferRoutes(fastify: FastifyInstance) {
           }
         });
 
-        // Adjust stock for IN_TRANSIT transfer
-        const statusField = getStatusFieldName(data.woodStatus);
-
-        // Deduct from source warehouse (if stock control enabled)
+        // Stock change via ledger helper. Only IN_TRANSIT transfers reach here.
         if ((transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
-          await tx.stock.updateMany({
-            where: {
-              warehouseId: transfer.fromWarehouseId,
-              woodTypeId: data.woodTypeId,
-              thickness: data.thickness
-            },
-            data: {
-              [statusField]: { decrement: data.quantity },
-              statusInTransitOut: { increment: data.quantity }
-            }
-          });
+          await postTransferStartSourceSide({
+            warehouseId: transfer.fromWarehouseId,
+            woodTypeId: data.woodTypeId,
+            thickness: data.thickness,
+            pieceCount: data.quantity,
+            woodStatus: data.woodStatus as WoodStatus,
+            transferId: transfer.id,
+            transferNumber: transfer.transferNumber,
+            user: { id: currentUser.id },
+            details: `Item added to ${transfer.transferNumber}`,
+          }, tx);
         }
-
-        // Add to destination warehouse in-transit (if stock control enabled)
         if ((transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
-          await tx.stock.updateMany({
-            where: {
-              warehouseId: transfer.toWarehouseId,
-              woodTypeId: data.woodTypeId,
-              thickness: data.thickness
-            },
-            data: {
-              statusInTransitIn: { increment: data.quantity }
-            }
-          });
+          await postTransferStartDestSide({
+            warehouseId: transfer.toWarehouseId,
+            woodTypeId: data.woodTypeId,
+            thickness: data.thickness,
+            pieceCount: data.quantity,
+            woodStatus: data.woodStatus as WoodStatus,
+            transferId: transfer.id,
+            transferNumber: transfer.transferNumber,
+            user: { id: currentUser.id },
+            details: `Item added to ${transfer.transferNumber}`,
+          }, tx);
         }
 
         // Log the addition
@@ -1442,146 +1361,125 @@ async function transferRoutes(fastify: FastifyInstance) {
                               newWoodStatus !== existingItem.woodStatus;
           const quantityChanged = newQuantity !== existingItem.quantity;
 
+          const fromWh = (existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
+          const toWh   = (existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
+
           if (itemChanged) {
-            // Wood type, thickness, or status changed — full swap: return old, deduct new
-            if ((existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
-              // Return old item to source
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: existingItem.Transfer.fromWarehouseId,
-                  woodTypeId: existingItem.woodTypeId,
-                  thickness: existingItem.thickness
-                },
-                data: {
-                  [oldStatusField]: { increment: existingItem.quantity },
-                  statusInTransitOut: { decrement: existingItem.quantity }
-                }
-              });
-
-              // Check stock availability for new item
-              const newStock = await tx.stock.findUnique({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: existingItem.Transfer.fromWarehouseId,
-                    woodTypeId: newWoodTypeId,
-                    thickness: newThickness
-                  }
-                }
-              });
-
-              if (!newStock) {
-                throw new Error(`Stock not found for the selected wood type/thickness in source warehouse`);
-              }
-
-              const availableQuantity = newStock[newStatusField as keyof typeof newStock] as number;
-              if (availableQuantity < newQuantity) {
-                throw new Error(`Insufficient stock. Available: ${availableQuantity}, Required: ${newQuantity}`);
-              }
-
-              // Deduct new item from source
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: existingItem.Transfer.fromWarehouseId,
-                  woodTypeId: newWoodTypeId,
-                  thickness: newThickness
-                },
-                data: {
-                  [newStatusField]: { decrement: newQuantity },
-                  statusInTransitOut: { increment: newQuantity }
-                }
-              });
+            // FULL SWAP: woodType / thickness / woodStatus changed.
+            // Reverse the OLD item, then apply the NEW item, on each side independently.
+            if (fromWh.stockControlEnabled) {
+              // 1. Return old item to source (IN_TRANSIT_OUT -> oldWoodStatus)
+              await postTransferCancelSourceSide({
+                warehouseId: existingItem.Transfer.fromWarehouseId,
+                woodTypeId: existingItem.woodTypeId,
+                thickness: existingItem.thickness,
+                pieceCount: existingItem.quantity,
+                woodStatus: existingItem.woodStatus as WoodStatus,
+                transferId: existingItem.Transfer.id,
+                transferNumber: existingItem.Transfer.transferNumber,
+                user: { id: currentUser.id },
+                details: `Edit (revert old): ${changes.join(', ')}`,
+              }, tx);
+              // 2. Deduct new item from source (newWoodStatus -> IN_TRANSIT_OUT)
+              await postTransferStartSourceSide({
+                warehouseId: existingItem.Transfer.fromWarehouseId,
+                woodTypeId: newWoodTypeId,
+                thickness: newThickness,
+                pieceCount: newQuantity,
+                woodStatus: newWoodStatus as WoodStatus,
+                transferId: existingItem.Transfer.id,
+                transferNumber: existingItem.Transfer.transferNumber,
+                user: { id: currentUser.id },
+                details: `Edit (apply new): ${changes.join(', ')}`,
+              }, tx);
             }
-
-            // Adjust destination warehouse in-transit stock
-            if ((existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
-              // Remove old from in-transit
-              await tx.stock.updateMany({
-                where: {
-                  warehouseId: existingItem.Transfer.toWarehouseId,
-                  woodTypeId: existingItem.woodTypeId,
-                  thickness: existingItem.thickness
-                },
-                data: {
-                  statusInTransitIn: { decrement: existingItem.quantity }
-                }
-              });
-
-              // Add new to in-transit
-              await tx.stock.upsert({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: existingItem.Transfer.toWarehouseId,
-                    woodTypeId: newWoodTypeId,
-                    thickness: newThickness
-                  }
-                },
-                create: {
-                  id: crypto.randomUUID(),
-                  warehouseId: existingItem.Transfer.toWarehouseId,
-                  woodTypeId: newWoodTypeId,
-                  thickness: newThickness,
-                  statusNotDried: 0,
-                  statusUnderDrying: 0,
-                  statusDried: 0,
-                  statusDamaged: 0,
-                  statusInTransitOut: 0,
-                  statusInTransitIn: newQuantity,
-                  updatedAt: new Date()
-                },
-                update: {
-                  statusInTransitIn: { increment: newQuantity },
-                  updatedAt: new Date()
-                }
-              });
+            if (toWh.stockControlEnabled) {
+              // 1. Remove OLD from destination IN_TRANSIT_IN
+              await postTransferCancelDestSide({
+                warehouseId: existingItem.Transfer.toWarehouseId,
+                woodTypeId: existingItem.woodTypeId,
+                thickness: existingItem.thickness,
+                pieceCount: existingItem.quantity,
+                woodStatus: existingItem.woodStatus as WoodStatus,
+                transferId: existingItem.Transfer.id,
+                transferNumber: existingItem.Transfer.transferNumber,
+                user: { id: currentUser.id },
+                details: `Edit (revert old): ${changes.join(', ')}`,
+              }, tx);
+              // 2. Add NEW to destination IN_TRANSIT_IN
+              await postTransferStartDestSide({
+                warehouseId: existingItem.Transfer.toWarehouseId,
+                woodTypeId: newWoodTypeId,
+                thickness: newThickness,
+                pieceCount: newQuantity,
+                woodStatus: newWoodStatus as WoodStatus,
+                transferId: existingItem.Transfer.id,
+                transferNumber: existingItem.Transfer.transferNumber,
+                user: { id: currentUser.id },
+                details: `Edit (apply new): ${changes.join(', ')}`,
+              }, tx);
             }
           }
-          // Handle quantity-only change (no wood type, thickness, or status change)
+          // QTY-ONLY DELTA: same wood/thickness/status, just quantity changed.
           else if (quantityChanged) {
             const quantityDelta = newQuantity - existingItem.quantity;
+            const absDelta = Math.abs(quantityDelta);
 
-            // Adjust source warehouse stock
-            if ((existingItem.Transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.stockControlEnabled) {
+            if (fromWh.stockControlEnabled) {
               if (quantityDelta > 0) {
-                // Quantity increased - deduct more from source
-                await tx.stock.updateMany({
-                  where: {
-                    warehouseId: existingItem.Transfer.fromWarehouseId,
-                    woodTypeId: existingItem.woodTypeId,
-                    thickness: existingItem.thickness
-                  },
-                  data: {
-                    [oldStatusField]: { decrement: quantityDelta },
-                    statusInTransitOut: { increment: quantityDelta }
-                  }
-                });
+                // Increase: deduct more from source (woodStatus -> IN_TRANSIT_OUT)
+                await postTransferStartSourceSide({
+                  warehouseId: existingItem.Transfer.fromWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness,
+                  pieceCount: absDelta,
+                  woodStatus: existingItem.woodStatus as WoodStatus,
+                  transferId: existingItem.Transfer.id,
+                  transferNumber: existingItem.Transfer.transferNumber,
+                  user: { id: currentUser.id },
+                  details: `Edit qty: +${absDelta} pieces`,
+                }, tx);
               } else {
-                // Quantity decreased - return to source
-                await tx.stock.updateMany({
-                  where: {
-                    warehouseId: existingItem.Transfer.fromWarehouseId,
-                    woodTypeId: existingItem.woodTypeId,
-                    thickness: existingItem.thickness
-                  },
-                  data: {
-                    [oldStatusField]: { increment: Math.abs(quantityDelta) },
-                    statusInTransitOut: { decrement: Math.abs(quantityDelta) }
-                  }
-                });
+                // Decrease: return to source (IN_TRANSIT_OUT -> woodStatus)
+                await postTransferCancelSourceSide({
+                  warehouseId: existingItem.Transfer.fromWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness,
+                  pieceCount: absDelta,
+                  woodStatus: existingItem.woodStatus as WoodStatus,
+                  transferId: existingItem.Transfer.id,
+                  transferNumber: existingItem.Transfer.transferNumber,
+                  user: { id: currentUser.id },
+                  details: `Edit qty: -${absDelta} pieces returned`,
+                }, tx);
               }
             }
-
-            // Adjust destination warehouse in-transit stock
-            if ((existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.stockControlEnabled) {
-              await tx.stock.updateMany({
-                where: {
+            if (toWh.stockControlEnabled) {
+              if (quantityDelta > 0) {
+                await postTransferStartDestSide({
                   warehouseId: existingItem.Transfer.toWarehouseId,
                   woodTypeId: existingItem.woodTypeId,
-                  thickness: existingItem.thickness
-                },
-                data: {
-                  statusInTransitIn: { increment: quantityDelta }
-                }
-              });
+                  thickness: existingItem.thickness,
+                  pieceCount: absDelta,
+                  woodStatus: existingItem.woodStatus as WoodStatus,
+                  transferId: existingItem.Transfer.id,
+                  transferNumber: existingItem.Transfer.transferNumber,
+                  user: { id: currentUser.id },
+                  details: `Edit qty: +${absDelta} in transit`,
+                }, tx);
+              } else {
+                await postTransferCancelDestSide({
+                  warehouseId: existingItem.Transfer.toWarehouseId,
+                  woodTypeId: existingItem.woodTypeId,
+                  thickness: existingItem.thickness,
+                  pieceCount: absDelta,
+                  woodStatus: existingItem.woodStatus as WoodStatus,
+                  transferId: existingItem.Transfer.id,
+                  transferNumber: existingItem.Transfer.transferNumber,
+                  user: { id: currentUser.id },
+                  details: `Edit qty: -${absDelta} from in transit`,
+                }, tx);
+              }
             }
           }
         }
@@ -1683,56 +1581,32 @@ async function transferRoutes(fastify: FastifyInstance) {
           const toWarehouse = (existingItem.Transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
           const statusField = getStatusFieldName(existingItem.woodStatus);
 
-          // Return stock to source warehouse (if stock control enabled)
+          // Return source pieces (IN_TRANSIT_OUT → woodStatus) and clear dest in-transit.
           if (fromWarehouse.stockControlEnabled) {
-            await tx.stock.upsert({
-              where: {
-                warehouseId_woodTypeId_thickness: {
-                  warehouseId: existingItem.Transfer.fromWarehouseId,
-                  woodTypeId: existingItem.woodTypeId,
-                  thickness: existingItem.thickness
-                }
-              },
-              update: {
-                [statusField]: { increment: existingItem.quantity },
-                statusInTransitOut: { decrement: existingItem.quantity }
-              },
-              create: {
-                id: crypto.randomUUID(),
-                warehouseId: existingItem.Transfer.fromWarehouseId,
-                woodTypeId: existingItem.woodTypeId,
-                thickness: existingItem.thickness,
-                [statusField]: existingItem.quantity
-              }
-            });
+            await postTransferCancelSourceSide({
+              warehouseId: existingItem.Transfer.fromWarehouseId,
+              woodTypeId: existingItem.woodTypeId,
+              thickness: existingItem.thickness,
+              pieceCount: existingItem.quantity,
+              woodStatus: existingItem.woodStatus as WoodStatus,
+              transferId: existingItem.Transfer.id,
+              transferNumber: existingItem.Transfer.transferNumber,
+              user: { id: currentUser.id },
+              details: `Item removed from ${existingItem.Transfer.transferNumber}`,
+            }, tx);
           }
-
-          // Remove from destination warehouse in-transit (if stock control enabled)
           if (toWarehouse.stockControlEnabled) {
-            const destStock = await tx.stock.findUnique({
-              where: {
-                warehouseId_woodTypeId_thickness: {
-                  warehouseId: existingItem.Transfer.toWarehouseId,
-                  woodTypeId: existingItem.woodTypeId,
-                  thickness: existingItem.thickness
-                }
-              }
-            });
-
-            if (destStock) {
-              await tx.stock.update({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: existingItem.Transfer.toWarehouseId,
-                    woodTypeId: existingItem.woodTypeId,
-                    thickness: existingItem.thickness
-                  }
-                },
-                data: {
-                  statusInTransitIn: { decrement: existingItem.quantity }
-                }
-              });
-            }
+            await postTransferCancelDestSide({
+              warehouseId: existingItem.Transfer.toWarehouseId,
+              woodTypeId: existingItem.woodTypeId,
+              thickness: existingItem.thickness,
+              pieceCount: existingItem.quantity,
+              woodStatus: existingItem.woodStatus as WoodStatus,
+              transferId: existingItem.Transfer.id,
+              transferNumber: existingItem.Transfer.transferNumber,
+              user: { id: currentUser.id },
+              details: `Item removed from ${existingItem.Transfer.transferNumber}`,
+            }, tx);
           }
         }
 
@@ -1807,64 +1681,39 @@ async function transferRoutes(fastify: FastifyInstance) {
       }
 
       await prisma.$transaction(async (tx) => {
-        // If IN_TRANSIT, reverse all stock movements
+        // If IN_TRANSIT, reverse all stock movements via ledger helper.
         if (transfer.status === 'IN_TRANSIT') {
           const fromWarehouse = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse;
-          const toWarehouse = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
+          const toWarehouse   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse;
 
           for (const item of transfer.TransferItem) {
-            const statusField = getStatusFieldName(item.woodStatus);
-
-            // Return stock to source warehouse
+            // Source: return pieces (IN_TRANSIT_OUT → woodStatus, balanced)
             if (fromWarehouse.stockControlEnabled) {
-              await tx.stock.upsert({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: transfer.fromWarehouseId,
-                    woodTypeId: item.woodTypeId,
-                    thickness: item.thickness
-                  }
-                },
-                update: {
-                  [statusField]: { increment: item.quantity },
-                  statusInTransitOut: { decrement: item.quantity }
-                },
-                create: {
-                  id: crypto.randomUUID(),
-                  warehouseId: transfer.fromWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness,
-                  [statusField]: item.quantity
-                }
-              });
+              await postTransferCancelSourceSide({
+                warehouseId: transfer.fromWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.quantity,
+                woodStatus: item.woodStatus as WoodStatus,
+                transferId: transfer.id,
+                transferNumber: transfer.transferNumber,
+                user: { id: currentUser.id },
+                details: reason ? `Cancel: ${reason}` : undefined,
+              }, tx);
             }
-
-            // Remove from destination in-transit
+            // Destination: drain IN_TRANSIT_IN (single-leg)
             if (toWarehouse.stockControlEnabled) {
-              const destStock = await tx.stock.findUnique({
-                where: {
-                  warehouseId_woodTypeId_thickness: {
-                    warehouseId: transfer.toWarehouseId,
-                    woodTypeId: item.woodTypeId,
-                    thickness: item.thickness
-                  }
-                }
-              });
-
-              if (destStock) {
-                await tx.stock.update({
-                  where: {
-                    warehouseId_woodTypeId_thickness: {
-                      warehouseId: transfer.toWarehouseId,
-                      woodTypeId: item.woodTypeId,
-                      thickness: item.thickness
-                    }
-                  },
-                  data: {
-                    statusInTransitIn: { decrement: item.quantity }
-                  }
-                });
-              }
+              await postTransferCancelDestSide({
+                warehouseId: transfer.toWarehouseId,
+                woodTypeId: item.woodTypeId,
+                thickness: item.thickness,
+                pieceCount: item.quantity,
+                woodStatus: item.woodStatus as WoodStatus,
+                transferId: transfer.id,
+                transferNumber: transfer.transferNumber,
+                user: { id: currentUser.id },
+                details: reason ? `Cancel: ${reason}` : undefined,
+              }, tx);
             }
           }
         }
@@ -2066,10 +1915,9 @@ async function transferRoutes(fastify: FastifyInstance) {
         const reversals: Array<{ woodType: string; thickness: string; quantity: number; woodStatus: string }> = [];
 
         for (const item of transfer.TransferItem) {
-          const statusField = getStatusFieldName(item.woodStatus);
-
-          // Remove stock from destination warehouse
+          // Pre-flight check at destination (clearer error than CHECK violation)
           if (toWarehouse.stockControlEnabled) {
+            const statusField = getStatusFieldName(item.woodStatus);
             const destStock = await tx.stock.findUnique({
               where: {
                 warehouseId_woodTypeId_thickness: {
@@ -2079,87 +1927,46 @@ async function transferRoutes(fastify: FastifyInstance) {
                 }
               }
             });
-
             if (!destStock) {
               throw new Error(`No stock record at destination for ${item.thickness} - cannot reverse`);
             }
-
             const currentValue = (destStock as any)[statusField] || 0;
             if (currentValue < item.quantity) {
               throw new Error(`Insufficient stock at ${toWarehouse.name} for ${item.thickness}: has ${currentValue} ${item.woodStatus} but need ${item.quantity}. Stock may have been moved.`);
             }
+          }
 
-            await tx.stock.update({
-              where: { id: destStock.id },
-              data: {
-                [statusField]: { decrement: item.quantity },
-                updatedAt: new Date()
-              }
-            });
-
-            // Log reversal stock movement at destination
-            const { createStockMovement } = await import('../services/stockMovementService.js');
-            await createStockMovement({
+          const userName = `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email;
+          // Remove pieces from destination
+          if (toWarehouse.stockControlEnabled) {
+            await postTransferReverseDestSide({
               warehouseId: transfer.toWarehouseId,
               woodTypeId: item.woodTypeId,
               thickness: item.thickness,
-              movementType: 'MANUAL_ADJUSTMENT',
-              quantityChange: -item.quantity,
-              fromStatus: item.woodStatus as any,
-              referenceType: 'TRANSFER',
-              referenceId: transfer.id,
-              referenceNumber: transfer.transferNumber,
-              userId: currentUser.id,
-              userName: `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email,
-              details: `Transfer ${transfer.transferNumber} reversed - removed ${item.quantity} pcs ${item.thickness} from ${toWarehouse.name}`
+              pieceCount: item.quantity,
+              woodStatus: item.woodStatus as WoodStatus,
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              user: { id: currentUser.id, name: userName },
+              details: reason
+                ? `Reverse: ${reason} (removed from ${toWarehouse.name})`
+                : `Transfer ${transfer.transferNumber} reversed (removed from ${toWarehouse.name})`,
             }, tx);
           }
-
-          // Return stock to source warehouse
+          // Return pieces to source
           if (fromWarehouse.stockControlEnabled) {
-            await tx.stock.upsert({
-              where: {
-                warehouseId_woodTypeId_thickness: {
-                  warehouseId: transfer.fromWarehouseId,
-                  woodTypeId: item.woodTypeId,
-                  thickness: item.thickness
-                }
-              },
-              update: {
-                [statusField]: { increment: item.quantity },
-                updatedAt: new Date()
-              },
-              create: {
-                id: crypto.randomUUID(),
-                warehouseId: transfer.fromWarehouseId,
-                woodTypeId: item.woodTypeId,
-                thickness: item.thickness,
-                statusNotDried: 0,
-                statusUnderDrying: 0,
-                statusDried: 0,
-                statusDamaged: 0,
-                statusInTransitOut: 0,
-                statusInTransitIn: 0,
-                [statusField]: item.quantity,
-                updatedAt: new Date()
-              }
-            });
-
-            // Log reversal stock movement at source
-            const { createStockMovement } = await import('../services/stockMovementService.js');
-            await createStockMovement({
+            await postTransferReverseSourceSide({
               warehouseId: transfer.fromWarehouseId,
               woodTypeId: item.woodTypeId,
               thickness: item.thickness,
-              movementType: 'MANUAL_ADJUSTMENT',
-              quantityChange: item.quantity,
-              toStatus: item.woodStatus as any,
-              referenceType: 'TRANSFER',
-              referenceId: transfer.id,
-              referenceNumber: transfer.transferNumber,
-              userId: currentUser.id,
-              userName: `${currentUser.firstName || ''} ${currentUser.lastName || ''}`.trim() || currentUser.email,
-              details: `Transfer ${transfer.transferNumber} reversed - returned ${item.quantity} pcs ${item.thickness} to ${fromWarehouse.name}`
+              pieceCount: item.quantity,
+              woodStatus: item.woodStatus as WoodStatus,
+              transferId: transfer.id,
+              transferNumber: transfer.transferNumber,
+              user: { id: currentUser.id, name: userName },
+              details: reason
+                ? `Reverse: ${reason} (returned to ${fromWarehouse.name})`
+                : `Transfer ${transfer.transferNumber} reversed (returned to ${fromWarehouse.name})`,
             }, tx);
           }
 
