@@ -16,6 +16,7 @@ import {
   postTransferReverseDestSide,
   postTransferReverseSourceSide,
 } from '../services/stockLedger.js';
+import { sendTelegramMessage } from '../services/telegramNotify.js';
 import type { WoodStatus } from '@prisma/client';
 import crypto from 'node:crypto';
 
@@ -594,6 +595,42 @@ async function transferRoutes(fastify: FastifyInstance) {
         return updatedTransfer;
       });
 
+      // Notify the transfer creator (in-app + Telegram). Best-effort; never crashes.
+      try {
+        const creatorId = transfer.createdById;
+        if (creatorId && creatorId !== userId) {
+          const approver = (result as any).User_Transfer_approvedByIdToUser;
+          const approverName = approver
+            ? (`${approver.firstName || ''} ${approver.lastName || ''}`.trim() || approver.email)
+            : 'An admin';
+          const fromName = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse?.name ?? '?';
+          const toName   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse?.name ?? '?';
+          await prisma.notification.create({
+            data: {
+              id: crypto.randomUUID(),
+              userId: creatorId,
+              type: 'TRANSFER_APPROVED',
+              title: 'Transfer approved',
+              message: `${approverName} approved transfer ${transfer.transferNumber} (${fromName} → ${toName}). It is now IN TRANSIT.`,
+              linkUrl: `/dashboard/factory/wood-transfer?transfer=${transfer.id}`,
+              isRead: false,
+            },
+          });
+          void sendTelegramMessage({
+            userId: creatorId,
+            text:
+              `✅ *Transfer approved*\n` +
+              `Transfer: *${transfer.transferNumber}*\n` +
+              `${fromName} → ${toName}\n` +
+              `Approved by: ${approverName}\n\n` +
+              `Status: IN TRANSIT`,
+            parseMode: 'Markdown',
+          });
+        }
+      } catch (notifyError) {
+        console.error('Error sending transfer-approved notification:', notifyError);
+      }
+
       return mapTransfer(result);
     } catch (error: any) {
       console.error('Error approving transfer:', error);
@@ -615,11 +652,9 @@ async function transferRoutes(fastify: FastifyInstance) {
       const transfer = await prisma.transfer.findUnique({
         where: { id },
         include: {
-          TransferItem: {
-            include: {
-              WoodType: true
-            }
-          }
+          TransferItem: { include: { WoodType: true } },
+          Warehouse_Transfer_fromWarehouseIdToWarehouse: true,
+          Warehouse_Transfer_toWarehouseIdToWarehouse: true,
         }
       });
 
@@ -659,6 +694,40 @@ async function transferRoutes(fastify: FastifyInstance) {
           details: rejectionReason || 'Transfer rejected'
         }
       });
+
+      // Notify the transfer creator (in-app + Telegram)
+      try {
+        const creatorId = transfer.createdById;
+        if (creatorId && creatorId !== userId) {
+          const fromName = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse?.name ?? '?';
+          const toName   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse?.name ?? '?';
+          const reasonLine = rejectionReason ? `Reason: ${rejectionReason}\n\n` : '';
+          await prisma.notification.create({
+            data: {
+              id: crypto.randomUUID(),
+              userId: creatorId,
+              type: 'TRANSFER_REJECTED',
+              title: 'Transfer rejected',
+              message: `${rejectorName} rejected transfer ${transfer.transferNumber} (${fromName} → ${toName}).${rejectionReason ? ' Reason: ' + rejectionReason : ''}`,
+              linkUrl: `/dashboard/factory/wood-transfer?transfer=${transfer.id}`,
+              isRead: false,
+            },
+          });
+          void sendTelegramMessage({
+            userId: creatorId,
+            text:
+              `❌ *Transfer rejected*\n` +
+              `Transfer: *${transfer.transferNumber}*\n` +
+              `${fromName} → ${toName}\n` +
+              `Rejected by: ${rejectorName}\n\n` +
+              reasonLine +
+              `You can edit and re-submit the transfer if needed.`,
+            parseMode: 'Markdown',
+          });
+        }
+      } catch (notifyError) {
+        console.error('Error sending transfer-rejected notification:', notifyError);
+      }
 
       return mapTransfer(updatedTransfer);
     } catch (error) {
@@ -783,24 +852,49 @@ async function transferRoutes(fastify: FastifyInstance) {
           }
         });
 
-        // Send notification if user is specified
-        if (notifyUserId) {
+        // Notify: the transfer creator (always) + an optional explicit notifyUserId.
+        // Deduplicate so the creator doesn't get the same message twice.
+        const fromName = (transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse?.name ?? '?';
+        const toName   = (transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse?.name ?? '?';
+        const recipientIds = [...new Set(
+          [transfer.createdById, notifyUserId].filter((id): id is string => Boolean(id) && id !== currentUser.id)
+        )];
+        for (const rid of recipientIds) {
           await tx.notification.create({
             data: {
               id: crypto.randomUUID(),
-              userId: notifyUserId,
+              userId: rid,
               type: 'TRANSFER_COMPLETED',
               title: 'Transfer Completed',
-              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${(transfer as any).Warehouse_Transfer_fromWarehouseIdToWarehouse.name} to ${(transfer as any).Warehouse_Transfer_toWarehouseIdToWarehouse.name}`,
-              linkUrl: `/dashboard/factory/wood-transfer?transfer=${updatedTransfer.id}`
-            }
+              message: `${userName} completed transfer ${updatedTransfer.transferNumber} from ${fromName} to ${toName}`,
+              linkUrl: `/dashboard/factory/wood-transfer?transfer=${updatedTransfer.id}`,
+            },
           });
         }
 
-        return updatedTransfer;
+        return { updatedTransfer, recipientIds, fromName, toName, userName };
       });
 
-      return mapTransfer(result);
+      // Telegram dispatch outside the transaction (fire-and-forget)
+      try {
+        const { recipientIds, fromName, toName, userName } = result;
+        for (const rid of recipientIds) {
+          void sendTelegramMessage({
+            userId: rid,
+            text:
+              `📦 *Transfer completed*\n` +
+              `Transfer: *${(result as any).updatedTransfer.transferNumber}*\n` +
+              `${fromName} → ${toName}\n` +
+              `Received by: ${userName}\n\n` +
+              `Stock has been updated at the destination warehouse.`,
+            parseMode: 'Markdown',
+          });
+        }
+      } catch (notifyError) {
+        console.error('Error sending transfer-completed Telegram:', notifyError);
+      }
+
+      return mapTransfer(result.updatedTransfer);
     } catch (error) {
       console.error('Error completing transfer:', error);
       return reply.status(500).send({ error: 'Failed to complete transfer' });

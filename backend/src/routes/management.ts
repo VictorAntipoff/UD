@@ -7,6 +7,7 @@ import {
   requireRole
 } from '../middleware/auth.js';
 import { postReceiptSync, postStockEntry } from '../services/stockLedger.js';
+import { sendTelegramMessage } from '../services/telegramNotify.js';
 import crypto from 'node:crypto';
 
 async function managementRoutes(fastify: FastifyInstance) {
@@ -359,6 +360,19 @@ async function managementRoutes(fastify: FastifyInstance) {
             data: notifications
           });
           console.log(`Created ${notifications.length} notification(s) for LOT ${receipt.lotNumber} pending approval`);
+
+          // Telegram dispatch (parallel; never crashes parent request)
+          const pieces = data.actual_pieces || receipt.actualPieces || 0;
+          const volume = (data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2);
+          const tgText =
+            `📋 *LOT pending approval*\n` +
+            `LOT: *${receipt.lotNumber}*\n` +
+            `Wood type: ${receipt.WoodType?.name ?? '?'}\n` +
+            `Pieces: *${pieces}* (${volume} m³)\n\n` +
+            `Open the UD app to review and approve.`;
+          for (const uid of userIds) {
+            void sendTelegramMessage({ userId: uid, text: tgText, parseMode: 'Markdown' });
+          }
         }
       }
 
@@ -2158,6 +2172,47 @@ async function managementRoutes(fastify: FastifyInstance) {
           },
         });
       }, { maxWait: 30000, timeout: 30000 });
+
+      // Notify all admins (in-app + Telegram). Stock adjustments are high-audit events.
+      try {
+        const admins = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        const recipientIds = admins.map(a => a.id).filter(id => id !== userId);  // skip self
+        if (recipientIds.length > 0) {
+          const adjustedBy = (adjustment as any).User;
+          const adjusterName = adjustedBy
+            ? (`${adjustedBy.firstName || ''} ${adjustedBy.lastName || ''}`.trim() || adjustedBy.email)
+            : 'An admin';
+          const woodName = (adjustment as any).WoodType?.name ?? '?';
+          const whName = (adjustment as any).Warehouse?.name ?? '?';
+          const direction = quantityChange >= 0 ? '+' : '';
+          await prisma.notification.createMany({
+            data: recipientIds.map(rid => ({
+              id: crypto.randomUUID(),
+              userId: rid,
+              type: 'STOCK_ADJUSTMENT',
+              title: 'Stock adjusted',
+              message: `${adjusterName} adjusted ${woodName} ${data.thickness} ${data.woodStatus} at ${whName}: ${quantityBefore} → ${data.quantityAfter} (${direction}${quantityChange}). Reason: ${data.reason}`,
+              linkUrl: `/dashboard/management/stock-adjustment`,
+              isRead: false,
+            })),
+          });
+          const tgText =
+            `🔧 *Stock adjustment*\n` +
+            `Warehouse: ${whName}\n` +
+            `Wood: *${woodName}* ${data.thickness} ${data.woodStatus}\n` +
+            `Change: ${quantityBefore} → *${data.quantityAfter}* (${direction}${quantityChange})\n` +
+            `By: ${adjusterName}\n` +
+            `Reason: ${data.reason}`;
+          for (const rid of recipientIds) {
+            void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+          }
+        }
+      } catch (notifyError) {
+        console.error('Error sending stock-adjustment notification:', notifyError);
+      }
 
       return {
         ...adjustment,
