@@ -16,6 +16,7 @@ import {
   Chip,
   CircularProgress,
   Link,
+  Collapse,
 } from '@mui/material';
 import { useState, useEffect } from 'react';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -115,6 +116,20 @@ export default function UserSettings() {
   const [tgGenerating, setTgGenerating] = useState(false);
   const [tgFinding, setTgFinding] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Notification preferences (per-event inApp/telegram toggles)
+  type PreferenceRow = {
+    eventType: string;
+    label: string;
+    description: string;
+    group: string;
+    inApp: boolean;
+    telegram: boolean;
+  };
+  const [prefs, setPrefs] = useState<PreferenceRow[]>([]);
+  const [prefsLoading, setPrefsLoading] = useState(true);
+  const [prefsSaving, setPrefsSaving] = useState<string | null>(null); // eventType being saved
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (user) {
@@ -265,6 +280,53 @@ export default function UserSettings() {
       setNotification({ open: true, message: 'Code copied to clipboard.', type: 'success' });
     } catch {
       // Fallback: nothing dramatic — user can copy manually
+    }
+  };
+
+  // Load notification preferences on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/api/users/me/notification-preferences');
+        if (cancelled) return;
+        const events: PreferenceRow[] = res.data?.events ?? [];
+        setPrefs(events);
+        // Default all groups collapsed for a cleaner first view
+        const initial: Record<string, boolean> = {};
+        for (const ev of events) {
+          if (!(ev.group in initial)) initial[ev.group] = false;
+        }
+        setExpandedGroups(initial);
+      } catch {
+        // keep empty; the section will show a generic error
+      } finally {
+        if (!cancelled) setPrefsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handlePrefToggle = async (
+    eventType: string,
+    channel: 'inApp' | 'telegram',
+    nextValue: boolean
+  ) => {
+    // Optimistic update
+    setPrefs((prev) => prev.map(p => p.eventType === eventType ? { ...p, [channel]: nextValue } : p));
+    setPrefsSaving(eventType);
+    try {
+      await api.put(`/api/users/me/notification-preferences/${eventType}`, { [channel]: nextValue });
+    } catch (err: any) {
+      // Revert on failure
+      setPrefs((prev) => prev.map(p => p.eventType === eventType ? { ...p, [channel]: !nextValue } : p));
+      setNotification({
+        open: true,
+        message: err?.response?.data?.error ?? 'Failed to update preference',
+        type: 'error',
+      });
+    } finally {
+      setPrefsSaving(null);
     }
   };
 
@@ -916,6 +978,183 @@ export default function UserSettings() {
                         </Button>
                       </Stack>
                     </Box>
+                  )}
+                </Stack>
+              )}
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Notification Preferences */}
+        <Grid item xs={12}>
+          <Paper elevation={0} sx={{ borderRadius: 2, border: '1px solid #e2e8f0' }}>
+            <Box sx={{ p: 3, borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <NotificationsIcon sx={{ color: '#dc2626', fontSize: 24 }} />
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b', fontSize: '1rem' }}>
+                    Notification Preferences
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#64748b' }}>
+                    Choose which events notify you, and through which channel.
+                  </Typography>
+                </Box>
+                {!prefsLoading && prefs.length > 0 && (() => {
+                  const allGroups = Array.from(new Set(prefs.map(p => p.group)));
+                  const allExpanded = allGroups.every(g => expandedGroups[g]);
+                  return (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        const next: Record<string, boolean> = {};
+                        for (const g of allGroups) next[g] = !allExpanded;
+                        setExpandedGroups(next);
+                      }}
+                      sx={{ textTransform: 'none', color: '#64748b', fontSize: '0.75rem' }}
+                    >
+                      {allExpanded ? 'Collapse all' : 'Expand all'}
+                    </Button>
+                  );
+                })()}
+              </Box>
+            </Box>
+            <Box sx={{ p: 3 }}>
+              {prefsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : prefs.length === 0 ? (
+                <Alert severity="info">No notification events configured.</Alert>
+              ) : (
+                <Stack spacing={3}>
+                  {/* Group preferences by their group field */}
+                  {Array.from(new Set(prefs.map(p => p.group))).map((group) => {
+                    const groupPrefs = prefs.filter(p => p.group === group);
+                    const isExpanded = expandedGroups[group] ?? false;
+                    const appOnCount = groupPrefs.filter(p => p.inApp).length;
+                    const tgOnCount = groupPrefs.filter(p => p.telegram && tg.linked).length;
+                    return (
+                      <Box key={group} sx={{ border: '1px solid #e2e8f0', borderRadius: 1, overflow: 'hidden' }}>
+                        {/* Clickable group header */}
+                        <Box
+                          onClick={() => setExpandedGroups(prev => ({ ...prev, [group]: !isExpanded }))}
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 1.5,
+                            px: 2, py: 1.5,
+                            backgroundColor: '#f8fafc',
+                            borderBottom: isExpanded ? '1px solid #e2e8f0' : 'none',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            transition: 'background-color 0.15s',
+                            '&:hover': { backgroundColor: '#f1f5f9' },
+                          }}
+                        >
+                          <ExpandMoreIcon
+                            sx={{
+                              color: '#64748b',
+                              fontSize: 20,
+                              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
+                              transition: 'transform 0.2s',
+                            }}
+                          />
+                          <Typography variant="subtitle2" sx={{ color: '#1e293b', fontWeight: 700, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+                            {group}
+                          </Typography>
+                          <Chip
+                            size="small"
+                            label={`${groupPrefs.length} event${groupPrefs.length === 1 ? '' : 's'}`}
+                            sx={{ height: 20, fontSize: '0.7rem', backgroundColor: '#e2e8f0', color: '#475569' }}
+                          />
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: appOnCount > 0 ? '#dc2626' : '#cbd5e1' }} />
+                            <Typography variant="caption" sx={{ color: '#64748b', minWidth: 28, fontVariantNumeric: 'tabular-nums' }}>
+                              {appOnCount}/{groupPrefs.length}
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Box sx={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: tgOnCount > 0 ? '#229ED9' : '#cbd5e1' }} />
+                            <Typography variant="caption" sx={{ color: '#64748b', minWidth: 28, fontVariantNumeric: 'tabular-nums' }}>
+                              {tgOnCount}/{groupPrefs.length}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                          <Box>
+                            {/* Column header row */}
+                            <Box sx={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr 80px 80px',
+                              gap: 1,
+                              px: 2, py: 1,
+                              backgroundColor: '#fafbfc',
+                              borderBottom: '1px solid #f1f5f9',
+                            }}>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600 }}>Event</Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600, textAlign: 'center' }}>App</Typography>
+                              <Typography variant="caption" sx={{ color: '#64748b', fontWeight: 600, textAlign: 'center' }}>Telegram</Typography>
+                            </Box>
+                            {groupPrefs.map((p, idx) => (
+                              <Box
+                                key={p.eventType}
+                                sx={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '1fr 80px 80px',
+                                  gap: 1,
+                                  px: 2, py: 1.5,
+                                  alignItems: 'center',
+                                  borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9',
+                                  opacity: prefsSaving === p.eventType ? 0.6 : 1,
+                                  transition: 'opacity 0.15s',
+                                }}
+                              >
+                                <Box>
+                                  <Typography variant="body2" sx={{ color: '#1e293b', fontWeight: 500 }}>
+                                    {p.label}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ color: '#64748b' }}>
+                                    {p.description}
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                                  <Switch
+                                    size="small"
+                                    checked={p.inApp}
+                                    onChange={(e) => handlePrefToggle(p.eventType, 'inApp', e.target.checked)}
+                                    disabled={prefsSaving === p.eventType}
+                                    sx={{
+                                      '& .MuiSwitch-switchBase.Mui-checked': { color: '#dc2626' },
+                                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#dc2626' },
+                                    }}
+                                  />
+                                </Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                                  <Switch
+                                    size="small"
+                                    checked={p.telegram && tg.linked}
+                                    onChange={(e) => handlePrefToggle(p.eventType, 'telegram', e.target.checked)}
+                                    disabled={prefsSaving === p.eventType || !tg.linked}
+                                    title={tg.linked ? '' : 'Link Telegram first (above) to enable this channel'}
+                                    sx={{
+                                      '& .MuiSwitch-switchBase.Mui-checked': { color: '#229ED9' },
+                                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#229ED9' },
+                                    }}
+                                  />
+                                </Box>
+                              </Box>
+                            ))}
+                          </Box>
+                        </Collapse>
+                      </Box>
+                    );
+                  })}
+                  {!tg.linked && (
+                    <Alert severity="info" icon={<TelegramIcon sx={{ color: '#229ED9' }} />} sx={{ backgroundColor: '#f0f9ff', border: '1px solid #bae6fd' }}>
+                      <Typography variant="caption" sx={{ color: '#0c4a6e' }}>
+                        Telegram toggles are disabled because your Telegram is not linked yet. Use the section above to link it first.
+                      </Typography>
+                    </Alert>
                   )}
                 </Stack>
               )}

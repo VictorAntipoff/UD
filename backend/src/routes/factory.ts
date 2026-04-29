@@ -10,6 +10,10 @@ import {
   postDryingCancel,
 } from '../services/stockLedger.js';
 import { sendTelegramMessage, sendTelegramMessageToMany } from '../services/telegramNotify.js';
+import {
+  filterRecipientsByPreference,
+  userWantsChannel,
+} from '../services/notificationPreferences.js';
 import PDFDocument from 'pdfkit';
 import { formatInTimeZone } from 'date-fns-tz';
 import crypto from 'node:crypto';
@@ -1076,7 +1080,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         timeout: 30000, // Transaction timeout 30 seconds
       });
 
-      // Notify admins (in-app + Telegram) — high-visibility creation event.
+      // Notify admins (in-app + Telegram), respecting per-user preferences.
       try {
         const admins = await prisma.user.findMany({
           where: { role: 'ADMIN', isActive: true },
@@ -1096,29 +1100,34 @@ async function factoryRoutes(fastify: FastifyInstance) {
             summary = `${totalPieces} pieces of ${items.length} wood type(s)`;
             detailsLine = woodSummary;
           } else {
-            // Legacy single-wood format
             summary = `${process.pieceCount ?? '?'} pieces`;
             detailsLine = `${(process as any).woodType?.name ?? '?'} (${process.thickness ?? '?'}${process.thicknessUnit ?? ''})`;
           }
-          await prisma.notification.createMany({
-            data: recipientIds.map(rid => ({
-              id: crypto.randomUUID(),
-              userId: rid,
-              type: 'DRYING_CREATED',
-              title: 'New drying process started',
-              message: `${userName} started ${process.batchNumber}: ${summary} — ${detailsLine}`,
-              linkUrl: `/dashboard/factory/drying-process`,
-              isRead: false,
-            })),
-          });
-          const tgText =
-            `🆕 *New drying process started*\n` +
-            `Batch: *${process.batchNumber}*\n` +
-            `Started by: ${userName}\n` +
-            `Wood: ${detailsLine}\n` +
-            `Total: ${summary}`;
-          for (const rid of recipientIds) {
-            void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+          const inAppIds   = await filterRecipientsByPreference(recipientIds, 'DRYING_CREATED', 'inApp');
+          const telegramIds = await filterRecipientsByPreference(recipientIds, 'DRYING_CREATED', 'telegram');
+          if (inAppIds.length > 0) {
+            await prisma.notification.createMany({
+              data: inAppIds.map(rid => ({
+                id: crypto.randomUUID(),
+                userId: rid,
+                type: 'DRYING_CREATED',
+                title: 'New drying process started',
+                message: `${userName} started ${process.batchNumber}: ${summary} — ${detailsLine}`,
+                linkUrl: `/dashboard/factory/drying-process`,
+                isRead: false,
+              })),
+            });
+          }
+          if (telegramIds.length > 0) {
+            const tgText =
+              `🆕 *New drying process started*\n` +
+              `Batch: *${process.batchNumber}*\n` +
+              `Started by: ${userName}\n` +
+              `Wood: ${detailsLine}\n` +
+              `Total: ${summary}`;
+            for (const rid of telegramIds) {
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+            }
           }
         }
       } catch (notifyError) {
@@ -1409,32 +1418,38 @@ async function factoryRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Notify admins (in-app + Telegram)
+      // Notify admins (in-app + Telegram), respecting per-user preferences.
       try {
         const admins = await prisma.user.findMany({
           where: { role: 'ADMIN', isActive: true },
           select: { id: true },
         });
-        if (admins.length > 0) {
-          await prisma.notification.createMany({
-            data: admins.map((a) => ({
-              id: crypto.randomUUID(),
-              userId: a.id,
-              type: 'DRYING_CLOSE_REQUESTED',
-              title: 'Drying close approval needed',
-              message: `${userName} requested closing ${current.batchNumber}. Cost preview: ${totalCost?.toFixed(2) ?? 'n/a'}`,
-              linkUrl: `/dashboard/factory/drying-process`,
-              isRead: false,
-            })),
-          });
-          // Telegram (parallel; failures logged inside helper, never throws)
-          const tgText =
-            `🔔 *Drying close approval needed*\n` +
-            `Batch: *${current.batchNumber}*\n` +
-            `Requested by: ${userName}\n` +
-            `Cost preview: TZS ${totalCost ? totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'n/a'}\n\n` +
-            `Open the UD app to review and approve or reject.`;
-          void sendTelegramMessageToMany(admins.map((a) => a.id), tgText, { parseMode: 'Markdown' });
+        const adminIds = admins.map((a) => a.id);
+        if (adminIds.length > 0) {
+          const inAppIds   = await filterRecipientsByPreference(adminIds, 'DRYING_CLOSE_REQUESTED', 'inApp');
+          const telegramIds = await filterRecipientsByPreference(adminIds, 'DRYING_CLOSE_REQUESTED', 'telegram');
+          if (inAppIds.length > 0) {
+            await prisma.notification.createMany({
+              data: inAppIds.map((rid) => ({
+                id: crypto.randomUUID(),
+                userId: rid,
+                type: 'DRYING_CLOSE_REQUESTED',
+                title: 'Drying close approval needed',
+                message: `${userName} requested closing ${current.batchNumber}. Cost preview: ${totalCost?.toFixed(2) ?? 'n/a'}`,
+                linkUrl: `/dashboard/factory/drying-process`,
+                isRead: false,
+              })),
+            });
+          }
+          if (telegramIds.length > 0) {
+            const tgText =
+              `🔔 *Drying close approval needed*\n` +
+              `Batch: *${current.batchNumber}*\n` +
+              `Requested by: ${userName}\n` +
+              `Cost preview: TZS ${totalCost ? totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'n/a'}\n\n` +
+              `Open the UD app to review and approve or reject.`;
+            void sendTelegramMessageToMany(telegramIds, tgText, { parseMode: 'Markdown' });
+          }
         }
       } catch (notifError) {
         console.error('Error sending close-request notifications:', notifError);
@@ -1529,28 +1544,33 @@ async function factoryRoutes(fastify: FastifyInstance) {
         return updated;
       }, { maxWait: 30000, timeout: 30000 });
 
-      // Notify creator (in-app + Telegram)
+      // Notify creator (in-app + Telegram), respecting their preferences.
       try {
-        if (current.createdById) {
-          await prisma.notification.create({
-            data: {
-              id: crypto.randomUUID(),
-              userId: current.createdById,
-              type: 'DRYING_CLOSE_APPROVED',
-              title: 'Drying close approved',
-              message: `${userName} approved closing ${current.batchNumber}.`,
-              linkUrl: `/dashboard/factory/drying-process`,
-              isRead: false,
-            },
-          });
-          void sendTelegramMessage({
-            userId: current.createdById,
-            text:
-              `✅ *Drying close approved*\n` +
-              `Batch: *${current.batchNumber}*\n` +
-              `Approved by: ${userName}`,
-            parseMode: 'Markdown',
-          });
+        const creatorId = current.createdById;
+        if (creatorId) {
+          if (await userWantsChannel(creatorId, 'DRYING_CLOSE_APPROVED', 'inApp')) {
+            await prisma.notification.create({
+              data: {
+                id: crypto.randomUUID(),
+                userId: creatorId,
+                type: 'DRYING_CLOSE_APPROVED',
+                title: 'Drying close approved',
+                message: `${userName} approved closing ${current.batchNumber}.`,
+                linkUrl: `/dashboard/factory/drying-process`,
+                isRead: false,
+              },
+            });
+          }
+          if (await userWantsChannel(creatorId, 'DRYING_CLOSE_APPROVED', 'telegram')) {
+            void sendTelegramMessage({
+              userId: creatorId,
+              text:
+                `✅ *Drying close approved*\n` +
+                `Batch: *${current.batchNumber}*\n` +
+                `Approved by: ${userName}`,
+              parseMode: 'Markdown',
+            });
+          }
         }
       } catch (notifError) {
         console.error('Error sending close-approved notification:', notifError);
@@ -1630,30 +1650,35 @@ async function factoryRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Notify creator (in-app + Telegram)
+      // Notify creator (in-app + Telegram), respecting their preferences.
       try {
-        if (current.createdById) {
-          await prisma.notification.create({
-            data: {
-              id: crypto.randomUUID(),
-              userId: current.createdById,
-              type: 'DRYING_CLOSE_REJECTED',
-              title: 'Drying close rejected',
-              message: `${userName} rejected closing ${current.batchNumber}: ${data.reason}`,
-              linkUrl: `/dashboard/factory/drying-process`,
-              isRead: false,
-            },
-          });
-          void sendTelegramMessage({
-            userId: current.createdById,
-            text:
-              `❌ *Drying close rejected*\n` +
-              `Batch: *${current.batchNumber}*\n` +
-              `Rejected by: ${userName}\n` +
-              `Reason: ${data.reason}\n\n` +
-              `The process is back in progress. You can fix readings and re-request closing.`,
-            parseMode: 'Markdown',
-          });
+        const creatorId = current.createdById;
+        if (creatorId) {
+          if (await userWantsChannel(creatorId, 'DRYING_CLOSE_REJECTED', 'inApp')) {
+            await prisma.notification.create({
+              data: {
+                id: crypto.randomUUID(),
+                userId: creatorId,
+                type: 'DRYING_CLOSE_REJECTED',
+                title: 'Drying close rejected',
+                message: `${userName} rejected closing ${current.batchNumber}: ${data.reason}`,
+                linkUrl: `/dashboard/factory/drying-process`,
+                isRead: false,
+              },
+            });
+          }
+          if (await userWantsChannel(creatorId, 'DRYING_CLOSE_REJECTED', 'telegram')) {
+            void sendTelegramMessage({
+              userId: creatorId,
+              text:
+                `❌ *Drying close rejected*\n` +
+                `Batch: *${current.batchNumber}*\n` +
+                `Rejected by: ${userName}\n` +
+                `Reason: ${data.reason}\n\n` +
+                `The process is back in progress. You can fix readings and re-request closing.`,
+              parseMode: 'Markdown',
+            });
+          }
         }
       } catch (notifError) {
         console.error('Error sending close-rejected notification:', notifError);
@@ -1780,30 +1805,35 @@ async function factoryRoutes(fastify: FastifyInstance) {
         });
       }, { maxWait: 30000, timeout: 30000 });
 
-      // Notify creator (in-app + Telegram)
+      // Notify creator (in-app + Telegram), respecting their preferences.
       try {
-        if (current.createdById) {
-          await prisma.notification.create({
-            data: {
-              id: crypto.randomUUID(),
-              userId: current.createdById,
-              type: 'DRYING_REOPENED',
-              title: 'Drying process reopened',
-              message: `${userName} reopened ${current.batchNumber}: ${data.reason}`,
-              linkUrl: `/dashboard/factory/drying-process`,
-              isRead: false,
-            },
-          });
-          void sendTelegramMessage({
-            userId: current.createdById,
-            text:
-              `🔓 *Drying process reopened*\n` +
-              `Batch: *${current.batchNumber}*\n` +
-              `Reopened by: ${userName}\n` +
-              `Reason: ${data.reason}\n\n` +
-              `Stock has been moved from Dried back to Under Drying.`,
-            parseMode: 'Markdown',
-          });
+        const creatorId = current.createdById;
+        if (creatorId) {
+          if (await userWantsChannel(creatorId, 'DRYING_REOPENED', 'inApp')) {
+            await prisma.notification.create({
+              data: {
+                id: crypto.randomUUID(),
+                userId: creatorId,
+                type: 'DRYING_REOPENED',
+                title: 'Drying process reopened',
+                message: `${userName} reopened ${current.batchNumber}: ${data.reason}`,
+                linkUrl: `/dashboard/factory/drying-process`,
+                isRead: false,
+              },
+            });
+          }
+          if (await userWantsChannel(creatorId, 'DRYING_REOPENED', 'telegram')) {
+            void sendTelegramMessage({
+              userId: creatorId,
+              text:
+                `🔓 *Drying process reopened*\n` +
+                `Batch: *${current.batchNumber}*\n` +
+                `Reopened by: ${userName}\n` +
+                `Reason: ${data.reason}\n\n` +
+                `Stock has been moved from Dried back to Under Drying.`,
+              parseMode: 'Markdown',
+            });
+          }
         }
       } catch (notifError) {
         console.error('Error sending reopen notification:', notifError);
@@ -1911,7 +1941,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
         timeout: 30000
       });
 
-      // Notify admins (in-app + Telegram) — destruction events are high-audit.
+      // Notify admins (in-app + Telegram), respecting per-user preferences.
       try {
         if (captured) {
           const admins = await prisma.user.findMany({
@@ -1926,27 +1956,33 @@ async function factoryRoutes(fastify: FastifyInstance) {
             const stockNote = wasInProgress
               ? ` (${totalPieces} pieces returned to Not Dried)`
               : ' (was already completed — no stock change)';
-            await prisma.notification.createMany({
-              data: recipientIds.map(rid => ({
-                id: crypto.randomUUID(),
-                userId: rid,
-                type: 'DRYING_DELETED',
-                title: 'Drying process deleted',
-                message: `${userName} deleted ${captured.batchNumber} (status was ${captured.status})${stockNote}`,
-                linkUrl: `/dashboard/factory/drying-process`,
-                isRead: false,
-              })),
-            });
-            const tgText =
-              `🗑 *Drying process deleted*\n` +
-              `Batch: *${captured.batchNumber}*\n` +
-              `Was: ${captured.status}\n` +
-              `Deleted by: ${userName}\n\n` +
-              (wasInProgress
-                ? `${totalPieces} pieces returned from Under Drying → Not Dried.`
-                : `Process was already ${captured.status} — no stock changes.`);
-            for (const rid of recipientIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+            const inAppIds   = await filterRecipientsByPreference(recipientIds, 'DRYING_DELETED', 'inApp');
+            const telegramIds = await filterRecipientsByPreference(recipientIds, 'DRYING_DELETED', 'telegram');
+            if (inAppIds.length > 0) {
+              await prisma.notification.createMany({
+                data: inAppIds.map(rid => ({
+                  id: crypto.randomUUID(),
+                  userId: rid,
+                  type: 'DRYING_DELETED',
+                  title: 'Drying process deleted',
+                  message: `${userName} deleted ${captured.batchNumber} (status was ${captured.status})${stockNote}`,
+                  linkUrl: `/dashboard/factory/drying-process`,
+                  isRead: false,
+                })),
+              });
+            }
+            if (telegramIds.length > 0) {
+              const tgText =
+                `🗑 *Drying process deleted*\n` +
+                `Batch: *${captured.batchNumber}*\n` +
+                `Was: ${captured.status}\n` +
+                `Deleted by: ${userName}\n\n` +
+                (wasInProgress
+                  ? `${totalPieces} pieces returned from Under Drying → Not Dried.`
+                  : `Process was already ${captured.status} — no stock changes.`);
+              for (const rid of telegramIds) {
+                void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+              }
             }
           }
         }
@@ -2094,56 +2130,48 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
       // Send notifications to subscribed users (excluding the creator)
       try {
-        const subscriptions = await prisma.notificationSubscription.findMany({
-          where: {
-            eventType: 'DRYING_READING_ADDED',
-            inApp: true,
-            userId: {
-              not: user.userId // Don't notify the user who created the reading
-            }
-          }
-        });
-
-        if (subscriptions.length > 0) {
-          const notifications = subscriptions.map(sub => ({
-            id: crypto.randomUUID(),
-            userId: sub.userId,
-            type: 'DRYING_READING_ADDED',
-            title: 'New Drying Reading Added',
-            message: `${userName} added a new reading to ${process.batchNumber} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
-            linkUrl: `/dashboard/factory/drying-process`,
-            isRead: false
-          }));
-
-          await prisma.notification.createMany({
-            data: notifications
-          });
-        }
-
-        // Telegram notifications for reading-added.
-        // Recipients (deduplicated): creator + all active admins.
-        // Creator gets a "Reading saved" confirmation; admins get visibility.
+        // Recipients: the operator (gets a confirmation) + all admins (visibility).
         const admins = await prisma.user.findMany({
           where: { role: 'ADMIN', isActive: true },
           select: { id: true },
         });
         const adminIds = admins.map((a) => a.id);
-        const tgRecipients = [...new Set([user.userId, ...adminIds])];
+        // Other-than-operator: admins who didn't add the reading themselves
+        const adminsExceptOperator = adminIds.filter((id) => id !== user.userId);
 
-        // Confirmation message for the operator (different wording)
+        // ─── In-app: respect each recipient's inApp preference ───
+        const inAppAdmins = await filterRecipientsByPreference(adminsExceptOperator, 'DRYING_READING_ADDED', 'inApp');
+        if (inAppAdmins.length > 0) {
+          await prisma.notification.createMany({
+            data: inAppAdmins.map((rid) => ({
+              id: crypto.randomUUID(),
+              userId: rid,
+              type: 'DRYING_READING_ADDED',
+              title: 'New Drying Reading Added',
+              message: `${userName} added a new reading to ${process.batchNumber} (Humidity: ${data.humidity}%, Electricity: ${data.electricityMeter} units)`,
+              linkUrl: `/dashboard/factory/drying-process`,
+              isRead: false,
+            })),
+          });
+        }
+
+        // ─── Telegram ───
         const confirmText =
           `✓ *Reading saved* — ${process.batchNumber}\n` +
           `Humidity: *${data.humidity}%*  •  Electricity: *${data.electricityMeter}* units`;
-        // Message for admins (third-person)
         const adminText =
           `📊 *Reading added* — ${process.batchNumber}\n` +
           `By: ${userName}\n` +
           `Humidity: *${data.humidity}%*  •  Electricity: *${data.electricityMeter}* units`;
 
-        // Operator gets the confirmation; everyone else gets the admin view
-        for (const rid of tgRecipients) {
-          const text = rid === user.userId ? confirmText : adminText;
-          void sendTelegramMessage({ userId: rid, text, parseMode: 'Markdown', silent: true });
+        // Operator's own confirmation
+        if (await userWantsChannel(user.userId, 'DRYING_READING_ADDED', 'telegram')) {
+          void sendTelegramMessage({ userId: user.userId, text: confirmText, parseMode: 'Markdown', silent: true });
+        }
+        // Admin third-person view (those with telegram on)
+        const telegramAdmins = await filterRecipientsByPreference(adminsExceptOperator, 'DRYING_READING_ADDED', 'telegram');
+        for (const rid of telegramAdmins) {
+          void sendTelegramMessage({ userId: rid, text: adminText, parseMode: 'Markdown', silent: true });
         }
       } catch (notifError) {
         console.error('Error sending drying reading notifications:', notifError);

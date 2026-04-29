@@ -14,6 +14,10 @@ import {
   LINK_CODE_TTL_MS,
   type PendingLinkCode,
 } from '../lib/telegramLinkStore.js';
+import {
+  getUserPreferences,
+  setUserPreference,
+} from '../services/notificationPreferences.js';
 
 async function usersRoutes(fastify: FastifyInstance) {
   // SECURITY: Protect all user routes with authentication
@@ -571,6 +575,51 @@ async function usersRoutes(fastify: FastifyInstance) {
       return reply.status(500).send({ error: 'Failed to look up Telegram chat' });
     }
   });
+
+  // ===== NOTIFICATION PREFERENCES =====
+
+  // GET /me/notification-preferences
+  // Returns the catalog of all events with the calling user's current
+  // inApp/telegram flags (or the default if no subscription row exists yet).
+  fastify.get('/me/notification-preferences', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+      const prefs = await getUserPreferences(userId);
+      return { events: prefs };
+    } catch (error: any) {
+      console.error('Error fetching notification preferences:', error);
+      return reply.status(500).send({ error: 'Failed to fetch preferences' });
+    }
+  });
+
+  // PUT /me/notification-preferences/:eventType
+  // Body: { inApp?: boolean, telegram?: boolean }
+  // Updates one or both channels for a single event type. Creates the
+  // subscription row if it doesn't exist yet.
+  fastify.put('/me/notification-preferences/:eventType', async (request, reply) => {
+    try {
+      const userId = (request as any).user?.userId;
+      if (!userId) return reply.status(401).send({ error: 'Not authenticated' });
+      const { eventType } = request.params as { eventType: string };
+      const body = (request.body || {}) as { inApp?: boolean; telegram?: boolean };
+      if (body.inApp === undefined && body.telegram === undefined) {
+        return reply.status(400).send({ error: 'At least one of inApp or telegram must be provided' });
+      }
+      try {
+        const updated = await setUserPreference(userId, eventType, body);
+        return { eventType, ...updated };
+      } catch (e: any) {
+        if (e?.message?.startsWith('Unknown eventType')) {
+          return reply.status(400).send({ error: e.message });
+        }
+        throw e;
+      }
+    } catch (error: any) {
+      console.error('Error updating notification preference:', error);
+      return reply.status(500).send({ error: 'Failed to update preference' });
+    }
+  });
 }
 
-export default usersRoutes; 
+export default usersRoutes;

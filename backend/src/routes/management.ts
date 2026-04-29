@@ -8,6 +8,7 @@ import {
 } from '../middleware/auth.js';
 import { postReceiptSync, postStockEntry } from '../services/stockLedger.js';
 import { sendTelegramMessage } from '../services/telegramNotify.js';
+import { filterRecipientsByPreference, userWantsChannel } from '../services/notificationPreferences.js';
 import crypto from 'node:crypto';
 
 async function managementRoutes(fastify: FastifyInstance) {
@@ -345,33 +346,36 @@ async function managementRoutes(fastify: FastifyInstance) {
           userIds = subscriptions.map(s => s.userId);
         }
 
-        const notifications = userIds.map(userId => ({
-          id: crypto.randomUUID(),
-          userId,
-          type: 'LOT_PENDING_APPROVAL',
-          title: 'LOT Pending Approval',
-          message: `LOT ${receipt.lotNumber} (${receipt.WoodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
-          linkUrl: `/dashboard/management/wood-receipt`,
-          isRead: false
-        }));
-
-        if (notifications.length > 0) {
-          await prisma.notification.createMany({
-            data: notifications
-          });
-          console.log(`Created ${notifications.length} notification(s) for LOT ${receipt.lotNumber} pending approval`);
-
-          // Telegram dispatch (parallel; never crashes parent request)
-          const pieces = data.actual_pieces || receipt.actualPieces || 0;
-          const volume = (data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2);
-          const tgText =
-            `📋 *LOT pending approval*\n` +
-            `LOT: *${receipt.lotNumber}*\n` +
-            `Wood type: ${receipt.WoodType?.name ?? '?'}\n` +
-            `Pieces: *${pieces}* (${volume} m³)\n\n` +
-            `Open the UD app to review and approve.`;
-          for (const uid of userIds) {
-            void sendTelegramMessage({ userId: uid, text: tgText, parseMode: 'Markdown' });
+        if (userIds.length > 0) {
+          // Filter by per-user preferences
+          const inAppIds = await filterRecipientsByPreference(userIds, 'LOT_PENDING_APPROVAL', 'inApp');
+          const telegramIds = await filterRecipientsByPreference(userIds, 'LOT_PENDING_APPROVAL', 'telegram');
+          if (inAppIds.length > 0) {
+            await prisma.notification.createMany({
+              data: inAppIds.map((uid) => ({
+                id: crypto.randomUUID(),
+                userId: uid,
+                type: 'LOT_PENDING_APPROVAL',
+                title: 'LOT Pending Approval',
+                message: `LOT ${receipt.lotNumber} (${receipt.WoodType.name}) is pending approval. ${data.actual_pieces || receipt.actualPieces || 0} pieces (${(data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2)} m³)`,
+                linkUrl: `/dashboard/management/wood-receipt`,
+                isRead: false,
+              })),
+            });
+            console.log(`Created ${inAppIds.length} notification(s) for LOT ${receipt.lotNumber} pending approval`);
+          }
+          if (telegramIds.length > 0) {
+            const pieces = data.actual_pieces || receipt.actualPieces || 0;
+            const volume = (data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2);
+            const tgText =
+              `📋 *LOT pending approval*\n` +
+              `LOT: *${receipt.lotNumber}*\n` +
+              `Wood type: ${receipt.WoodType?.name ?? '?'}\n` +
+              `Pieces: *${pieces}* (${volume} m³)\n\n` +
+              `Open the UD app to review and approve.`;
+            for (const uid of telegramIds) {
+              void sendTelegramMessage({ userId: uid, text: tgText, parseMode: 'Markdown' });
+            }
           }
         }
       }
@@ -2173,7 +2177,7 @@ async function managementRoutes(fastify: FastifyInstance) {
         });
       }, { maxWait: 30000, timeout: 30000 });
 
-      // Notify all admins (in-app + Telegram). Stock adjustments are high-audit events.
+      // Notify all admins (in-app + Telegram), respecting per-user preferences.
       try {
         const admins = await prisma.user.findMany({
           where: { role: 'ADMIN', isActive: true },
@@ -2188,26 +2192,32 @@ async function managementRoutes(fastify: FastifyInstance) {
           const woodName = (adjustment as any).WoodType?.name ?? '?';
           const whName = (adjustment as any).Warehouse?.name ?? '?';
           const direction = quantityChange >= 0 ? '+' : '';
-          await prisma.notification.createMany({
-            data: recipientIds.map(rid => ({
-              id: crypto.randomUUID(),
-              userId: rid,
-              type: 'STOCK_ADJUSTMENT',
-              title: 'Stock adjusted',
-              message: `${adjusterName} adjusted ${woodName} ${data.thickness} ${data.woodStatus} at ${whName}: ${quantityBefore} → ${data.quantityAfter} (${direction}${quantityChange}). Reason: ${data.reason}`,
-              linkUrl: `/dashboard/management/stock-adjustment`,
-              isRead: false,
-            })),
-          });
-          const tgText =
-            `🔧 *Stock adjustment*\n` +
-            `Warehouse: ${whName}\n` +
-            `Wood: *${woodName}* ${data.thickness} ${data.woodStatus}\n` +
-            `Change: ${quantityBefore} → *${data.quantityAfter}* (${direction}${quantityChange})\n` +
-            `By: ${adjusterName}\n` +
-            `Reason: ${data.reason}`;
-          for (const rid of recipientIds) {
-            void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+          const inAppIds   = await filterRecipientsByPreference(recipientIds, 'STOCK_ADJUSTMENT', 'inApp');
+          const telegramIds = await filterRecipientsByPreference(recipientIds, 'STOCK_ADJUSTMENT', 'telegram');
+          if (inAppIds.length > 0) {
+            await prisma.notification.createMany({
+              data: inAppIds.map(rid => ({
+                id: crypto.randomUUID(),
+                userId: rid,
+                type: 'STOCK_ADJUSTMENT',
+                title: 'Stock adjusted',
+                message: `${adjusterName} adjusted ${woodName} ${data.thickness} ${data.woodStatus} at ${whName}: ${quantityBefore} → ${data.quantityAfter} (${direction}${quantityChange}). Reason: ${data.reason}`,
+                linkUrl: `/dashboard/management/stock-adjustment`,
+                isRead: false,
+              })),
+            });
+          }
+          if (telegramIds.length > 0) {
+            const tgText =
+              `🔧 *Stock adjustment*\n` +
+              `Warehouse: ${whName}\n` +
+              `Wood: *${woodName}* ${data.thickness} ${data.woodStatus}\n` +
+              `Change: ${quantityBefore} → *${data.quantityAfter}* (${direction}${quantityChange})\n` +
+              `By: ${adjusterName}\n` +
+              `Reason: ${data.reason}`;
+            for (const rid of telegramIds) {
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+            }
           }
         }
       } catch (notifyError) {

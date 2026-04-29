@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { filterRecipientsByPreference } from '../services/notificationPreferences.js';
+import { sendTelegramMessage } from '../services/telegramNotify.js';
 import crypto from 'node:crypto';
 
 interface ElectricityRechargeBody {
@@ -202,6 +204,64 @@ async function electricityRoutes(fastify: FastifyInstance) {
         }
       });
 
+      // Notify admins, respecting per-user preferences
+      try {
+        const actor = (request as any).user;
+        const actingUser = actor?.userId
+          ? await prisma.user.findUnique({ where: { id: actor.userId }, select: { firstName: true, lastName: true } })
+          : null;
+        const userName = actingUser ? `${actingUser.firstName} ${actingUser.lastName}`.trim() : 'Someone';
+
+        const admins = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        const recipientIds = admins.map(a => a.id).filter(id => id !== actor?.userId);
+
+        if (recipientIds.length > 0) {
+          let batchInfo = '';
+          if (body.dryingProcessId) {
+            const dp = await prisma.dryingProcess.findUnique({
+              where: { id: body.dryingProcessId },
+              select: { batchNumber: true },
+            });
+            if (dp) batchInfo = ` for ${dp.batchNumber}`;
+          }
+          const totalTzs = body.totalPaid.toLocaleString('en-US', { maximumFractionDigits: 0 });
+          const kwh = body.kwhAmount.toLocaleString('en-US', { maximumFractionDigits: 1 });
+
+          const inAppIds = await filterRecipientsByPreference(recipientIds, 'LUKU_RECHARGE_ADDED', 'inApp');
+          const telegramIds = await filterRecipientsByPreference(recipientIds, 'LUKU_RECHARGE_ADDED', 'telegram');
+
+          if (inAppIds.length > 0) {
+            await prisma.notification.createMany({
+              data: inAppIds.map(rid => ({
+                id: crypto.randomUUID(),
+                userId: rid,
+                type: 'LUKU_RECHARGE_ADDED',
+                title: 'New Luku recharge',
+                message: `${userName} logged a Luku recharge${batchInfo}: ${kwh} kWh for TZS ${totalTzs}`,
+                linkUrl: `/dashboard/management/electricity`,
+                isRead: false,
+              })),
+            });
+          }
+          if (telegramIds.length > 0) {
+            const tgText =
+              `⚡ *New Luku recharge*\n` +
+              `By: ${userName}\n` +
+              `Amount: *TZS ${totalTzs}*\n` +
+              `kWh: ${kwh}` +
+              (batchInfo ? `\nLinked to:${batchInfo}` : '');
+            for (const rid of telegramIds) {
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+            }
+          }
+        }
+      } catch (notifyError) {
+        console.error('Error sending luku-recharge notification:', notifyError);
+      }
+
       return reply.status(201).send(recharge);
     } catch (error) {
       console.error('Error creating electricity recharge:', error);
@@ -270,9 +330,69 @@ async function electricityRoutes(fastify: FastifyInstance) {
     try {
       const { id } = request.params as { id: string };
 
-      await prisma.electricityRecharge.delete({
-        where: { id }
+      // Read first so we can include details in the notification
+      const existing = await prisma.electricityRecharge.findUnique({
+        where: { id },
+        include: { DryingProcess: { select: { batchNumber: true } } },
       });
+      if (!existing) {
+        return reply.status(404).send({ error: 'Recharge not found' });
+      }
+
+      await prisma.electricityRecharge.delete({ where: { id } });
+
+      // Notify admins
+      try {
+        const actor = (request as any).user;
+        const actingUser = actor?.userId
+          ? await prisma.user.findUnique({ where: { id: actor.userId }, select: { firstName: true, lastName: true } })
+          : null;
+        const userName = actingUser ? `${actingUser.firstName} ${actingUser.lastName}`.trim() : 'Someone';
+
+        const admins = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true },
+        });
+        const recipientIds = admins.map(a => a.id).filter(rid => rid !== actor?.userId);
+
+        if (recipientIds.length > 0) {
+          const totalTzs = existing.totalPaid.toLocaleString('en-US', { maximumFractionDigits: 0 });
+          const kwh = existing.kwhAmount.toLocaleString('en-US', { maximumFractionDigits: 1 });
+          const batchInfo = (existing as any).DryingProcess?.batchNumber
+            ? ` (was linked to ${(existing as any).DryingProcess.batchNumber})`
+            : '';
+
+          const inAppIds = await filterRecipientsByPreference(recipientIds, 'LUKU_RECHARGE_DELETED', 'inApp');
+          const telegramIds = await filterRecipientsByPreference(recipientIds, 'LUKU_RECHARGE_DELETED', 'telegram');
+
+          if (inAppIds.length > 0) {
+            await prisma.notification.createMany({
+              data: inAppIds.map(rid => ({
+                id: crypto.randomUUID(),
+                userId: rid,
+                type: 'LUKU_RECHARGE_DELETED',
+                title: 'Luku recharge deleted',
+                message: `${userName} deleted a Luku recharge: ${kwh} kWh / TZS ${totalTzs}${batchInfo}`,
+                linkUrl: `/dashboard/management/electricity`,
+                isRead: false,
+              })),
+            });
+          }
+          if (telegramIds.length > 0) {
+            const tgText =
+              `🗑️ *Luku recharge deleted*\n` +
+              `By: ${userName}\n` +
+              `Amount: TZS ${totalTzs}\n` +
+              `kWh: ${kwh}` +
+              (batchInfo ? `\n${batchInfo.trim()}` : '');
+            for (const rid of telegramIds) {
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+            }
+          }
+        }
+      } catch (notifyError) {
+        console.error('Error sending luku-recharge-deleted notification:', notifyError);
+      }
 
       return reply.status(204).send();
     } catch (error) {
