@@ -35,6 +35,21 @@ import { startHandler, helpHandler } from './handlers/commands';
 // Create bot instance
 const bot = new Telegraf(CONFIG.TELEGRAM_BOT_TOKEN);
 
+// Middleware: handle UD-LINK-XXX link codes BEFORE the auth gate.
+// New users aren't on ALLOWED_TELEGRAM_IDS yet — they need to be able to link.
+import { isLinkCodeMessage, linkCodeHandler } from './handlers/linkCode';
+bot.use(async (ctx, next) => {
+  const text =
+    (ctx.message && 'text' in ctx.message && ctx.message.text) ||
+    (ctx.editedMessage && 'text' in ctx.editedMessage && ctx.editedMessage.text) ||
+    '';
+  if (text && isLinkCodeMessage(text)) {
+    await linkCodeHandler(ctx, text);
+    return;  // short-circuit: skip auth gate and downstream handlers
+  }
+  return next();
+});
+
 // Middleware: Authentication
 bot.use(async (ctx, next) => {
   const userId = ctx.from?.id;

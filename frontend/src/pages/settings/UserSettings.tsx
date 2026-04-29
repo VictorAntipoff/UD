@@ -12,7 +12,10 @@ import {
   Divider,
   Stack,
   Alert,
-  Snackbar
+  Snackbar,
+  Chip,
+  CircularProgress,
+  Link,
 } from '@mui/material';
 import { useState, useEffect } from 'react';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -20,6 +23,14 @@ import SecurityIcon from '@mui/icons-material/Security';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import PersonIcon from '@mui/icons-material/Person';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import TelegramIcon from '@mui/icons-material/Telegram';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
+import SendIcon from '@mui/icons-material/Send';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SearchIcon from '@mui/icons-material/Search';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import LinkIcon from '@mui/icons-material/Link';
 import { useAuth } from '../../hooks/useAuth';
 import { styled, alpha } from '@mui/material/styles';
 import api from '../../services/api';
@@ -82,6 +93,29 @@ export default function UserSettings() {
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState({ open: false, message: '', type: 'success' as 'success' | 'error' });
 
+  // Telegram link state
+  const [tg, setTg] = useState<{
+    loading: boolean;
+    linked: boolean;
+    chatId: string | null;
+    linkedAt: string | null;
+    botUsername: string;
+    configured: boolean;
+  }>({ loading: true, linked: false, chatId: null, linkedAt: null, botUsername: 'ud_system_bot', configured: true });
+  const [tgInputChatId, setTgInputChatId] = useState('');
+  const [tgSaving, setTgSaving] = useState(false);
+  const [tgTesting, setTgTesting] = useState(false);
+
+  // New "easy link" flow state
+  const [tgLinkCode, setTgLinkCode] = useState<{
+    code: string;
+    expiresAt: string;
+    botUsername: string;
+  } | null>(null);
+  const [tgGenerating, setTgGenerating] = useState(false);
+  const [tgFinding, setTgFinding] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   useEffect(() => {
     if (user) {
       setUserSettings(prev => ({
@@ -92,6 +126,147 @@ export default function UserSettings() {
       }));
     }
   }, [user]);
+
+  // Load Telegram link status on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/api/users/me/telegram');
+        if (cancelled) return;
+        setTg({
+          loading: false,
+          linked: Boolean(res.data?.linked),
+          chatId: res.data?.chatId ?? null,
+          linkedAt: res.data?.linkedAt ?? null,
+          botUsername: res.data?.botUsername ?? 'ud_system_bot',
+          configured: Boolean(res.data?.configured),
+        });
+        setTgInputChatId(res.data?.chatId ?? '');
+      } catch {
+        if (!cancelled) setTg(s => ({ ...s, loading: false }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSaveTelegramLink = async (clear: boolean) => {
+    setTgSaving(true);
+    try {
+      const res = await api.put('/api/users/me/telegram', {
+        chatId: clear ? null : tgInputChatId.trim(),
+      });
+      setTg(s => ({
+        ...s,
+        linked: Boolean(res.data?.linked),
+        chatId: res.data?.chatId ?? null,
+        linkedAt: res.data?.linkedAt ?? null,
+      }));
+      setNotification({
+        open: true,
+        message: clear ? 'Telegram unlinked.' : 'Telegram chat ID saved. You can now send a test message.',
+        type: 'success',
+      });
+    } catch (err: any) {
+      setNotification({
+        open: true,
+        message: err?.response?.data?.error ?? 'Failed to save Telegram link',
+        type: 'error',
+      });
+    } finally {
+      setTgSaving(false);
+    }
+  };
+
+  const handleSendWelcome = async () => {
+    setTgTesting(true);
+    try {
+      await api.post('/api/users/me/telegram/test');
+      setNotification({
+        open: true,
+        message: 'Welcome message sent. Check your Telegram!',
+        type: 'success',
+      });
+    } catch (err: any) {
+      setNotification({
+        open: true,
+        message: err?.response?.data?.error ?? 'Failed to send test message',
+        type: 'error',
+      });
+    } finally {
+      setTgTesting(false);
+    }
+  };
+
+  const handleStartLink = async () => {
+    setTgGenerating(true);
+    try {
+      const res = await api.post('/api/users/me/telegram/start-link');
+      setTgLinkCode({
+        code: res.data.code,
+        expiresAt: res.data.expiresAt,
+        botUsername: res.data.botUsername,
+      });
+    } catch (err: any) {
+      setNotification({
+        open: true,
+        message: err?.response?.data?.error ?? 'Failed to start linking',
+        type: 'error',
+      });
+    } finally {
+      setTgGenerating(false);
+    }
+  };
+
+  // Poll /me/telegram every 2.5s while a link code is active.
+  // The bot links the chat as soon as the user sends the code, so we just
+  // watch for the link to appear.
+  useEffect(() => {
+    if (!tgLinkCode) return;
+    let cancelled = false;
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get('/api/users/me/telegram');
+        if (cancelled) return;
+        if (res.data?.linked && res.data?.chatId) {
+          setTg(s => ({
+            ...s,
+            linked: true,
+            chatId: res.data.chatId,
+            linkedAt: res.data.linkedAt ?? null,
+          }));
+          setTgInputChatId(res.data.chatId);
+          setTgLinkCode(null);   // close the code panel
+          setNotification({
+            open: true,
+            message: 'Linked successfully! A welcome message has been sent to your Telegram.',
+            type: 'success',
+          });
+        } else if (tgLinkCode && new Date(tgLinkCode.expiresAt).getTime() < Date.now()) {
+          // Code expired without success
+          setTgLinkCode(null);
+          setNotification({
+            open: true,
+            message: 'Link code expired. Click "Start linking" to try again.',
+            type: 'error',
+          });
+        }
+      } catch {
+        // ignore — keep polling
+      }
+    }, 2500);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [tgLinkCode]);
+
+  const handleCopyCode = async () => {
+    if (!tgLinkCode?.code) return;
+    try {
+      await navigator.clipboard.writeText(tgLinkCode.code);
+      setNotification({ open: true, message: 'Code copied to clipboard.', type: 'success' });
+    } catch {
+      // Fallback: nothing dramatic — user can copy manually
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
@@ -517,6 +692,233 @@ export default function UserSettings() {
                   />
                 </Box>
               </Stack>
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Telegram Notifications */}
+        <Grid item xs={12}>
+          <Paper
+            elevation={0}
+            sx={{
+              borderRadius: 2,
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <Box sx={{ p: 3, borderBottom: '1px solid #e2e8f0', backgroundColor: '#f8fafc' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <TelegramIcon sx={{ color: '#229ED9', fontSize: 28 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 600, color: '#1e293b', fontSize: '1rem' }}>
+                    Telegram Notifications
+                  </Typography>
+                </Box>
+                {tg.loading ? null : tg.linked ? (
+                  <Chip
+                    icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                    label="Linked"
+                    size="small"
+                    sx={{ backgroundColor: '#dcfce7', color: '#15803d', fontWeight: 600, border: '1px solid #bbf7d0' }}
+                  />
+                ) : (
+                  <Chip label="Not linked" size="small" sx={{ backgroundColor: '#f1f5f9', color: '#64748b', fontWeight: 600 }} />
+                )}
+              </Box>
+            </Box>
+            <Box sx={{ p: 3 }}>
+              {!tg.configured && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Telegram integration isn't configured on the server. Ask an admin to set the bot token.
+                </Alert>
+              )}
+
+              {tg.loading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress size={24} />
+                </Box>
+              ) : tg.linked ? (
+                // ─── LINKED STATE ────────────────────────────────────────
+                <Stack spacing={2.5}>
+                  <Box sx={{ p: 2, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <CheckCircleIcon sx={{ color: '#15803d', fontSize: 20 }} />
+                      <Typography variant="body2" sx={{ color: '#15803d', fontWeight: 700 }}>
+                        Telegram is linked
+                      </Typography>
+                    </Box>
+                    <Typography variant="body2" sx={{ color: '#166534', ml: 3.5 }}>
+                      Chat ID: <strong style={{ fontFamily: 'monospace' }}>{tg.chatId}</strong>
+                      {tg.linkedAt && ` — since ${new Date(tg.linkedAt).toLocaleString()}`}
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+                    <Button
+                      variant="outlined"
+                      onClick={handleSendWelcome}
+                      disabled={tgTesting || !tg.configured}
+                      startIcon={tgTesting ? <CircularProgress size={16} /> : <SendIcon />}
+                      sx={{
+                        textTransform: 'none', fontWeight: 600, px: 2.5,
+                        color: '#229ED9', borderColor: '#229ED9',
+                        '&:hover': { borderColor: '#1c8bbf', backgroundColor: alpha('#229ED9', 0.04) },
+                      }}
+                    >
+                      Send test message
+                    </Button>
+                    <Button
+                      variant="text"
+                      onClick={() => handleSaveTelegramLink(true)}
+                      disabled={tgSaving}
+                      startIcon={<LinkOffIcon />}
+                      sx={{ textTransform: 'none', fontWeight: 600, color: '#64748b', ml: 'auto !important' }}
+                    >
+                      Unlink
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : (
+                // ─── NOT LINKED STATE ────────────────────────────────────
+                <Stack spacing={2.5}>
+                  {!tgLinkCode ? (
+                    // Step 1: pitch the easy flow
+                    <>
+                      <Box sx={{ p: 2, backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#0c4a6e', fontWeight: 600, mb: 1 }}>
+                          Link your Telegram in 3 easy steps:
+                        </Typography>
+                        <Typography variant="body2" component="ol" sx={{ color: '#0c4a6e', pl: 2.5, m: 0, lineHeight: 1.8 }}>
+                          <li>Click <strong>Start linking</strong> below — we'll give you a one-time code.</li>
+                          <li>Open Telegram and send the code to <strong>@{tg.botUsername}</strong>.</li>
+                          <li>That's it — we'll detect it and link automatically.</li>
+                        </Typography>
+                      </Box>
+                      <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+                        <Button
+                          variant="contained"
+                          onClick={handleStartLink}
+                          disabled={tgGenerating || !tg.configured}
+                          startIcon={tgGenerating ? <CircularProgress size={16} color="inherit" /> : <LinkIcon />}
+                          sx={{
+                            textTransform: 'none', fontWeight: 600, px: 3,
+                            backgroundColor: '#229ED9',
+                            '&:hover': { backgroundColor: '#1c8bbf' },
+                          }}
+                        >
+                          Start linking
+                        </Button>
+                        <Button
+                          variant="text"
+                          onClick={() => setShowAdvanced((s) => !s)}
+                          endIcon={<ExpandMoreIcon sx={{ transform: showAdvanced ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />}
+                          sx={{ textTransform: 'none', color: '#64748b', ml: 'auto !important' }}
+                        >
+                          Advanced
+                        </Button>
+                      </Stack>
+                    </>
+                  ) : (
+                    // Step 2: show the code; bot links automatically when user sends it
+                    <>
+                      <Box sx={{ p: 2.5, backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 1 }}>
+                        <Typography variant="body2" sx={{ color: '#92400e', fontWeight: 700, mb: 1.5 }}>
+                          Send this code to @{tgLinkCode.botUsername} on Telegram:
+                        </Typography>
+                        <Box
+                          sx={{
+                            display: 'flex', alignItems: 'center', gap: 1.5,
+                            p: 1.5, backgroundColor: 'white',
+                            border: '2px solid #fcd34d', borderRadius: 1,
+                          }}
+                        >
+                          <Typography
+                            variant="h5"
+                            sx={{
+                              fontFamily: 'monospace', fontWeight: 700,
+                              letterSpacing: '0.05em', flex: 1,
+                              color: '#1e293b', fontSize: '1.5rem',
+                            }}
+                          >
+                            {tgLinkCode.code}
+                          </Typography>
+                          <IconButton onClick={handleCopyCode} title="Copy code" sx={{ color: '#229ED9' }}>
+                            <ContentCopyIcon />
+                          </IconButton>
+                        </Box>
+                        <Typography variant="caption" sx={{ color: '#92400e', display: 'block', mt: 1.5 }}>
+                          ⏱️ Code expires in 10 minutes. We'll detect your message and link automatically.
+                        </Typography>
+                      </Box>
+
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1.5, backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 1 }}>
+                        <CircularProgress size={16} sx={{ color: '#0369a1' }} />
+                        <Typography variant="body2" sx={{ color: '#0c4a6e', fontWeight: 600 }}>
+                          Waiting for your message to @{tgLinkCode.botUsername}…
+                        </Typography>
+                      </Box>
+
+                      <Stack direction="row" spacing={1.5} sx={{ flexWrap: 'wrap' }}>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          href={`https://t.me/${tgLinkCode.botUsername}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          startIcon={<TelegramIcon />}
+                          sx={{
+                            textTransform: 'none', fontWeight: 600, px: 2.5,
+                            backgroundColor: '#229ED9',
+                            '&:hover': { backgroundColor: '#1c8bbf' },
+                          }}
+                        >
+                          Open @{tgLinkCode.botUsername}
+                        </Button>
+                        <Button
+                          variant="text"
+                          onClick={() => setTgLinkCode(null)}
+                          sx={{ textTransform: 'none', color: '#64748b', ml: 'auto !important' }}
+                        >
+                          Cancel
+                        </Button>
+                      </Stack>
+                    </>
+                  )}
+
+                  {/* Advanced (manual chat ID entry) — collapsed by default */}
+                  {showAdvanced && !tgLinkCode && (
+                    <Box sx={{ p: 2, backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 1.5, fontWeight: 600 }}>
+                        ADVANCED — paste a chat ID directly
+                      </Typography>
+                      <Stack spacing={1.5}>
+                        <TextField
+                          fullWidth
+                          size="small"
+                          label="Telegram chat ID"
+                          placeholder="e.g. 123456789"
+                          value={tgInputChatId}
+                          onChange={(e) => setTgInputChatId(e.target.value.replace(/[^\d-]/g, ''))}
+                          helperText="Numeric only. Use this if someone has already given you the chat ID."
+                          disabled={tgSaving || !tg.configured}
+                          sx={textFieldSx}
+                        />
+                        <Button
+                          variant="outlined"
+                          onClick={() => handleSaveTelegramLink(false)}
+                          disabled={!tgInputChatId.trim() || tgSaving || !tg.configured}
+                          startIcon={tgSaving ? <CircularProgress size={16} /> : <TelegramIcon />}
+                          sx={{
+                            textTransform: 'none', fontWeight: 600,
+                            color: '#229ED9', borderColor: '#229ED9', alignSelf: 'flex-start',
+                            '&:hover': { borderColor: '#1c8bbf', backgroundColor: alpha('#229ED9', 0.04) },
+                          }}
+                        >
+                          Save manually
+                        </Button>
+                      </Stack>
+                    </Box>
+                  )}
+                </Stack>
+              )}
             </Box>
           </Paper>
         </Grid>

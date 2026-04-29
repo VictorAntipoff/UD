@@ -159,6 +159,7 @@ interface DryingReading {
   updatedByName?: string;
   createdAt: string;
   updatedAt: string;
+  linkedRecharges?: ElectricityRecharge[];
 }
 
 interface ElectricityRecharge {
@@ -256,6 +257,13 @@ export default function DryingProcess() {
   });
   const [actionDialogReason, setActionDialogReason] = useState('');
   const [actionDialogSubmitting, setActionDialogSubmitting] = useState(false);
+
+  // Luku details popup — opened when user clicks a 🔗 LUKU chip on a reading
+  const [lukuDialog, setLukuDialog] = useState<{
+    open: boolean;
+    recharge: ElectricityRecharge | null;
+    reading: DryingReading | null;
+  }>({ open: false, recharge: null, reading: null });
   const [actionDialogError, setActionDialogError] = useState<string | null>(null);
 
   const openActionDialog = (cfg: Omit<ActionDialogState, 'open'>) => {
@@ -538,6 +546,12 @@ export default function DryingProcess() {
   };
 
   const handleOpenRechargeDialog = (process: DryingProcess) => {
+    if (!process.readings || process.readings.length === 0) {
+      alert(
+        'Please add a meter reading first. The recharge will be linked to the most recent reading so the cost calculation is accurate.'
+      );
+      return;
+    }
     setSelectedProcessForRecharge(process);
     setRechargeDialogOpen(true);
     setRechargeData({
@@ -873,17 +887,50 @@ export default function DryingProcess() {
     });
   };
 
-  const handleDeleteProcess = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this drying process?')) {
-      return;
-    }
+  const handleDeleteProcess = (process: DryingProcess) => {
+    const totalPieces = process.items?.length
+      ? process.items.reduce((s, i) => s + i.pieceCount, 0)
+      : process.pieceCount || 0;
+    const willRestoreStock = process.status === 'IN_PROGRESS' && process.useStock;
 
-    try {
-      await api.delete(`/factory/drying-processes/${id}`);
-      setProcesses(processes.filter(p => p.id !== id));
-    } catch (error) {
-      console.error('Error deleting process:', error);
-    }
+    openActionDialog({
+      title: `Delete ${process.batchNumber}?`,
+      body: (
+        <Stack spacing={1.5}>
+          <Typography variant="body2" sx={{ color: '#475569' }}>
+            This will permanently remove the drying process, all its readings,
+            and any linked Luku recharges.
+          </Typography>
+          {willRestoreStock && totalPieces > 0 && (
+            <Box sx={{ p: 1.5, backgroundColor: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 1 }}>
+              <Typography variant="body2" sx={{ color: '#b45309', fontWeight: 600 }}>
+                Stock impact
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#92400e', display: 'block', mt: 0.5 }}>
+                <strong>{totalPieces}</strong> piece{totalPieces === 1 ? '' : 's'} will be returned from
+                Under&nbsp;Drying → Not&nbsp;Dried. The audit trail records who deleted the process and when.
+              </Typography>
+            </Box>
+          )}
+          {process.status !== 'IN_PROGRESS' && (
+            <Typography variant="caption" sx={{ color: '#64748b' }}>
+              The process is <strong>{process.status === 'PENDING_CLOSE' ? 'pending approval' : 'completed'}</strong>,
+              so no stock will be moved by this delete.
+            </Typography>
+          )}
+          <Typography variant="body2" sx={{ color: '#dc2626', fontWeight: 600, mt: 0.5 }}>
+            This cannot be undone.
+          </Typography>
+        </Stack>
+      ),
+      confirmLabel: 'Delete process',
+      confirmColor: 'danger',
+      requireReason: false,
+      onConfirm: async () => {
+        await api.delete(`/factory/drying-processes/${process.id}`);
+        setProcesses((prev) => prev.filter(p => p.id !== process.id));
+      },
+    });
   };
 
   const getStatusColor = (status: string) => {
@@ -911,9 +958,15 @@ export default function DryingProcess() {
 
     const readings = process.readings;
     const recharges = process.recharges || [];
+    // Mirror backend: prefer linked-reading time as the recharge anchor,
+    // fall back to rechargeDate for legacy unlinked recharges.
+    const rechargeEffectiveTime = (r: any): Date =>
+      r.LinkedReading?.readingTime
+        ? new Date(r.LinkedReading.readingTime)
+        : new Date(r.rechargeDate);
+
     let totalUsed = 0;
 
-    // Calculate usage with recharge awareness
     for (let i = 0; i < readings.length; i++) {
       const currentReading = readings[i];
       const currentTime = new Date(currentReading.readingTime);
@@ -929,32 +982,17 @@ export default function DryingProcess() {
         prevTime = new Date(readings[i - 1].readingTime);
       }
 
-      // Find recharges between prev and current reading
-      const rechargesBetween = recharges.filter(r => {
-        const rechargeTime = new Date(r.rechargeDate);
-        return rechargeTime > prevTime && rechargeTime <= currentTime;
+      const rechargesBetween = recharges.filter((r: any) => {
+        const t = rechargeEffectiveTime(r);
+        return t > prevTime && t <= currentTime;
       });
 
       if (rechargesBetween.length > 0) {
-        // Recharges occurred - only count consumption AFTER the last recharge
-        // Sort recharges by date descending to get the last one
-        const sortedRecharges = [...rechargesBetween].sort(
-          (a, b) => new Date(b.rechargeDate).getTime() - new Date(a.rechargeDate).getTime()
-        );
-        const lastRecharge = sortedRecharges[0];
-
-        if (lastRecharge.meterReadingAfter && lastRecharge.meterReadingAfter > 0) {
-          // Consumed = meterAfterRecharge - currentReading
-          const consumed = lastRecharge.meterReadingAfter - currentReading.electricityMeter;
-          totalUsed += Math.max(0, consumed);
-        } else {
-          // Fallback for old recharges without meterReadingAfter
-          const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
-          const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
-          totalUsed += Math.max(0, consumed);
-        }
+        // Match backend formula: prev + recharged - current
+        const totalRecharged = rechargesBetween.reduce((sum, r) => sum + r.kwhAmount, 0);
+        const consumed = prevReading + totalRecharged - currentReading.electricityMeter;
+        totalUsed += Math.max(0, consumed);
       } else {
-        // Normal consumption (prepaid meter counting down)
         const consumed = prevReading - currentReading.electricityMeter;
         if (consumed > 0) {
           totalUsed += consumed;
@@ -1661,7 +1699,7 @@ export default function DryingProcess() {
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDeleteProcess(process.id);
+                              handleDeleteProcess(process);
                             }}
                             sx={{
                               color: '#ef4444',
@@ -1692,13 +1730,26 @@ export default function DryingProcess() {
                         '& .MuiAlert-message': { width: '100%' },
                       }}
                     >
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#b45309', mb: 0.5 }}>
-                        Pending admin approval — locked
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: '#92400e' }}>
-                        No new readings, edits, or recharges can be added until an admin approves or rejects this close request.
-                        {process.totalCost ? ` Cost preview: TZS ${process.totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}.` : ''}
-                      </Typography>
+                      {isAdmin ? (
+                        <>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: '#b45309', mb: 0.5 }}>
+                            Pending admin approval — locked
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#92400e' }}>
+                            No new readings, edits, or recharges can be added until an admin approves or rejects this close request.
+                            {process.totalCost ? ` Cost preview: TZS ${process.totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 })}.` : ''}
+                          </Typography>
+                        </>
+                      ) : (
+                        <>
+                          <Typography variant="body2" sx={{ fontWeight: 700, color: '#b45309', mb: 0.5 }}>
+                            ⏳ Awaiting approval
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#92400e' }}>
+                            Your close request has been submitted. An admin will review it and approve or reject. No new readings or edits can be added in the meantime.
+                          </Typography>
+                        </>
+                      )}
                     </Alert>
                   )}
 
@@ -1842,68 +1893,64 @@ export default function DryingProcess() {
                                           {reading.electricityMeter.toFixed(2)}
                                         </Typography>
                                         {(() => {
-                                          // Get previous reading to calculate usage
+                                          // PRIMARY: linked recharge data (real, clickable)
+                                          if (reading.linkedRecharges && reading.linkedRecharges.length > 0) {
+                                            const recharge = reading.linkedRecharges[0];
+                                            return (
+                                              <Chip
+                                                icon={<ElectricBoltIcon sx={{ fontSize: 12, color: '#f59e0b !important' }} />}
+                                                label={`🔗 LUKU ${recharge.kwhAmount.toFixed(0)} kWh`}
+                                                size="small"
+                                                clickable
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setLukuDialog({ open: true, recharge, reading });
+                                                }}
+                                                sx={{
+                                                  height: 20,
+                                                  fontSize: '0.7rem',
+                                                  backgroundColor: '#fef3c7',
+                                                  color: '#b45309',
+                                                  fontWeight: 700,
+                                                  border: '1px solid #fcd34d',
+                                                  ml: 0.5,
+                                                  '&:hover': { backgroundColor: '#fde68a' }
+                                                }}
+                                              />
+                                            );
+                                          }
+
+                                          // FALLBACK: meter-jump heuristic for legacy unlinked data
                                           let prevReading = null;
                                           if (index > 0) {
                                             prevReading = process.readings[index - 1].electricityMeter;
                                           } else if (process.startingElectricityUnits) {
                                             prevReading = process.startingElectricityUnits;
                                           }
-
-                                          // Only show usage if we have a previous reading to compare
                                           if (prevReading !== null && prevReading > 0) {
                                             const diff = reading.electricityMeter - prevReading;
 
-                                            // If large positive jump (>100), it's a recharge
+                                            // Large positive jump → inferred recharge (legacy, no link)
                                             if (diff > 100) {
-                                              // Check if there's lukuSms to calculate usage during recharge
-                                              let usageDuringRecharge = 0;
-                                              if (reading.lukuSms) {
-                                                // Extract kWh from Luku SMS
-                                                const kwhMatch = reading.lukuSms.match(/([\d.]+)KWH/i);
-                                                if (kwhMatch) {
-                                                  const kwhPurchased = parseFloat(kwhMatch[1]);
-                                                  const unitsAdded = diff; // 1569.02 - 175.11 = 1393.91
-                                                  usageDuringRecharge = kwhPurchased - unitsAdded; // 1399.3 - 1393.91 = 5.39
-                                                }
-                                              }
-
                                               return (
-                                                <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                                  {usageDuringRecharge > 0 && (
-                                                    <Chip
-                                                      label={`-${usageDuringRecharge.toFixed(2)}`}
-                                                      size="small"
-                                                      sx={{
-                                                        height: 18,
-                                                        fontSize: '0.65rem',
-                                                        backgroundColor: '#dcfce7',
-                                                        color: '#16a34a',
-                                                        fontWeight: 600,
-                                                        ml: 0.5
-                                                      }}
-                                                    />
-                                                  )}
-                                                  <Chip
-                                                    icon={<ElectricBoltIcon sx={{ fontSize: 12, color: '#f59e0b !important' }} />}
-                                                    label="Recharged"
-                                                    size="small"
-                                                    sx={{
-                                                      height: 18,
-                                                      fontSize: '0.65rem',
-                                                      backgroundColor: '#fef3c7',
-                                                      color: '#f59e0b',
-                                                      fontWeight: 600,
-                                                      ml: usageDuringRecharge > 0 ? 0 : 0.5
-                                                    }}
-                                                  />
-                                                </Box>
+                                                <Chip
+                                                  label="⚠ Inferred recharge"
+                                                  size="small"
+                                                  title="The meter went up but no Luku recharge is linked to this reading. Likely legacy data."
+                                                  sx={{
+                                                    height: 20,
+                                                    fontSize: '0.65rem',
+                                                    backgroundColor: '#f1f5f9',
+                                                    color: '#64748b',
+                                                    fontWeight: 600,
+                                                    border: '1px dashed #cbd5e1',
+                                                    ml: 0.5
+                                                  }}
+                                                />
                                               );
                                             }
 
-                                            // Normal usage: show the difference
-                                            // If diff < 0, meter went down (consumption)
-                                            // If diff > 0 but < 100, unusual but show it anyway
+                                            // Normal consumption
                                             const usage = Math.abs(diff);
                                             return (
                                               <Chip
@@ -2560,7 +2607,7 @@ export default function DryingProcess() {
                                     </IconButton>
                                     <IconButton
                                       size="small"
-                                      onClick={() => handleDeleteProcess(process.id)}
+                                      onClick={() => handleDeleteProcess(process)}
                                       sx={{
                                         color: '#64748b',
                                         '&:hover': {
@@ -2676,7 +2723,7 @@ export default function DryingProcess() {
                                     </IconButton>
                                     <IconButton
                                       size="small"
-                                      onClick={() => handleDeleteProcess(process.id)}
+                                      onClick={() => handleDeleteProcess(process)}
                                       sx={{
                                         color: '#64748b',
                                         '&:hover': {
@@ -4036,8 +4083,29 @@ export default function DryingProcess() {
         <DialogContent sx={{ pt: 3 }}>
           {!showRechargePreview ? (
             <Stack spacing={2.5}>
+              {(() => {
+                const lastReading = selectedProcessForRecharge?.readings?.[selectedProcessForRecharge.readings.length - 1];
+                if (!lastReading) return null;
+                return (
+                  <Alert severity="success" icon={false} sx={{ fontSize: '0.875rem', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#15803d', mb: 0.5 }}>
+                      🔗 This recharge will be linked to your last reading
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#166534', display: 'block' }}>
+                      <strong>{formatDateInTimezone(lastReading.readingTime, 'MMM d, yyyy hh:mm a', timezone)}</strong>
+                      {' — '}
+                      meter <strong>{lastReading.electricityMeter.toFixed(2)}</strong>, humidity <strong>{lastReading.humidity.toFixed(1)}%</strong>
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#166534', display: 'block', mt: 0.5 }}>
+                      The cost formula will use this reading's time as the recharge anchor — not a manually entered date.
+                      If you actually recharged before an earlier reading, add that reading first or contact an admin.
+                    </Typography>
+                  </Alert>
+                );
+              })()}
+
               <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
-                <strong>Important:</strong> Paste the Luku SMS and enter the meter reading AFTER the recharge was applied. The recharge will be recorded with the CURRENT time (when you're entering it), not the SMS timestamp, to ensure accurate calculations.
+                <strong>Important:</strong> Paste the Luku SMS and enter the meter reading AFTER the recharge was applied.
               </Alert>
 
               <TextField
@@ -4270,6 +4338,11 @@ export default function DryingProcess() {
         </DialogTitle>
         <Divider />
         <DialogContent sx={{ pt: 3 }}>
+          {actionDialogError && !actionDialog.requireReason && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {actionDialogError}
+            </Alert>
+          )}
           <Box sx={{ mb: actionDialog.requireReason ? 2.5 : 0 }}>{actionDialog.body}</Box>
           {actionDialog.requireReason && (
             <TextField
@@ -4313,8 +4386,13 @@ export default function DryingProcess() {
                 await actionDialog.onConfirm(actionDialogReason.trim());
                 setActionDialog((s) => ({ ...s, open: false }));
               } catch (err: any) {
-                // Backend errors already trigger the global toast via api interceptor;
-                // keep dialog open so the user can retry or cancel.
+                console.error('[ActionDialog] confirm failed:', err);
+                const serverMsg =
+                  err?.response?.data?.error ||
+                  err?.response?.data?.message ||
+                  err?.message ||
+                  'The request failed. Please try again or check the server logs.';
+                setActionDialogError(serverMsg);
               } finally {
                 setActionDialogSubmitting(false);
               }
@@ -4338,6 +4416,160 @@ export default function DryingProcess() {
             }}
           >
             {actionDialogSubmitting ? 'Working…' : actionDialog.confirmLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Luku recharge details popup */}
+      <Dialog
+        open={lukuDialog.open}
+        onClose={() => setLukuDialog({ open: false, recharge: null, reading: null })}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ pb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <ElectricBoltIcon sx={{ color: '#f59e0b', fontSize: 28 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
+              Luku Recharge Details
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <Divider />
+        <DialogContent sx={{ pt: 3 }}>
+          {lukuDialog.recharge && lukuDialog.reading && (() => {
+            const r = lukuDialog.recharge;
+            const reading = lukuDialog.reading;
+            const effectiveRate = r.kwhAmount > 0 ? r.totalPaid / r.kwhAmount : 0;
+            const fmtTZS = (n?: number) => n != null
+              ? `TZS ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+              : '—';
+            return (
+              <Stack spacing={2.5}>
+                <Paper elevation={0} sx={{ p: 2, backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 2 }}>
+                  <Typography variant="caption" sx={{ color: '#15803d', fontWeight: 700, display: 'block', mb: 1 }}>
+                    🔗 LINKED TO READING
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                    {formatDateInTimezone(reading.readingTime, 'MMM d, yyyy hh:mm a', timezone)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#475569', display: 'block', mt: 0.5 }}>
+                    Meter: <strong>{reading.electricityMeter.toFixed(2)}</strong> Unit
+                    {' • '}
+                    Humidity: <strong>{reading.humidity.toFixed(1)}%</strong>
+                  </Typography>
+                </Paper>
+
+                <Paper elevation={0} sx={{ p: 2, backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 2 }}>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>kWh Added</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: '#16a34a' }}>
+                        {r.kwhAmount.toLocaleString()} kWh
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>Total Paid</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 700, color: '#dc2626' }}>
+                        {fmtTZS(r.totalPaid)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>Effective Rate</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {effectiveRate.toFixed(2)} TZS/kWh
+                      </Typography>
+                    </Grid>
+                    {r.meterReadingAfter != null && (
+                      <Grid item xs={6}>
+                        <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>Meter After Recharge</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {r.meterReadingAfter.toFixed(2)} Unit
+                        </Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Paper>
+
+                <Paper elevation={0} sx={{ p: 2, backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#1e293b', mb: 1.5 }}>
+                    Cost Breakdown
+                  </Typography>
+                  <Stack spacing={0.75}>
+                    {r.baseCost != null && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#475569' }}>Base cost</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{fmtTZS(r.baseCost)}</Typography>
+                      </Box>
+                    )}
+                    {r.vat != null && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#475569' }}>VAT</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{fmtTZS(r.vat)}</Typography>
+                      </Box>
+                    )}
+                    {r.ewuraFee != null && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#475569' }}>EWURA fee</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{fmtTZS(r.ewuraFee)}</Typography>
+                      </Box>
+                    )}
+                    {r.reaFee != null && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#475569' }}>REA fee</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{fmtTZS(r.reaFee)}</Typography>
+                      </Box>
+                    )}
+                    {r.debtCollected != null && r.debtCollected > 0 && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#475569' }}>Debt collected</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>{fmtTZS(r.debtCollected)}</Typography>
+                      </Box>
+                    )}
+                    <Divider sx={{ my: 0.5 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <Typography variant="body2" sx={{ color: '#1e293b', fontWeight: 700 }}>Total</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#dc2626' }}>{fmtTZS(r.totalPaid)}</Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+
+                {r.token && (
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 0.5 }}>Token</Typography>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: '#1e293b', wordBreak: 'break-all' }}>
+                      {r.token.match(/.{1,4}/g)?.join(' ') || r.token}
+                    </Typography>
+                  </Box>
+                )}
+
+                {r.notes && (
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mb: 0.5 }}>Notes</Typography>
+                    <Typography variant="body2" sx={{ color: '#475569' }}>{r.notes}</Typography>
+                  </Box>
+                )}
+
+                <Box sx={{ borderTop: '1px solid #e2e8f0', pt: 1.5 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block' }}>
+                    Recorded on {formatDateInTimezone(r.createdAt, 'MMM d, yyyy hh:mm a', timezone)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block' }}>
+                    SMS-stamped {formatDateInTimezone(r.rechargeDate, 'MMM d, yyyy hh:mm a', timezone)} (informational only — cost uses linked-reading time)
+                  </Typography>
+                </Box>
+              </Stack>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ p: 2.5 }}>
+          <Button
+            variant="contained"
+            onClick={() => setLukuDialog({ open: false, recharge: null, reading: null })}
+            sx={{ textTransform: 'none', fontWeight: 600, px: 3, backgroundColor: '#3b82f6', '&:hover': { backgroundColor: '#2563eb' } }}
+          >
+            Close
           </Button>
         </DialogActions>
       </Dialog>

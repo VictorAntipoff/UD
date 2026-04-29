@@ -515,18 +515,18 @@ const TopBar = ({ onSidebarToggle, sidebarOpen }: TopBarProps) => {
             }
           }}
         >
-          <MenuItem onClick={() => { 
-            handleCloseUserMenu(); 
-            navigate('/settings/user');
+          <MenuItem onClick={() => {
+            handleCloseUserMenu();
+            navigate('/dashboard/settings/user');
           }}>
             <ListItemIcon>
               <PersonIcon fontSize="small" />
             </ListItemIcon>
             Profile
           </MenuItem>
-          <MenuItem onClick={() => { 
-            handleCloseUserMenu(); 
-            navigate('/settings'); 
+          <MenuItem onClick={() => {
+            handleCloseUserMenu();
+            navigate('/dashboard/settings/user');
           }}>
             <ListItemIcon>
               <SettingsIcon fontSize="small" />
