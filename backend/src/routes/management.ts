@@ -7,7 +7,7 @@ import {
   requireRole
 } from '../middleware/auth.js';
 import { postReceiptSync, postStockEntry } from '../services/stockLedger.js';
-import { sendTelegramMessage } from '../services/telegramNotify.js';
+import { sendTelegramMessage, TELEGRAM_ICONS } from '../services/telegramNotify.js';
 import { filterRecipientsByPreference, userWantsChannel, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
 import crypto from 'node:crypto';
 
@@ -368,13 +368,13 @@ async function managementRoutes(fastify: FastifyInstance) {
             const pieces = data.actual_pieces || receipt.actualPieces || 0;
             const volume = (data.actual_volume_m3 || receipt.actualVolumeM3 || 0).toFixed(2);
             const tgText =
-              `📋 *LOT pending approval*\n` +
+              `*LOT pending approval*\n` +
               `LOT: *${receipt.lotNumber}*\n` +
               `Wood type: ${receipt.WoodType?.name ?? '?'}\n` +
               `Pieces: *${pieces}* (${volume} m³)\n\n` +
               `Open the UD app to review and approve.`;
             for (const uid of telegramIds) {
-              void sendTelegramMessage({ userId: uid, text: tgText, parseMode: 'Markdown' });
+              void sendTelegramMessage({ userId: uid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.woodReceipt });
             }
           }
         }
@@ -2209,14 +2209,14 @@ async function managementRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `🔧 *Stock adjustment*\n` +
+              `*Stock adjustment*\n` +
               `Warehouse: ${whName}\n` +
               `Wood: *${woodName}* ${data.thickness} ${data.woodStatus}\n` +
               `Change: ${quantityBefore} → *${data.quantityAfter}* (${direction}${quantityChange})\n` +
               `By: ${adjusterName}\n` +
               `Reason: ${data.reason}`;
             for (const rid of telegramIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.stockAdjustment });
             }
           }
         }

@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { filterRecipientsByPreference, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
-import { sendTelegramMessage } from '../services/telegramNotify.js';
+import { sendTelegramMessage, TELEGRAM_ICONS } from '../services/telegramNotify.js';
 import crypto from 'node:crypto';
 
 interface ElectricityRechargeBody {
@@ -248,13 +248,13 @@ async function electricityRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `⚡ *New Luku recharge*\n` +
+              `*New Luku recharge*\n` +
               `By: ${userName}\n` +
               `Amount: *TZS ${totalTzs}*\n` +
               `kWh: ${kwh}` +
               (batchInfo ? `\nLinked to:${batchInfo}` : '');
             for (const rid of telegramIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.lukuRecharge });
             }
           }
         }
@@ -380,13 +380,13 @@ async function electricityRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `🗑️ *Luku recharge deleted*\n` +
+              `*Luku recharge deleted*\n` +
               `By: ${userName}\n` +
               `Amount: TZS ${totalTzs}\n` +
               `kWh: ${kwh}` +
               (batchInfo ? `\n${batchInfo.trim()}` : '');
             for (const rid of telegramIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.lukuRecharge });
             }
           }
         }

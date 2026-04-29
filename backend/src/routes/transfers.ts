@@ -16,7 +16,7 @@ import {
   postTransferReverseDestSide,
   postTransferReverseSourceSide,
 } from '../services/stockLedger.js';
-import { sendTelegramMessage } from '../services/telegramNotify.js';
+import { sendTelegramMessage, TELEGRAM_ICONS } from '../services/telegramNotify.js';
 import { filterRecipientsByPreference, userWantsChannel, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
 import type { WoodStatus } from '@prisma/client';
 import crypto from 'node:crypto';
@@ -622,8 +622,9 @@ async function transferRoutes(fastify: FastifyInstance) {
           if (await userWantsChannel(creatorId, 'TRANSFER_APPROVED', 'telegram')) {
             void sendTelegramMessage({
               userId: creatorId,
+              iconUrl: TELEGRAM_ICONS.woodTransfer,
               text:
-                `✅ *Transfer approved*\n` +
+                `*Transfer approved*\n` +
                 `Transfer: *${transfer.transferNumber}*\n` +
                 `${fromName} → ${toName}\n` +
                 `Approved by: ${approverName}\n\n` +
@@ -723,8 +724,9 @@ async function transferRoutes(fastify: FastifyInstance) {
           if (await userWantsChannel(creatorId, 'TRANSFER_REJECTED', 'telegram')) {
             void sendTelegramMessage({
               userId: creatorId,
+              iconUrl: TELEGRAM_ICONS.woodTransfer,
               text:
-                `❌ *Transfer rejected*\n` +
+                `*Transfer rejected*\n` +
                 `Transfer: *${transfer.transferNumber}*\n` +
                 `${fromName} → ${toName}\n` +
                 `Rejected by: ${rejectorName}\n\n` +
@@ -893,8 +895,9 @@ async function transferRoutes(fastify: FastifyInstance) {
         for (const rid of telegramIds) {
           void sendTelegramMessage({
             userId: rid,
+            iconUrl: TELEGRAM_ICONS.woodTransfer,
             text:
-              `📦 *Transfer completed*\n` +
+              `*Transfer completed*\n` +
               `Transfer: *${(result as any).updatedTransfer.transferNumber}*\n` +
               `${fromName} → ${toName}\n` +
               `Received by: ${userName}\n\n` +
