@@ -52,6 +52,7 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import { DryingProcessReport } from '../../components/reports/DryingProcessReport';
 import api from '../../lib/api';
+import { useSnackbar } from 'notistack';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTimezone } from '../../contexts/TimezoneContext';
 import { formatDateInTimezone, parseLocalToUTC, formatForDateTimeInput, formatAsLocalTime } from '../../utils/timezone';
@@ -217,6 +218,7 @@ interface DryingProcess {
 export default function DryingProcess() {
   const { user, hasPermission } = useAuth();
   const { timezone } = useTimezone();
+  const { enqueueSnackbar } = useSnackbar();
   const isAdmin = user?.role === 'ADMIN';
   const canViewAmount = hasPermission('drying-process', 'amount');
 
@@ -334,7 +336,7 @@ export default function DryingProcess() {
   const [selectedProcessForRecharge, setSelectedProcessForRecharge] = useState<DryingProcess | null>(null);
   const [rechargeData, setRechargeData] = useState({
     smsText: '',
-    meterReadingAfter: ''
+    selectedReadingId: ''
   });
   const [rechargePreview, setRechargePreview] = useState<{
     token: string;
@@ -459,14 +461,14 @@ export default function DryingProcess() {
 
       // Validate warehouse selected
       if (!newProcess.warehouseId) {
-        alert('Please select a warehouse');
+        enqueueSnackbar('Please select a warehouse', { variant: 'warning' });
         setCreatingProcess(false);
         return;
       }
 
       // Validate at least one wood item
       if (woodItems.length === 0 || !woodItems[0].woodTypeId) {
-        alert('Please add at least one wood type');
+        enqueueSnackbar('Please add at least one wood type', { variant: 'warning' });
         setCreatingProcess(false);
         return;
       }
@@ -475,7 +477,7 @@ export default function DryingProcess() {
       const items = [];
       for (const item of woodItems) {
         if (!item.woodTypeId || !item.thickness || !item.pieceCount) {
-          alert('Please fill in all fields for each wood type');
+          enqueueSnackbar('Please fill in all fields for each wood type', { variant: 'warning' });
           setCreatingProcess(false);
           return;
         }
@@ -486,19 +488,22 @@ export default function DryingProcess() {
         );
 
         if (!stock) {
-          alert('Selected stock not found for one of the wood types');
+          enqueueSnackbar('Selected stock not found for one of the wood types', { variant: 'error' });
           return;
         }
 
         const requestedQuantity = parseInt(item.pieceCount);
         if (requestedQuantity > stock.statusNotDried) {
           const woodType = woodTypes.find(w => w.id === item.woodTypeId);
-          alert(`Cannot dry ${requestedQuantity} pieces of ${woodType?.name} ${item.thickness}. Only ${stock.statusNotDried} not dried pieces available.`);
+          enqueueSnackbar(
+            `Cannot dry ${requestedQuantity} pieces of ${woodType?.name} ${item.thickness}. Only ${stock.statusNotDried} not dried pieces available.`,
+            { variant: 'error' }
+          );
           return;
         }
 
         if (requestedQuantity <= 0) {
-          alert('Please enter a valid number of pieces (minimum 1) for all wood types');
+          enqueueSnackbar('Please enter a valid number of pieces (minimum 1) for all wood types', { variant: 'warning' });
           return;
         }
 
@@ -539,16 +544,41 @@ export default function DryingProcess() {
       setAvailableStock([]);
     } catch (error: any) {
       console.error('Error creating process:', error);
-      alert(error.response?.data?.error || 'Failed to create drying process');
+      enqueueSnackbar(error.response?.data?.error || 'Failed to create drying process', { variant: 'error' });
     } finally {
       setCreatingProcess(false);
     }
   };
 
+  // A reading qualifies as an "inferred recharge" candidate when:
+  //   1. it has no recharge linked to it yet, and
+  //   2. the meter jumped > 100 units vs the previous reading (or startingElectricityUnits
+  //      if it's the first reading) — same heuristic that drives the ⚠ Inferred recharge chip.
+  // Returns candidates newest-first.
+  const getInferredRechargeReadings = (process: DryingProcess): DryingReading[] => {
+    const readings = process.readings || [];
+    if (readings.length === 0) return [];
+    const candidates: DryingReading[] = [];
+    for (let i = 0; i < readings.length; i++) {
+      const reading = readings[i];
+      if (reading.linkedRecharges && reading.linkedRecharges.length > 0) continue;
+      const prev = i > 0
+        ? readings[i - 1].electricityMeter
+        : (process.startingElectricityUnits ?? null);
+      if (prev === null || prev <= 0) continue;
+      if (reading.electricityMeter - prev > 100) {
+        candidates.push(reading);
+      }
+    }
+    return candidates.reverse();
+  };
+
   const handleOpenRechargeDialog = (process: DryingProcess) => {
-    if (!process.readings || process.readings.length === 0) {
-      alert(
-        'Please add a meter reading first. The recharge will be linked to the most recent reading so the cost calculation is accurate.'
+    const inferred = getInferredRechargeReadings(process);
+    if (inferred.length === 0) {
+      enqueueSnackbar(
+        'No inferred recharge detected. Add a meter reading taken AFTER recharging (meter must jump by more than 100 units) first, then attach the Luku SMS.',
+        { variant: 'warning', autoHideDuration: 7000 }
       );
       return;
     }
@@ -556,7 +586,7 @@ export default function DryingProcess() {
     setRechargeDialogOpen(true);
     setRechargeData({
       smsText: '',
-      meterReadingAfter: ''
+      selectedReadingId: inferred[0].id
     });
     // Reset preview state
     setShowRechargePreview(false);
@@ -565,8 +595,8 @@ export default function DryingProcess() {
 
   // Parse SMS and show preview
   const handleParseRecharge = () => {
-    if (!selectedProcessForRecharge || !rechargeData.smsText || !rechargeData.meterReadingAfter) {
-      alert('Please provide SMS text and meter reading after recharge');
+    if (!selectedProcessForRecharge || !rechargeData.smsText || !rechargeData.selectedReadingId) {
+      enqueueSnackbar('Please paste the Luku SMS and select the reading this recharge is linked to', { variant: 'warning' });
       return;
     }
 
@@ -628,7 +658,7 @@ export default function DryingProcess() {
     }
 
     if (!kwhAmount || kwhAmount === 0) {
-      alert('Could not parse kWh amount from SMS. Please check the SMS format.');
+      enqueueSnackbar('Could not parse kWh amount from SMS. Please check the SMS format.', { variant: 'error' });
       return;
     }
 
@@ -654,12 +684,23 @@ export default function DryingProcess() {
         return;
       }
 
+      const selectedReading = selectedProcessForRecharge.readings?.find(
+        r => r.id === rechargeData.selectedReadingId
+      );
+      if (!selectedReading) {
+        enqueueSnackbar('Selected reading not found. Please reopen the dialog and try again.', { variant: 'error' });
+        return;
+      }
+
       const rechargeDate = new Date().toISOString();
       const smsTimestamp = rechargePreview.smsTimestamp ? ` (SMS timestamp: ${rechargePreview.smsTimestamp})` : '';
 
-      // Create recharge record
+      // Create recharge record. The meter-after value is taken directly from the
+      // selected reading — that reading IS the post-recharge state by definition,
+      // so there is no separate user-entered "meter after" field.
       await api.post('/electricity/recharges', {
         dryingProcessId: selectedProcessForRecharge.id,
+        linkedReadingId: selectedReading.id,
         rechargeDate,
         token: rechargePreview.token,
         kwhAmount: rechargePreview.kwhAmount,
@@ -669,7 +710,7 @@ export default function DryingProcess() {
         ewuraFee: rechargePreview.ewuraFee,
         reaFee: rechargePreview.reaFee,
         debtCollected: rechargePreview.debtCollected,
-        meterReadingAfter: parseFloat(rechargeData.meterReadingAfter),
+        meterReadingAfter: selectedReading.electricityMeter,
         notes: `Added during drying process${smsTimestamp}`
       });
 
@@ -678,11 +719,11 @@ export default function DryingProcess() {
       setShowRechargePreview(false);
       setRechargePreview(null);
       setRechargeDialogOpen(false);
-      setRechargeData({ smsText: '', meterReadingAfter: '' });
-      alert('Recharge added successfully!');
+      setRechargeData({ smsText: '', selectedReadingId: '' });
+      enqueueSnackbar('Recharge added successfully', { variant: 'success' });
     } catch (error: any) {
       console.error('Error adding recharge:', error);
-      alert(error.response?.data?.error || 'Failed to add recharge');
+      enqueueSnackbar(error.response?.data?.error || 'Failed to add recharge', { variant: 'error' });
     }
   };
 
@@ -719,7 +760,7 @@ export default function DryingProcess() {
       });
     } catch (error: any) {
       console.error('Error adding reading:', error);
-      alert(error.response?.data?.error || 'Failed to add reading. Please try again.');
+      enqueueSnackbar(error.response?.data?.error || 'Failed to add reading. Please try again.', { variant: 'error' });
     } finally {
       setAddingReading(false);
     }
@@ -777,7 +818,7 @@ export default function DryingProcess() {
 
   const handleRequestClose = (process: DryingProcess) => {
     if (process.readings.length < 2) {
-      alert('Need at least 2 readings before requesting close');
+      enqueueSnackbar('Need at least 2 readings before requesting close', { variant: 'warning' });
       return;
     }
     openActionDialog({
@@ -1229,7 +1270,7 @@ export default function DryingProcess() {
         notes: process.notes || ''
       });
     } else {
-      alert('Cannot edit this process. Missing required fields.');
+      enqueueSnackbar('Cannot edit this process. Missing required fields.', { variant: 'warning' });
       return;
     }
 
@@ -1267,7 +1308,7 @@ export default function DryingProcess() {
       setEditDialogOpen(false);
     } catch (error) {
       console.error('Error updating process:', error);
-      alert('Failed to update process. Please try again.');
+      enqueueSnackbar('Failed to update process. Please try again.', { variant: 'error' });
     } finally {
       setUpdating(false);
     }
@@ -3335,7 +3376,7 @@ export default function DryingProcess() {
                 setEditingReading(null);
               } catch (error: any) {
                 console.error('Error deleting reading:', error);
-                alert(error.response?.data?.error || 'Failed to delete reading');
+                enqueueSnackbar(error.response?.data?.error || 'Failed to delete reading', { variant: 'error' });
               }
             }}
             startIcon={<DeleteIcon />}
@@ -4084,28 +4125,60 @@ export default function DryingProcess() {
           {!showRechargePreview ? (
             <Stack spacing={2.5}>
               {(() => {
-                const lastReading = selectedProcessForRecharge?.readings?.[selectedProcessForRecharge.readings.length - 1];
-                if (!lastReading) return null;
+                const inferred = selectedProcessForRecharge ? getInferredRechargeReadings(selectedProcessForRecharge) : [];
+                if (inferred.length === 0) return null;
+
+                const meterBefore = (reading: DryingReading): number | null => {
+                  if (!selectedProcessForRecharge) return null;
+                  const all = selectedProcessForRecharge.readings || [];
+                  const idx = all.findIndex(r => r.id === reading.id);
+                  if (idx > 0) return all[idx - 1].electricityMeter;
+                  return selectedProcessForRecharge.startingElectricityUnits ?? null;
+                };
+
                 return (
-                  <Alert severity="success" icon={false} sx={{ fontSize: '0.875rem', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: '#15803d', mb: 0.5 }}>
-                      🔗 This recharge will be linked to your last reading
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: '#166534', display: 'block' }}>
-                      <strong>{formatDateInTimezone(lastReading.readingTime, 'MMM d, yyyy hh:mm a', timezone)}</strong>
-                      {' — '}
-                      meter <strong>{lastReading.electricityMeter.toFixed(2)}</strong>, humidity <strong>{lastReading.humidity.toFixed(1)}%</strong>
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: '#166534', display: 'block', mt: 0.5 }}>
-                      The cost formula will use this reading's time as the recharge anchor — not a manually entered date.
-                      If you actually recharged before an earlier reading, add that reading first or contact an admin.
-                    </Typography>
-                  </Alert>
+                  <>
+                    <Alert severity="warning" icon={false} sx={{ fontSize: '0.875rem', backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#b45309', mb: 0.5 }}>
+                        ⚠ Select the reading where the recharge happened
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#92400e', display: 'block' }}>
+                        Only readings where the meter jumped by more than 100 units (and have no recharge attached yet) are shown below.
+                        The selected reading's time becomes the cost-allocation anchor for this recharge.
+                      </Typography>
+                    </Alert>
+
+                    <TextField
+                      select
+                      fullWidth
+                      label="Inferred recharge reading"
+                      value={rechargeData.selectedReadingId}
+                      onChange={(e) => setRechargeData({ ...rechargeData, selectedReadingId: e.target.value })}
+                      size="small"
+                      sx={textFieldSx}
+                      required
+                      helperText="Pick the reading taken AFTER recharging — its meter value is used as the post-recharge meter."
+                    >
+                      {inferred.map((reading) => {
+                        const before = meterBefore(reading);
+                        const jump = before !== null ? reading.electricityMeter - before : null;
+                        return (
+                          <MenuItem key={reading.id} value={reading.id}>
+                            {formatDateInTimezone(reading.readingTime, 'MMM d, yyyy hh:mm a', timezone)}
+                            {' — meter '}
+                            <strong>{reading.electricityMeter.toFixed(2)}</strong>
+                            {jump !== null ? ` (+${jump.toFixed(2)})` : ''}
+                            {`, humidity ${reading.humidity.toFixed(1)}%`}
+                          </MenuItem>
+                        );
+                      })}
+                    </TextField>
+                  </>
                 );
               })()}
 
               <Alert severity="info" sx={{ fontSize: '0.875rem' }}>
-                <strong>Important:</strong> Paste the Luku SMS and enter the meter reading AFTER the recharge was applied.
+                <strong>Important:</strong> Paste the Luku SMS that corresponds to the reading you selected above.
               </Alert>
 
               <TextField
@@ -4120,23 +4193,6 @@ export default function DryingProcess() {
                 sx={textFieldSx}
                 required
               />
-
-              <TextField
-                fullWidth
-                label="Meter Reading AFTER Recharge (Unit)"
-                type="number"
-                value={rechargeData.meterReadingAfter}
-                onChange={(e) => setRechargeData({ ...rechargeData, meterReadingAfter: e.target.value })}
-                size="small"
-                sx={textFieldSx}
-                inputProps={{ step: 0.01 }}
-                required
-                helperText="Enter the electricity meter reading shown AFTER the recharge was added"
-              />
-
-              <Typography variant="caption" sx={{ color: '#64748b', mt: 1 }}>
-                <strong>Example:</strong> If meter was at 400 units, you recharged 2,807 kWh, and meter now shows 3,148 units, enter 3148.
-              </Typography>
             </Stack>
           ) : (
             <Stack spacing={2}>
@@ -4167,7 +4223,10 @@ export default function DryingProcess() {
                   <Grid item xs={6}>
                     <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>Meter Reading After</Typography>
                     <Typography variant="body1" sx={{ fontWeight: 700, color: '#2563eb' }}>
-                      {parseFloat(rechargeData.meterReadingAfter).toLocaleString()} units
+                      {(() => {
+                        const r = selectedProcessForRecharge?.readings?.find(x => x.id === rechargeData.selectedReadingId);
+                        return r ? `${r.electricityMeter.toLocaleString()} units` : '—';
+                      })()}
                     </Typography>
                   </Grid>
                 </Grid>
@@ -4261,7 +4320,7 @@ export default function DryingProcess() {
               <Button
                 onClick={handleParseRecharge}
                 variant="contained"
-                disabled={!rechargeData.smsText.trim() || !rechargeData.meterReadingAfter}
+                disabled={!rechargeData.smsText.trim() || !rechargeData.selectedReadingId}
                 sx={{
                   backgroundColor: '#dc2626',
                   textTransform: 'none',

@@ -23,20 +23,6 @@ import { prisma } from '../lib/prisma.js';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
-// Cloudinary-hosted Material outline icons (grey #64748b on white) that match
-// the sidebar visual identity. When passed as iconUrl on sendTelegramMessage,
-// the caller's text becomes the photo caption underneath the icon.
-const CLOUDINARY_TRANSFORM = 'f_png,w_512,h_512,c_pad,b_white,e_colorize:100,co_rgb:64748b';
-const CLOUDINARY_BASE = `https://res.cloudinary.com/ddi83fky2/image/upload/${CLOUDINARY_TRANSFORM}/ud-icons`;
-
-export const TELEGRAM_ICONS = {
-  woodReceipt:     `${CLOUDINARY_BASE}/inventory_2.svg`,
-  drying:          `${CLOUDINARY_BASE}/dry.svg`,
-  woodTransfer:    `${CLOUDINARY_BASE}/local_shipping.svg`,
-  stockAdjustment: `${CLOUDINARY_BASE}/tune.svg`,
-  lukuRecharge:    `${CLOUDINARY_BASE}/bolt.svg`,
-} as const;
-
 export interface SendResult {
   ok: boolean;
   skipped?: 'no_token' | 'no_chat_id' | 'user_not_found';
@@ -49,7 +35,6 @@ interface SendArgs {
   text: string;
   parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
   silent?: boolean;          // Telegram will deliver without sound
-  iconUrl?: string;          // When set, send as photo with text as caption
 }
 
 interface SendToChatArgs {
@@ -57,7 +42,6 @@ interface SendToChatArgs {
   text: string;
   parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
   silent?: boolean;
-  iconUrl?: string;
 }
 
 /**
@@ -91,7 +75,6 @@ export async function sendTelegramMessage(args: SendArgs): Promise<SendResult> {
     text: args.text,
     parseMode: args.parseMode,
     silent: args.silent,
-    iconUrl: args.iconUrl,
   });
 }
 
@@ -107,22 +90,12 @@ export async function sendTelegramMessageToChatId(args: SendToChatArgs): Promise
   }
 
   try {
-    // When iconUrl is present, send as a photo with the message as caption.
-    // Caption supports the same Markdown/HTML parse modes as sendMessage but
-    // is capped at 1024 chars by Telegram (sendMessage allows 4096).
-    const usePhoto = Boolean(args.iconUrl) && args.text.length <= 1024;
-    const endpoint = usePhoto ? 'sendPhoto' : 'sendMessage';
-    const url = `${TELEGRAM_API}/bot${token}/${endpoint}`;
-
-    const body: any = { chat_id: args.chatId };
-    if (usePhoto) {
-      body.photo = args.iconUrl;
-      body.caption = args.text;
-      if (args.parseMode) body.caption_parse_mode = args.parseMode;
-    } else {
-      body.text = args.text;
-      if (args.parseMode) body.parse_mode = args.parseMode;
-    }
+    const url = `${TELEGRAM_API}/bot${token}/sendMessage`;
+    const body: any = {
+      chat_id: args.chatId,
+      text: args.text,
+    };
+    if (args.parseMode) body.parse_mode = args.parseMode;
     if (args.silent) body.disable_notification = true;
 
     const res = await fetch(url, {
@@ -137,7 +110,7 @@ export async function sendTelegramMessageToChatId(args: SendToChatArgs): Promise
     const json = (await res.json()) as any;
     if (!res.ok || !json?.ok) {
       const err = json?.description ?? `HTTP ${res.status}`;
-      console.error('[telegramNotify] send failed', { chatId: args.chatId, endpoint, error: err });
+      console.error('[telegramNotify] send failed', { chatId: args.chatId, error: err });
       return { ok: false, error: err };
     }
     return { ok: true, telegramMessageId: json.result?.message_id };
@@ -165,8 +138,6 @@ export async function sendTelegramMessageToMany(
     })
   );
 }
-
-export type TelegramIconKey = keyof typeof TELEGRAM_ICONS;
 
 /**
  * Helper: format a welcome message for newly-linked users.

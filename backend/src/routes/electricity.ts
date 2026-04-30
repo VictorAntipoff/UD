@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { filterRecipientsByPreference, excludeActorUnlessOptedIn } from '../services/notificationPreferences.js';
-import { sendTelegramMessage, TELEGRAM_ICONS } from '../services/telegramNotify.js';
+import { sendTelegramMessage } from '../services/telegramNotify.js';
 import crypto from 'node:crypto';
 
 interface ElectricityRechargeBody {
@@ -18,6 +18,7 @@ interface ElectricityRechargeBody {
   notes?: string;
   dryingProcessId?: string;
   meterReadingAfter?: number;
+  linkedReadingId?: string;
 }
 
 async function electricityRoutes(fastify: FastifyInstance) {
@@ -165,23 +166,41 @@ async function electricityRoutes(fastify: FastifyInstance) {
     try {
       const body = request.body as ElectricityRechargeBody;
 
-      // When the recharge is tied to a drying process, anchor it to the most
-      // recent reading. The recharge's effective time then comes from that
-      // reading instead of a user-entered date — preventing the wrong-date
-      // bug where the cost formula misallocates kWh between windows.
+      // When the recharge is tied to a drying process, anchor it to a specific
+      // reading. The recharge's effective time then comes from that reading
+      // instead of a user-entered date — preventing the wrong-date bug where
+      // the cost formula misallocates kWh between windows.
+      //
+      // Preferred path: caller supplies linkedReadingId (the reading where the
+      //   meter jumped — i.e. the "inferred recharge" reading the user picked).
+      // Fallback path: no linkedReadingId provided → use the most recent reading
+      //   on the process. Kept for backward compatibility (telegram bot, scripts).
       let linkedReadingId: string | undefined;
       if (body.dryingProcessId) {
-        const lastReading = await prisma.dryingReading.findFirst({
-          where: { dryingProcessId: body.dryingProcessId },
-          orderBy: { readingTime: 'desc' },
-          select: { id: true },
-        });
-        if (!lastReading) {
-          return reply.status(400).send({
-            error: 'Cannot log recharge: this drying process has no readings yet. Please add a reading first, then log the recharge.',
+        if (body.linkedReadingId) {
+          const reading = await prisma.dryingReading.findUnique({
+            where: { id: body.linkedReadingId },
+            select: { id: true, dryingProcessId: true },
           });
+          if (!reading || reading.dryingProcessId !== body.dryingProcessId) {
+            return reply.status(400).send({
+              error: 'linkedReadingId does not belong to the given drying process.',
+            });
+          }
+          linkedReadingId = reading.id;
+        } else {
+          const lastReading = await prisma.dryingReading.findFirst({
+            where: { dryingProcessId: body.dryingProcessId },
+            orderBy: { readingTime: 'desc' },
+            select: { id: true },
+          });
+          if (!lastReading) {
+            return reply.status(400).send({
+              error: 'Cannot log recharge: this drying process has no readings yet. Please add a reading first, then log the recharge.',
+            });
+          }
+          linkedReadingId = lastReading.id;
         }
-        linkedReadingId = lastReading.id;
       }
 
       const recharge = await prisma.electricityRecharge.create({
@@ -248,13 +267,13 @@ async function electricityRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `*New Luku recharge*\n` +
+              `⚡ *New Luku recharge*\n` +
               `By: ${userName}\n` +
               `Amount: *TZS ${totalTzs}*\n` +
               `kWh: ${kwh}` +
               (batchInfo ? `\nLinked to:${batchInfo}` : '');
             for (const rid of telegramIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.lukuRecharge });
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
             }
           }
         }
@@ -380,13 +399,13 @@ async function electricityRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `*Luku recharge deleted*\n` +
+              `🗑️ *Luku recharge deleted*\n` +
               `By: ${userName}\n` +
               `Amount: TZS ${totalTzs}\n` +
               `kWh: ${kwh}` +
               (batchInfo ? `\n${batchInfo.trim()}` : '');
             for (const rid of telegramIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.lukuRecharge });
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
             }
           }
         }

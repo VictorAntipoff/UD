@@ -9,7 +9,7 @@ import {
   postDryingReopen,
   postDryingCancel,
 } from '../services/stockLedger.js';
-import { sendTelegramMessage, sendTelegramMessageToMany, TELEGRAM_ICONS } from '../services/telegramNotify.js';
+import { sendTelegramMessage, sendTelegramMessageToMany } from '../services/telegramNotify.js';
 import {
   filterRecipientsByPreference,
   userWantsChannel,
@@ -1121,13 +1121,13 @@ async function factoryRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `*New drying process started*\n` +
+              `🆕 *New drying process started*\n` +
               `Batch: *${process.batchNumber}*\n` +
               `Started by: ${userName}\n` +
               `Wood: ${detailsLine}\n` +
               `Total: ${summary}`;
             for (const rid of telegramIds) {
-              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.drying });
+              void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
             }
           }
         }
@@ -1444,12 +1444,12 @@ async function factoryRoutes(fastify: FastifyInstance) {
           }
           if (telegramIds.length > 0) {
             const tgText =
-              `*Drying close approval needed*\n` +
+              `🔔 *Drying close approval needed*\n` +
               `Batch: *${current.batchNumber}*\n` +
               `Requested by: ${userName}\n` +
               `Cost preview: TZS ${totalCost ? totalCost.toLocaleString('en-US', { maximumFractionDigits: 0 }) : 'n/a'}\n\n` +
               `Open the UD app to review and approve or reject.`;
-            void sendTelegramMessageToMany(telegramIds, tgText, { parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.drying });
+            void sendTelegramMessageToMany(telegramIds, tgText, { parseMode: 'Markdown' });
           }
         }
       } catch (notifError) {
@@ -1565,9 +1565,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           if (await userWantsChannel(creatorId, 'DRYING_CLOSE_APPROVED', 'telegram')) {
             void sendTelegramMessage({
               userId: creatorId,
-              iconUrl: TELEGRAM_ICONS.drying,
               text:
-                `*Drying close approved*\n` +
+                `✅ *Drying close approved*\n` +
                 `Batch: *${current.batchNumber}*\n` +
                 `Approved by: ${userName}`,
               parseMode: 'Markdown',
@@ -1672,9 +1671,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           if (await userWantsChannel(creatorId, 'DRYING_CLOSE_REJECTED', 'telegram')) {
             void sendTelegramMessage({
               userId: creatorId,
-              iconUrl: TELEGRAM_ICONS.drying,
               text:
-                `*Drying close rejected*\n` +
+                `❌ *Drying close rejected*\n` +
                 `Batch: *${current.batchNumber}*\n` +
                 `Rejected by: ${userName}\n` +
                 `Reason: ${data.reason}\n\n` +
@@ -1828,9 +1826,8 @@ async function factoryRoutes(fastify: FastifyInstance) {
           if (await userWantsChannel(creatorId, 'DRYING_REOPENED', 'telegram')) {
             void sendTelegramMessage({
               userId: creatorId,
-              iconUrl: TELEGRAM_ICONS.drying,
               text:
-                `*Drying process reopened*\n` +
+                `🔓 *Drying process reopened*\n` +
                 `Batch: *${current.batchNumber}*\n` +
                 `Reopened by: ${userName}\n` +
                 `Reason: ${data.reason}\n\n` +
@@ -1977,7 +1974,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
             }
             if (telegramIds.length > 0) {
               const tgText =
-                `*Drying process deleted*\n` +
+                `🗑 *Drying process deleted*\n` +
                 `Batch: *${captured.batchNumber}*\n` +
                 `Was: ${captured.status}\n` +
                 `Deleted by: ${userName}\n\n` +
@@ -1985,7 +1982,7 @@ async function factoryRoutes(fastify: FastifyInstance) {
                   ? `${totalPieces} pieces returned from Under Drying → Not Dried.`
                   : `Process was already ${captured.status} — no stock changes.`);
               for (const rid of telegramIds) {
-                void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown', iconUrl: TELEGRAM_ICONS.drying });
+                void sendTelegramMessage({ userId: rid, text: tgText, parseMode: 'Markdown' });
               }
             }
           }
@@ -2162,23 +2159,23 @@ async function factoryRoutes(fastify: FastifyInstance) {
 
         // ─── Telegram ───
         const confirmText =
-          `*Reading saved* — ${process.batchNumber}\n` +
+          `✓ *Reading saved* — ${process.batchNumber}\n` +
           `Humidity: *${data.humidity}%*  •  Electricity: *${data.electricityMeter}* units`;
         const adminText =
-          `*Reading added* — ${process.batchNumber}\n` +
+          `📊 *Reading added* — ${process.batchNumber}\n` +
           `By: ${userName}\n` +
           `Humidity: *${data.humidity}%*  •  Electricity: *${data.electricityMeter}* units`;
 
         // Admin third-person view (those with telegram on)
         const telegramAdmins = await filterRecipientsByPreference(adminsExceptOperator, 'DRYING_READING_ADDED', 'telegram');
         for (const rid of telegramAdmins) {
-          void sendTelegramMessage({ userId: rid, text: adminText, parseMode: 'Markdown', silent: true, iconUrl: TELEGRAM_ICONS.drying });
+          void sendTelegramMessage({ userId: rid, text: adminText, parseMode: 'Markdown', silent: true });
         }
         // Operator's own confirmation — but only if they're not already in the admin list
         // (otherwise they'd get two messages: the admin third-person view + this confirmation).
         const operatorAlreadyNotified = telegramAdmins.includes(user.userId);
         if (!operatorAlreadyNotified && await userWantsChannel(user.userId, 'DRYING_READING_ADDED', 'telegram')) {
-          void sendTelegramMessage({ userId: user.userId, text: confirmText, parseMode: 'Markdown', silent: true, iconUrl: TELEGRAM_ICONS.drying });
+          void sendTelegramMessage({ userId: user.userId, text: confirmText, parseMode: 'Markdown', silent: true });
         }
       } catch (notifError) {
         console.error('Error sending drying reading notifications:', notifError);
