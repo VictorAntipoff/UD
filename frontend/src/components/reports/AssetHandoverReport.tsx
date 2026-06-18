@@ -13,7 +13,9 @@ interface HandoverAsset {
 }
 
 interface AssetHandoverReportProps {
-  asset: HandoverAsset;
+  // Single asset (back-compat) OR multiple assets
+  asset?: HandoverAsset;
+  assets?: HandoverAsset[];
   receiverName: string;
   locationName: string;
   notes?: string;
@@ -98,6 +100,40 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     borderRadius: 3
   },
+  table: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderStyle: 'solid',
+    borderRadius: 3
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    borderBottomStyle: 'solid'
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    borderBottomStyle: 'solid'
+  },
+  th: {
+    fontSize: 7.5,
+    fontFamily: 'Helvetica-Bold',
+    color: '#475569',
+    padding: '5 5'
+  },
+  td: {
+    fontSize: 7.5,
+    color: '#2c3e50',
+    padding: '5 5'
+  },
+  colNo: { width: '8%' },
+  colTag: { width: '20%' },
+  colName: { width: '40%' },
+  colSerial: { width: '32%' },
   signBlock: {
     marginTop: 18,
     flexDirection: 'row',
@@ -148,12 +184,18 @@ const InfoLine = ({ label, value }: { label: string; value?: string | null }) =>
 
 export const AssetHandoverReport = ({
   asset,
+  assets,
   receiverName,
   locationName,
   notes,
   issuedByName,
   timestamp
-}: AssetHandoverReportProps) => (
+}: AssetHandoverReportProps) => {
+  const list: HandoverAsset[] = assets && assets.length > 0 ? assets : asset ? [asset] : [];
+  const isSingle = list.length === 1;
+  const headerLabel = isSingle ? list[0]?.assetTag : `${list.length} assets`;
+
+  return (
   <Document>
     <Page size="A4" style={styles.page}>
       {/* Header */}
@@ -164,23 +206,46 @@ export const AssetHandoverReport = ({
           Confirmation of asset receipt at the assigned location
         </Text>
         <View style={styles.metadata}>
-          <Text>Asset: {asset.assetTag}</Text>
+          <Text>Asset: {headerLabel}</Text>
           <Text>Issued: {timestamp}</Text>
         </View>
       </View>
 
       {/* Asset details */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Asset Details</Text>
-        <View style={styles.infoBox}>
-          <InfoLine label="Asset Tag" value={asset.assetTag} />
-          <InfoLine label="Name" value={asset.name} />
-          <InfoLine label="Category" value={asset.category?.name} />
-          <InfoLine label="Brand" value={asset.brand} />
-          <InfoLine label="Model Number" value={asset.modelNumber} />
-          <InfoLine label="Serial Number" value={asset.serialNumber} />
-          <InfoLine label="Description" value={asset.description} />
-        </View>
+        <Text style={styles.sectionTitle}>
+          {isSingle ? 'Asset Details' : `Assets (${list.length})`}
+        </Text>
+        {isSingle ? (
+          <View style={styles.infoBox}>
+            <InfoLine label="Asset Tag" value={list[0].assetTag} />
+            <InfoLine label="Name" value={list[0].name} />
+            <InfoLine label="Category" value={list[0].category?.name} />
+            <InfoLine label="Brand" value={list[0].brand} />
+            <InfoLine label="Model Number" value={list[0].modelNumber} />
+            <InfoLine label="Serial Number" value={list[0].serialNumber} />
+            <InfoLine label="Description" value={list[0].description} />
+          </View>
+        ) : (
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <Text style={[styles.th, styles.colNo]}>#</Text>
+              <Text style={[styles.th, styles.colTag]}>Asset Tag</Text>
+              <Text style={[styles.th, styles.colName]}>Name</Text>
+              <Text style={[styles.th, styles.colSerial]}>Serial No.</Text>
+            </View>
+            {list.map((a, i) => (
+              <View style={styles.tableRow} key={a.assetTag || i} wrap={false}>
+                <Text style={[styles.td, styles.colNo]}>{i + 1}</Text>
+                <Text style={[styles.td, styles.colTag]}>{a.assetTag || 'N/A'}</Text>
+                <Text style={[styles.td, styles.colName]}>{a.name || 'N/A'}</Text>
+                <Text style={[styles.td, styles.colSerial]}>
+                  {a.serialNumber && a.serialNumber.trim() ? a.serialNumber : 'N/A'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Handover details */}
@@ -199,9 +264,9 @@ export const AssetHandoverReport = ({
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Acknowledgement</Text>
         <Text style={styles.statement}>
-          I confirm that I have received the asset described above in good working
-          condition at the location stated, and I accept responsibility for its care
-          and proper use while it remains in my charge.
+          I confirm that I have received the {isSingle ? 'asset' : `${list.length} assets`}{' '}
+          described above in good working condition at the location stated, and I accept
+          responsibility for their care and proper use while they remain in my charge.
         </Text>
       </View>
 
@@ -224,10 +289,11 @@ export const AssetHandoverReport = ({
       {/* Footer */}
       <Text style={styles.footer} fixed>
         U Design Asset Management • Generated on {timestamp} • This document confirms
-        physical receipt of the asset by the named recipient.
+        physical receipt of the asset(s) by the named recipient.
       </Text>
     </Page>
   </Document>
-);
+  );
+};
 
 export default AssetHandoverReport;

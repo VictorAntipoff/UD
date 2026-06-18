@@ -21,7 +21,10 @@ import { AssetHandoverReport } from '../reports/AssetHandoverReport';
 interface AssetHandoverDialogProps {
   open: boolean;
   onClose: () => void;
-  asset: any;
+  /** Single asset (e.g. from the detail page) */
+  asset?: any;
+  /** Multiple assets (e.g. from a list multi-select) */
+  assets?: any[];
 }
 
 interface UserOption {
@@ -36,7 +39,7 @@ const userLabel = (u: UserOption) => {
   return name ? `${name} (${u.email})` : u.email;
 };
 
-export const AssetHandoverDialog = ({ open, onClose, asset }: AssetHandoverDialogProps) => {
+export const AssetHandoverDialog = ({ open, onClose, asset, assets }: AssetHandoverDialogProps) => {
   const { user } = useAuth();
   const [users, setUsers] = useState<UserOption[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -44,14 +47,27 @@ export const AssetHandoverDialog = ({ open, onClose, asset }: AssetHandoverDialo
   const [locationName, setLocationName] = useState('');
   const [notes, setNotes] = useState('');
 
+  // Normalize to a list; single `asset` and multi `assets` both supported
+  const assetList: any[] = assets && assets.length > 0 ? assets : asset ? [asset] : [];
+  const isSingle = assetList.length === 1;
+
+  // Pre-fill location only when all assets share the same one (otherwise leave blank)
+  const sharedLocation = (() => {
+    const names = Array.from(
+      new Set(assetList.map((a) => a?.location?.name).filter(Boolean))
+    );
+    return names.length === 1 ? (names[0] as string) : '';
+  })();
+
   useEffect(() => {
     if (!open) return;
-    // Reset per-open state and prefill location from the asset
+    // Reset per-open state and prefill location from the asset(s)
     setReceiverId('');
     setNotes('');
-    setLocationName(asset?.location?.name || '');
+    setLocationName(sharedLocation);
     fetchUsers();
-  }, [open, asset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const fetchUsers = async () => {
     try {
@@ -73,16 +89,23 @@ export const AssetHandoverDialog = ({ open, onClose, asset }: AssetHandoverDialo
     : '';
   const timestamp = format(new Date(), 'MMM dd, yyyy');
 
-  const fileName = `handover-${asset?.assetTag || 'asset'}.pdf`;
-  const canGenerate = Boolean(receiverId && locationName.trim());
+  const fileName = isSingle
+    ? `handover-${assetList[0]?.assetTag || 'asset'}.pdf`
+    : `handover-${assetList.length}-assets.pdf`;
+  const canGenerate = Boolean(receiverId && locationName.trim() && assetList.length > 0);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ borderBottom: '1px solid #e2e8f0', fontWeight: 600, color: '#1e293b' }}>
         Generate Handover / Receipt PDF
-        {asset && (
+        {isSingle && assetList[0] && (
           <Typography variant="caption" sx={{ display: 'block', color: '#64748b' }}>
-            {asset.assetTag} — {asset.name}
+            {assetList[0].assetTag} — {assetList[0].name}
+          </Typography>
+        )}
+        {!isSingle && assetList.length > 0 && (
+          <Typography variant="caption" sx={{ display: 'block', color: '#64748b' }}>
+            {assetList.length} assets selected
           </Typography>
         )}
       </DialogTitle>
@@ -116,7 +139,11 @@ export const AssetHandoverDialog = ({ open, onClose, asset }: AssetHandoverDialo
             label="Location"
             value={locationName}
             onChange={(e) => setLocationName(e.target.value)}
-            helperText="Pre-filled from the asset; edit if handing over elsewhere"
+            helperText={
+              isSingle
+                ? 'Pre-filled from the asset; edit if handing over elsewhere'
+                : 'Where the assets are being handed over'
+            }
           />
 
           <TextField
@@ -133,11 +160,11 @@ export const AssetHandoverDialog = ({ open, onClose, asset }: AssetHandoverDialo
         <Button onClick={onClose} sx={{ color: '#64748b' }}>
           Cancel
         </Button>
-        {canGenerate && asset ? (
+        {canGenerate ? (
           <PDFDownloadLink
             document={
               <AssetHandoverReport
-                asset={asset}
+                assets={assetList}
                 receiverName={receiverName}
                 locationName={locationName.trim()}
                 notes={notes}

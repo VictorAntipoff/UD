@@ -18,7 +18,8 @@ import {
   Grid,
   Card,
   CardContent,
-  Tooltip
+  Tooltip,
+  Checkbox
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -53,6 +54,8 @@ const AssetList = () => {
   const [filterCategory, setFilterCategory] = useState('');
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
   const [handoverAsset, setHandoverAsset] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [multiHandoverOpen, setMultiHandoverOpen] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -149,6 +152,32 @@ const AssetList = () => {
     asset.brand?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const visibleIds = filteredAssets.map((a) => a.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        visibleIds.forEach((id) => next.delete(id));
+      } else {
+        visibleIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  };
+
+  const selectedAssets = assets.filter((a) => selectedIds.has(a.id));
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-TZ', {
       style: 'currency',
@@ -170,6 +199,21 @@ const AssetList = () => {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
+          {selectedIds.size > 0 && (
+            <Button
+              variant="contained"
+              startIcon={<HandoverIcon />}
+              onClick={() => setMultiHandoverOpen(true)}
+              sx={{
+                backgroundColor: '#dc2626',
+                '&:hover': { backgroundColor: '#b91c1c' },
+                textTransform: 'none',
+                fontWeight: 600
+              }}
+            >
+              Handover PDF ({selectedIds.size})
+            </Button>
+          )}
           <Button
             variant="outlined"
             startIcon={<QrCodeScannerIcon />}
@@ -380,6 +424,15 @@ const AssetList = () => {
             <Table>
               <TableHead>
                 <TableRow sx={{ backgroundColor: '#f8fafc' }}>
+                  <TableCell padding="checkbox" sx={{ width: '48px' }}>
+                    <Checkbox
+                      size="small"
+                      checked={allVisibleSelected}
+                      indeterminate={someVisibleSelected && !allVisibleSelected}
+                      onChange={toggleSelectAll}
+                      sx={{ color: '#cbd5e1', '&.Mui-checked': { color: '#dc2626' }, '&.MuiCheckbox-indeterminate': { color: '#dc2626' } }}
+                    />
+                  </TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem', width: '60px' }}>Image</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Asset Tag</TableCell>
                   <TableCell sx={{ fontWeight: 600, fontSize: '0.875rem' }}>Name</TableCell>
@@ -397,11 +450,22 @@ const AssetList = () => {
                   <TableRow
                     key={asset.id}
                     hover
+                    selected={selectedIds.has(asset.id)}
                     sx={{
                       cursor: 'pointer',
-                      '&:hover': { backgroundColor: '#f8fafc' }
+                      '&:hover': { backgroundColor: '#f8fafc' },
+                      '&.Mui-selected': { backgroundColor: '#fef2f2' },
+                      '&.Mui-selected:hover': { backgroundColor: '#fee2e2' }
                     }}
                   >
+                    <TableCell padding="checkbox">
+                      <Checkbox
+                        size="small"
+                        checked={selectedIds.has(asset.id)}
+                        onChange={() => toggleSelect(asset.id)}
+                        sx={{ color: '#cbd5e1', '&.Mui-checked': { color: '#dc2626' } }}
+                      />
+                    </TableCell>
                     <TableCell sx={{ p: 1 }}>
                       {asset.imageUrl ? (
                         <Box
@@ -555,6 +619,12 @@ const AssetList = () => {
         open={Boolean(handoverAsset)}
         onClose={() => setHandoverAsset(null)}
         asset={handoverAsset}
+      />
+
+      <AssetHandoverDialog
+        open={multiHandoverOpen}
+        onClose={() => setMultiHandoverOpen(false)}
+        assets={selectedAssets}
       />
     </Box>
   );
