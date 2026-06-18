@@ -2,6 +2,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { authenticateToken } from '../middleware/auth.js';
 import { uploadToCloudinary } from '../lib/cloudinary.js';
 
@@ -634,6 +635,12 @@ export default async function assetRoutes(fastify: FastifyInstance) {
         data.disposalDate = new Date(data.disposalDate).toISOString();
       }
 
+      // Asset model has no @default on id and no @updatedAt, so supply both explicitly
+      if (!data.id) {
+        data.id = randomUUID();
+      }
+      data.updatedAt = new Date();
+
       const asset = await prisma.asset.create({
         data,
         include: {
@@ -693,6 +700,9 @@ export default async function assetRoutes(fastify: FastifyInstance) {
       if (data.disposalDate && typeof data.disposalDate === 'string') {
         data.disposalDate = new Date(data.disposalDate).toISOString();
       }
+
+      // Asset model has no @updatedAt, so bump the timestamp explicitly
+      data.updatedAt = new Date();
 
       const updatedAsset = await prisma.asset.update({
         where: { id: asset.id },
