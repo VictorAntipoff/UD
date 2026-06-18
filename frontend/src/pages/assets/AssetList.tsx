@@ -32,13 +32,15 @@ import {
   Warning as BrokenIcon,
   Archive as DisposedIcon,
   QrCodeScanner as QrCodeScannerIcon,
-  ContentCopy as DuplicateIcon
+  ContentCopy as DuplicateIcon,
+  PictureAsPdf as HandoverIcon
 } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { format } from 'date-fns';
 import { QRScanner } from '../../components/QRScanner';
+import { AssetHandoverDialog } from '../../components/assets/AssetHandoverDialog';
 
 const AssetList = () => {
   const navigate = useNavigate();
@@ -50,6 +52,7 @@ const AssetList = () => {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [handoverAsset, setHandoverAsset] = useState<any>(null);
 
   useEffect(() => {
     fetchData();
@@ -511,6 +514,15 @@ const AssetList = () => {
                           <DuplicateIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
+                      <Tooltip title="Handover PDF">
+                        <IconButton
+                          size="small"
+                          onClick={() => setHandoverAsset(asset)}
+                          sx={{ color: '#dc2626' }}
+                        >
+                          <HandoverIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title="Delete">
                         <IconButton
                           size="small"
@@ -537,6 +549,12 @@ const AssetList = () => {
           // Navigate to the scanned asset detail page using asset tag
           navigate(`/dashboard/assets/${data.assetTag || data.id}`);
         }}
+      />
+
+      <AssetHandoverDialog
+        open={Boolean(handoverAsset)}
+        onClose={() => setHandoverAsset(null)}
+        asset={handoverAsset}
       />
     </Box>
   );

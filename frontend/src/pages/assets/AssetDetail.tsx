@@ -43,13 +43,15 @@ import {
   ChevronLeft as PrevIcon,
   ChevronRight as NextIcon,
   ZoomIn as ZoomInIcon,
-  ZoomOut as ZoomOutIcon
+  ZoomOut as ZoomOutIcon,
+  PictureAsPdf as HandoverIcon
 } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../lib/api';
 import { format } from 'date-fns';
 import { AssetQRCode } from '../../components/AssetQRCode';
+import { AssetHandoverDialog } from '../../components/assets/AssetHandoverDialog';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
@@ -89,6 +91,7 @@ const AssetDetail = () => {
   const [selectedDocument, setSelectedDocument] = useState<any>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [pageNumber, setPageNumber] = useState<number>(1);
+  const [handoverDialogOpen, setHandoverDialogOpen] = useState(false);
 
   useEffect(() => {
     if (id) fetchAsset();
@@ -376,6 +379,23 @@ const AssetDetail = () => {
               }}
             >
               Edit Asset
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<HandoverIcon />}
+              onClick={() => setHandoverDialogOpen(true)}
+              sx={{
+                borderColor: '#dc2626',
+                color: '#dc2626',
+                textTransform: 'none',
+                fontWeight: 600,
+                '&:hover': {
+                  borderColor: '#b91c1c',
+                  backgroundColor: '#fef2f2'
+                }
+              }}
+            >
+              Handover PDF
             </Button>
             <Button
               variant="outlined"
@@ -1369,6 +1389,12 @@ const AssetDetail = () => {
         open={assignDialogOpen}
         onClose={() => setAssignDialogOpen(false)}
         onSubmit={handleAssign}
+      />
+
+      <AssetHandoverDialog
+        open={handoverDialogOpen}
+        onClose={() => setHandoverDialogOpen(false)}
+        asset={asset}
       />
     </Box>
   );
