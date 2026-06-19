@@ -64,6 +64,23 @@ const AssetForm = () => {
     lifespanUnit: 'YEARS'
   });
 
+  // Bulk creation (new assets only): quantity + one serial per unit.
+  // quantity 1 = current single-asset behaviour.
+  const [quantity, setQuantity] = useState(1);
+  const [unitSerials, setUnitSerials] = useState<string[]>(['']);
+
+  // Keep the per-unit serial array length in sync with quantity.
+  const handleQuantityChange = (next: number) => {
+    const q = Math.max(1, Math.min(100, Math.floor(next || 1)));
+    setQuantity(q);
+    setUnitSerials(prev => {
+      const arr = [...prev];
+      if (q > arr.length) while (arr.length < q) arr.push('');
+      else arr.length = q;
+      return arr;
+    });
+  };
+
   useEffect(() => {
     const loadData = async () => {
       // First load categories, locations, and suppliers
@@ -258,6 +275,20 @@ const AssetForm = () => {
         const response = await api.patch(`/assets/${id}`, data);
         createdAsset = response.data;
         assetIdentifier = id; // Use the same identifier (could be tag or UUID)
+      } else if (quantity > 1) {
+        // Bulk: create `quantity` individual assets, each with its own serial.
+        // The single `serialNumber` field is ignored; per-unit serials win.
+        const { serialNumber, assetTag, ...shared } = data;
+        const response = await api.post('/assets/bulk', {
+          data: shared,
+          serialNumbers: unitSerials.map(s => s.trim() || null),
+        });
+        // Use the first created asset for the post-create file download step
+        // (image/PDF are shared, so downloading once and attaching to all is
+        // out of scope here — we attach to the first; others reference the
+        // same shared imageUrl already saved on the row).
+        createdAsset = response.data?.assets?.[0];
+        assetIdentifier = createdAsset?.assetTag;
       } else {
         const response = await api.post('/assets', data);
         createdAsset = response.data;
@@ -794,16 +825,73 @@ const AssetForm = () => {
                       sx={fieldSx}
                     />
                   </Grid>
-                  <Grid item xs={12} sm={4}>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      label="Serial Number"
-                      value={formData.serialNumber}
-                      onChange={(e) => handleChange('serialNumber', e.target.value)}
-                      sx={fieldSx}
-                    />
-                  </Grid>
+                  {/* Quantity (new assets only) — when > 1, one serial per unit */}
+                  {!isEdit && (
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        type="number"
+                        label="Quantity"
+                        value={quantity}
+                        onChange={(e) => handleQuantityChange(parseInt(e.target.value))}
+                        inputProps={{ min: 1, max: 100 }}
+                        sx={fieldSx}
+                        helperText={quantity > 1 ? `Creates ${quantity} assets (tags auto-assigned)` : 'Set > 1 to create multiple'}
+                      />
+                    </Grid>
+                  )}
+                  {/* Single serial field: edit mode, or new with quantity 1 */}
+                  {(isEdit || quantity <= 1) && (
+                    <Grid item xs={12} sm={4}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label="Serial Number"
+                        value={isEdit ? formData.serialNumber : (unitSerials[0] || '')}
+                        onChange={(e) => {
+                          if (isEdit) {
+                            handleChange('serialNumber', e.target.value);
+                          } else {
+                            setUnitSerials([e.target.value]);
+                            handleChange('serialNumber', e.target.value);
+                          }
+                        }}
+                        sx={fieldSx}
+                      />
+                    </Grid>
+                  )}
+                  {/* Per-unit serials when creating multiple */}
+                  {!isEdit && quantity > 1 && (
+                    <Grid item xs={12}>
+                      <Box sx={{ border: '1px solid #e2e8f0', borderRadius: 1, p: 2, backgroundColor: '#f8fafc' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, color: '#1e293b', mb: 1.5 }}>
+                          Serial number for each unit
+                        </Typography>
+                        <Grid container spacing={1.5}>
+                          {unitSerials.map((serial, idx) => (
+                            <Grid item xs={12} sm={6} md={4} key={idx}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label={`Unit ${idx + 1} serial`}
+                                value={serial}
+                                onChange={(e) => {
+                                  const next = [...unitSerials];
+                                  next[idx] = e.target.value;
+                                  setUnitSerials(next);
+                                }}
+                                sx={fieldSx}
+                              />
+                            </Grid>
+                          ))}
+                        </Grid>
+                        <Typography variant="caption" sx={{ color: '#64748b', display: 'block', mt: 1 }}>
+                          Each unit becomes its own asset with an auto-assigned tag. Serials are optional but recommended.
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  )}
                   <Grid item xs={12} sm={6}>
                     <TextField
                       select
@@ -1033,7 +1121,7 @@ const AssetForm = () => {
                   textTransform: 'none'
                 }}
               >
-                {loading ? 'Saving...' : isEdit ? 'Update Asset' : 'Create Asset'}
+                {loading ? 'Saving...' : isEdit ? 'Update Asset' : quantity > 1 ? `Create ${quantity} Assets` : 'Create Asset'}
               </Button>
             </Box>
           </Grid>

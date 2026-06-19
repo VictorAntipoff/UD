@@ -19,7 +19,10 @@ import {
   Card,
   CardContent,
   Tooltip,
-  Checkbox
+  Checkbox,
+  ToggleButton,
+  ToggleButtonGroup,
+  Collapse
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -34,7 +37,10 @@ import {
   Archive as DisposedIcon,
   QrCodeScanner as QrCodeScannerIcon,
   ContentCopy as DuplicateIcon,
-  PictureAsPdf as HandoverIcon
+  PictureAsPdf as HandoverIcon,
+  ViewList as ViewListIcon,
+  ViewModule as ViewModuleIcon,
+  ExpandMore as ExpandMoreIcon
 } from '@mui/icons-material';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -151,6 +157,37 @@ const AssetList = () => {
     asset.assetTag.toLowerCase().includes(searchTerm.toLowerCase()) ||
     asset.brand?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // 'table' = one row per asset; 'card' = similar assets grouped into one card.
+  // Persisted so a refresh keeps you on the same view.
+  const [viewMode, setViewMode] = useState<'table' | 'card'>(
+    () => (localStorage.getItem('assetViewMode') as 'table' | 'card') || 'table'
+  );
+  useEffect(() => {
+    localStorage.setItem('assetViewMode', viewMode);
+  }, [viewMode]);
+
+  // Group similar assets by name + brand + category for the card view.
+  const groupKey = (a: any) =>
+    `${(a.name || '').trim().toLowerCase()}|${(a.brand || '').trim().toLowerCase()}|${a.category?.name || a.categoryId || ''}`;
+
+  const groupedAssets = (() => {
+    const map = new Map<string, any[]>();
+    for (const a of filteredAssets) {
+      const k = groupKey(a);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(a);
+    }
+    return Array.from(map.values())
+      .map(items => ({
+        key: groupKey(items[0]),
+        items,
+        rep: items[0], // representative asset for shared display fields
+        count: items.length,
+        totalValue: items.reduce((s, x) => s + (Number(x.purchasePrice) || 0), 0),
+      }))
+      .sort((a, b) => b.count - a.count || a.rep.name.localeCompare(b.rep.name));
+  })();
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -392,7 +429,45 @@ const AssetList = () => {
         </Grid>
       </Paper>
 
+      {/* View toggle */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="body2" sx={{ color: '#64748b' }}>
+          {viewMode === 'card'
+            ? `${groupedAssets.length} group${groupedAssets.length === 1 ? '' : 's'} · ${filteredAssets.length} assets`
+            : `${filteredAssets.length} asset${filteredAssets.length === 1 ? '' : 's'}`}
+        </Typography>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={viewMode}
+          onChange={(_, v) => v && setViewMode(v)}
+        >
+          <ToggleButton value="table" sx={{ textTransform: 'none', px: 1.5 }}>
+            <ViewListIcon sx={{ fontSize: 18, mr: 0.5 }} /> Table
+          </ToggleButton>
+          <ToggleButton value="card" sx={{ textTransform: 'none', px: 1.5 }}>
+            <ViewModuleIcon sx={{ fontSize: 18, mr: 0.5 }} /> Grouped
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
+
+      {/* Card (grouped) view */}
+      {viewMode === 'card' && !loading && filteredAssets.length > 0 && (
+        <Grid container spacing={2} sx={{ mb: 3 }}>
+          {groupedAssets.map((group) => (
+            <Grid item xs={6} sm={4} md={3} lg={2} key={group.key}>
+              <GroupedAssetCard
+                group={group}
+                navigate={navigate}
+                getStatusColor={getStatusColor}
+              />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+
       {/* Assets Table */}
+      {viewMode === 'table' && (
       <Paper elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 2 }}>
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -604,6 +679,7 @@ const AssetList = () => {
           </TableContainer>
         )}
       </Paper>
+      )}
 
       {/* QR Scanner Dialog */}
       <QRScanner
@@ -627,6 +703,114 @@ const AssetList = () => {
         assets={selectedAssets}
       />
     </Box>
+  );
+};
+
+// A single card representing a group of similar assets (same name + brand +
+// category). Shows shared info with a count badge and an expandable list of the
+// individual units (tag + serial), each linking to its detail/edit page.
+const GroupedAssetCard = ({ group, navigate, getStatusColor }: any) => {
+  const [open, setOpen] = useState(false);
+  const { rep, items, count, totalValue } = group;
+
+  const fmt = (value: number) =>
+    new Intl.NumberFormat('en-TZ', { style: 'currency', currency: 'TZS', minimumFractionDigits: 0 }).format(value || 0);
+
+  // Tag range summary, e.g. "UD-0015 – UD-0017"
+  const tags = items.map((i: any) => i.assetTag).sort();
+  const tagSummary = count > 1 ? `${tags[0]} – ${tags[tags.length - 1]}` : tags[0];
+
+  return (
+    <Card elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 2, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', transition: 'box-shadow 0.2s ease', '&:hover': { boxShadow: '0 6px 16px rgba(0,0,0,0.1)' } }}>
+      {/* Image banner on top, with the count badge overlaid */}
+      <Box sx={{ position: 'relative', width: '100%', height: 130, backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {rep.imageUrl ? (
+          <img src={rep.imageUrl} alt={rep.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        ) : (
+          <CategoryIcon sx={{ fontSize: 48, color: '#cbd5e1' }} />
+        )}
+        <Chip
+          label={`×${count}`}
+          size="small"
+          sx={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#dc2626', color: '#fff', fontWeight: 700, height: 24 }}
+        />
+      </Box>
+      <CardContent sx={{ p: 1.5, flex: 1 }}>
+        <Typography
+          variant="subtitle2"
+          title={rep.name}
+          sx={{
+            fontWeight: 700,
+            color: '#1e293b',
+            lineHeight: 1.25,
+            fontSize: '0.8rem',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            minHeight: '2.1em',
+          }}
+        >
+          {rep.name}
+        </Typography>
+        <Typography variant="caption" noWrap sx={{ color: '#64748b', display: 'block', fontSize: '0.68rem' }}>
+          {[rep.brand, rep.category?.name].filter(Boolean).join(' · ')}
+        </Typography>
+        <Typography variant="caption" noWrap sx={{ color: '#94a3b8', display: 'block', mt: 0.25, fontSize: '0.66rem' }}>
+          {tagSummary}
+        </Typography>
+
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mt: 1.5, pt: 1.5, borderTop: '1px solid #f1f5f9' }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem' }}>Each</Typography>
+            <Typography noWrap sx={{ fontWeight: 600, color: '#1e293b', fontSize: '0.8rem' }}>{fmt(Number(rep.purchasePrice))}</Typography>
+          </Box>
+          <Box sx={{ textAlign: 'right', minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem' }}>Total ({count})</Typography>
+            <Typography noWrap sx={{ fontWeight: 700, color: '#dc2626', fontSize: '0.8rem' }}>{fmt(totalValue)}</Typography>
+          </Box>
+        </Box>
+
+        <Button
+          size="small"
+          fullWidth
+          onClick={() => setOpen((o) => !o)}
+          endIcon={<ExpandMoreIcon sx={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />}
+          sx={{ mt: 1, textTransform: 'none', color: '#475569', justifyContent: 'space-between' }}
+        >
+          {open ? 'Hide units' : `View ${count} unit${count === 1 ? '' : 's'}`}
+        </Button>
+
+        <Collapse in={open}>
+          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            {items.map((a: any) => (
+              <Box
+                key={a.id}
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 0.75, borderRadius: 1, border: '1px solid #f1f5f9', '&:hover': { backgroundColor: '#f8fafc' } }}
+              >
+                <Box sx={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: getStatusColor(a.status), flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#dc2626', display: 'block' }}>{a.assetTag}</Typography>
+                  <Typography variant="caption" noWrap sx={{ color: '#64748b', display: 'block' }}>
+                    SN: {a.serialNumber || '—'}
+                  </Typography>
+                </Box>
+                <Tooltip title="View">
+                  <IconButton size="small" onClick={() => navigate(`/dashboard/assets/${a.assetTag}`)} sx={{ color: '#3b82f6' }}>
+                    <ViewIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Edit">
+                  <IconButton size="small" onClick={() => navigate(`/dashboard/assets/${a.assetTag}/edit`)} sx={{ color: '#f59e0b' }}>
+                    <EditIcon sx={{ fontSize: 16 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ))}
+          </Box>
+        </Collapse>
+      </CardContent>
+    </Card>
   );
 };
 

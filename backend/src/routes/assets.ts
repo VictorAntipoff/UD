@@ -655,6 +655,74 @@ export default async function assetRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // Bulk-create N identical assets. Shared fields come in `data`; per-unit
+  // serial numbers come in `serialNumbers[]`. Each unit gets its own auto tag
+  // (UD-0018, UD-0019, …). Returns the created assets.
+  fastify.post('/bulk', async (request, reply) => {
+    try {
+      const { data, serialNumbers } = request.body as {
+        data: any;
+        serialNumbers: (string | null)[];
+      };
+
+      if (!data || !Array.isArray(serialNumbers) || serialNumbers.length === 0) {
+        return reply.status(400).send({ error: 'data and a non-empty serialNumbers[] are required' });
+      }
+      if (serialNumbers.length > 100) {
+        return reply.status(400).send({ error: 'Cannot create more than 100 assets at once' });
+      }
+
+      // Clean foreign-key fields once for the shared payload.
+      const base = { ...data };
+      ['locationId', 'supplierId', 'categoryId', 'assignedToId'].forEach(field => {
+        if (base[field] === '' || base[field] === null || base[field] === undefined) delete base[field];
+      });
+      // assetTag is allocated per-unit below — never share one across units.
+      delete base.assetTag;
+      delete base.id;
+      delete base.serialNumber;
+
+      // Normalise shared date fields once.
+      ['purchaseDate', 'warrantyStartDate', 'warrantyEndDate', 'assignmentDate', 'disposalDate'].forEach(field => {
+        if (base[field] && typeof base[field] === 'string') base[field] = new Date(base[field]).toISOString();
+      });
+
+      // Allocate a contiguous block of tags starting after the current max,
+      // inside a transaction so concurrent bulk creates don't collide.
+      const created = await prisma.$transaction(async (tx) => {
+        const all = await tx.asset.findMany({ select: { assetTag: true } });
+        let maxNumber = 0;
+        for (const a of all) {
+          const m = a.assetTag?.match(/UD-(\d+)/);
+          if (m) maxNumber = Math.max(maxNumber, parseInt(m[1]));
+        }
+
+        const rows = [];
+        for (let i = 0; i < serialNumbers.length; i++) {
+          const assetTag = `UD-${String(maxNumber + 1 + i).padStart(4, '0')}`;
+          rows.push(
+            await tx.asset.create({
+              data: {
+                ...base,
+                id: randomUUID(),
+                assetTag,
+                serialNumber: serialNumbers[i] || null,
+                updatedAt: new Date(),
+              },
+              include: { category: true },
+            })
+          );
+        }
+        return rows;
+      });
+
+      return reply.status(201).send({ count: created.length, assets: created });
+    } catch (error) {
+      console.error('Error bulk-creating assets:', error);
+      return reply.status(500).send({ error: 'Failed to bulk-create assets' });
+    }
+  });
+
   // Update asset
   fastify.patch('/:id', async (request, reply) => {
     try {
