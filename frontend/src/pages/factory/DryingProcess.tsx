@@ -65,7 +65,10 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine
+  ReferenceLine,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 
 const StyledContainer = styled(Container)(({ theme }) => ({
@@ -306,6 +309,9 @@ export default function DryingProcess() {
   const [completedSearchTerm, setCompletedSearchTerm] = useState('');
   const [completedSortField, setCompletedSortField] = useState<'batchNumber' | 'woodType' | 'completedDate' | 'finalHumidity'>('completedDate');
   const [completedSortOrder, setCompletedSortOrder] = useState<'asc' | 'desc'>('desc');
+  // Collapse the completed list to the most recent few; expand on demand.
+  const [showAllCompleted, setShowAllCompleted] = useState(false);
+  const COMPLETED_PREVIEW_COUNT = 2;
 
   const [editData, setEditData] = useState({
     woodTypeId: '',
@@ -1088,6 +1094,14 @@ export default function DryingProcess() {
     return filtered;
   };
 
+  // The rows actually rendered: collapsed to the most recent few by default.
+  // When the user is searching or has chosen to expand, show the full result set.
+  const getVisibleCompletedProcesses = () => {
+    const all = getFilteredAndSortedCompletedProcesses();
+    if (showAllCompleted || completedSearchTerm.trim()) return all;
+    return all.slice(0, COMPLETED_PREVIEW_COUNT);
+  };
+
   const handleCompletedSort = (field: typeof completedSortField) => {
     if (completedSortField === field) {
       setCompletedSortOrder(completedSortOrder === 'asc' ? 'desc' : 'asc');
@@ -1095,6 +1109,68 @@ export default function DryingProcess() {
       setCompletedSortField(field);
       setCompletedSortOrder('asc');
     }
+  };
+
+  // Aggregate stats across ALL completed processes (ignores the search filter so
+  // the summary always reflects the full picture). Pieces come from items[] for
+  // multi-wood batches, or the legacy single fields otherwise.
+  const getCompletedStats = () => {
+    const completed = processes.filter(p => p.status === 'COMPLETED');
+
+    let totalPieces = 0;
+    let totalElectricity = 0;
+    // wood-type name -> { total pieces, pieces per thickness label }
+    const byWoodType: Record<string, { pieces: number; thickness: Record<string, number> }> = {};
+
+    // items[] carry thickness as a display string (e.g. `2"`); legacy single
+    // processes store it in mm, so normalise both to a readable inch label.
+    const thicknessLabel = (raw: any): string => {
+      if (raw === null || raw === undefined || raw === '') return '—';
+      if (typeof raw === 'string') return raw.trim();
+      const inches = raw / 25.4;
+      return `${Number.isInteger(inches) ? inches : inches.toFixed(1)}"`;
+    };
+
+    const add = (name: string, thick: any, pcs: number) => {
+      if (!pcs) return;
+      totalPieces += pcs;
+      const bucket = byWoodType[name] || (byWoodType[name] = { pieces: 0, thickness: {} });
+      bucket.pieces += pcs;
+      const tl = thicknessLabel(thick);
+      bucket.thickness[tl] = (bucket.thickness[tl] || 0) + pcs;
+    };
+
+    for (const p of completed) {
+      totalElectricity += Math.abs(calculateElectricityUsed(p));
+
+      if (p.items && p.items.length > 0) {
+        for (const item of p.items as any[]) {
+          add(item.woodType?.name || 'Unknown', item.thickness, item.pieceCount || 0);
+        }
+      } else {
+        add(p.woodType?.name || 'Unknown', p.thickness, p.pieceCount || 0);
+      }
+    }
+
+    const woodTypes = Object.entries(byWoodType)
+      .map(([name, data]) => ({
+        name,
+        pieces: data.pieces,
+        percentage: totalPieces > 0 ? (data.pieces / totalPieces) * 100 : 0,
+        // Per-thickness breakdown, largest first, as readable chips.
+        thicknesses: Object.entries(data.thickness)
+          .map(([label, pieces]) => ({ label, pieces }))
+          .sort((a, b) => b.pieces - a.pieces),
+      }))
+      .sort((a, b) => b.pieces - a.pieces);
+
+    return {
+      totalBatches: completed.length,
+      totalPieces,
+      totalElectricity,
+      woodTypeCount: woodTypes.length,
+      woodTypes,
+    };
   };
 
   // AI estimation algorithm - predicts completion time based on humidity trend
@@ -1627,17 +1703,43 @@ export default function DryingProcess() {
                         )}
                         {process.status === 'PENDING_CLOSE' && (
                           <>
-                            <Chip
-                              label="Pending Approval"
-                              size="small"
-                              sx={{
-                                backgroundColor: alpha('#f59e0b', 0.12),
-                                color: '#b45309',
-                                fontWeight: 600,
-                                fontSize: '0.7rem',
-                                border: '1px solid #fcd34d',
-                              }}
-                            />
+                            {/* The status is already shown by the red badge next to the
+                                batch number, so no second "Pending Approval" chip here. */}
+                            {/* A recharge can still be logged while pending close — it
+                                feeds the cost preview the admin reviews before approving.
+                                Gated by the same luku-recharge permission. */}
+                            {hasPermission('luku-recharge') && (
+                              <Button
+                                size="small"
+                                startIcon={<ElectricBoltIcon />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenRechargeDialog(process);
+                                }}
+                                sx={{
+                                  color: '#f59e0b',
+                                  borderColor: '#f59e0b',
+                                  fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                                  textTransform: 'none',
+                                  px: { xs: 1.5, sm: 2 },
+                                  py: { xs: 0.5, sm: 0.75 },
+                                  minWidth: { xs: '70px', sm: 'auto' },
+                                  whiteSpace: 'nowrap',
+                                  '& .MuiButton-startIcon': {
+                                    marginRight: { xs: 0.5, sm: 1 },
+                                    marginLeft: 0
+                                  },
+                                  '&:hover': {
+                                    borderColor: '#d97706',
+                                    backgroundColor: alpha('#f59e0b', 0.04),
+                                  }
+                                }}
+                                variant="outlined"
+                              >
+                                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Add Luku</Box>
+                                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Luku</Box>
+                              </Button>
+                            )}
                             {isAdmin && (
                               <>
                                 <Button
@@ -2372,6 +2474,256 @@ export default function DryingProcess() {
           {/* Completed Section - Table Format (Desktop) / Card Format (Mobile) */}
           {processes.filter(p => p.status === 'COMPLETED').length > 0 && (
             <Box sx={{ mb: 4 }}>
+              {/* ===== Summary statistics ===== */}
+              {(() => {
+                const stats = getCompletedStats();
+                const palette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444', '#84cc16'];
+                const summaryCards: { label: string; value: string; sub?: string; icon: ReactNode; color: string }[] = [
+                  {
+                    label: 'Completed Batches',
+                    value: stats.totalBatches.toLocaleString(),
+                    sub: 'drying processes',
+                    icon: <CheckCircleIcon sx={{ fontSize: 22 }} />,
+                    color: '#10b981',
+                  },
+                  {
+                    label: 'Pieces Dried',
+                    value: stats.totalPieces.toLocaleString(),
+                    sub: `across ${stats.woodTypeCount} wood type${stats.woodTypeCount === 1 ? '' : 's'}`,
+                    icon: <DryIcon sx={{ fontSize: 22 }} />,
+                    color: '#3b82f6',
+                  },
+                  {
+                    label: 'Wood Types',
+                    value: stats.woodTypeCount.toLocaleString(),
+                    sub: stats.woodTypes[0] ? `top: ${stats.woodTypes[0].name}` : undefined,
+                    icon: <TimelineIcon sx={{ fontSize: 22 }} />,
+                    color: '#8b5cf6',
+                  },
+                  ...(canViewAmount ? [{
+                    label: 'Electricity Used',
+                    value: `${stats.totalElectricity.toLocaleString(undefined, { maximumFractionDigits: 0 })}`,
+                    sub: 'units total',
+                    icon: <ElectricBoltIcon sx={{ fontSize: 22 }} />,
+                    color: '#f59e0b',
+                  }] : []),
+                ];
+
+                // Lighten a hex color toward white by `amount` (0..1) — used to
+                // shade each thickness within a wood type's base hue.
+                const shade = (hex: string, amount: number) => {
+                  const h = hex.replace('#', '');
+                  const r = parseInt(h.slice(0, 2), 16);
+                  const g = parseInt(h.slice(2, 4), 16);
+                  const b = parseInt(h.slice(4, 6), 16);
+                  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+                  const to2 = (c: number) => mix(c).toString(16).padStart(2, '0');
+                  return `#${to2(r)}${to2(g)}${to2(b)}`;
+                };
+
+                // One slice per (wood type + thickness). Each wood type keeps a
+                // base hue; its thicknesses are shades of that hue — thickest =
+                // darkest, thinnest = lightest — so you can read both at a glance.
+                const pieData = stats.woodTypes.flatMap((wt, wi) => {
+                  const base = palette[wi % palette.length];
+                  const n = wt.thicknesses.length;
+                  return wt.thicknesses.map((t, ti) => ({
+                    name: wt.name,
+                    thickness: t.label,
+                    sliceName: `${wt.name} ${t.label}`,
+                    value: t.pieces,
+                    percentage: stats.totalPieces > 0 ? (t.pieces / stats.totalPieces) * 100 : 0,
+                    // ti=0 (thickest) → base color; later → progressively lighter.
+                    color: n > 1 ? shade(base, (ti / n) * 0.6) : base,
+                    woodPieces: wt.pieces,
+                    woodPercentage: wt.percentage,
+                  }));
+                });
+
+                // Distinct wood types, for a grouped legend.
+                const legendGroups = stats.woodTypes.map((wt, wi) => ({
+                  name: wt.name,
+                  base: palette[wi % palette.length],
+                  percentage: wt.percentage,
+                  pieces: wt.pieces,
+                  thicknesses: wt.thicknesses.map((t, ti) => ({
+                    ...t,
+                    color: wt.thicknesses.length > 1
+                      ? shade(palette[wi % palette.length], (ti / wt.thicknesses.length) * 0.6)
+                      : palette[wi % palette.length],
+                    percentage: stats.totalPieces > 0 ? (t.pieces / stats.totalPieces) * 100 : 0,
+                  })),
+                }));
+
+                return (
+                  <Box sx={{ mb: 3 }}>
+                    <Grid container spacing={2} alignItems="stretch">
+                      {/* Left: compact stat cards in a 2×2 grid */}
+                      <Grid item xs={12} md={pieData.length > 0 ? 5 : 12}>
+                        <Grid container spacing={2}>
+                          {summaryCards.map((card) => (
+                            <Grid item xs={6} key={card.label}>
+                              <Card
+                                elevation={0}
+                                sx={{
+                                  border: '1px solid #e2e8f0',
+                                  borderRadius: 2,
+                                  height: '100%',
+                                  transition: 'box-shadow 0.2s ease',
+                                  '&:hover': { boxShadow: '0 4px 12px rgba(0,0,0,0.06)' },
+                                }}
+                              >
+                                <CardContent sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1.25, '&:last-child': { pb: 1.5 } }}>
+                                  <Box
+                                    sx={{
+                                      width: 36,
+                                      height: 36,
+                                      borderRadius: 1.5,
+                                      flexShrink: 0,
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      backgroundColor: alpha(card.color, 0.12),
+                                      color: card.color,
+                                    }}
+                                  >
+                                    {card.icon}
+                                  </Box>
+                                  <Box sx={{ minWidth: 0 }}>
+                                    <Typography variant="h6" sx={{ fontWeight: 800, color: '#1e293b', lineHeight: 1.1, fontSize: '1.25rem' }}>
+                                      {card.value}
+                                    </Typography>
+                                    <Typography variant="caption" noWrap sx={{ color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.02em', fontSize: '0.62rem', display: 'block' }}>
+                                      {card.label}
+                                    </Typography>
+                                  </Box>
+                                </CardContent>
+                              </Card>
+                            </Grid>
+                          ))}
+                        </Grid>
+                      </Grid>
+
+                      {/* Right: pie chart card — ~2 cards wide, donut + legend */}
+                      {pieData.length > 0 && (
+                        <Grid item xs={12} md={7}>
+                          <Card elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 2, height: '100%' }}>
+                            <CardContent sx={{ p: { xs: 2, sm: 2.5 }, '&:last-child': { pb: { xs: 2, sm: 2.5 } } }}>
+                              <Typography variant="subtitle2" sx={{ color: '#1e293b', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.75, mb: 1.5 }}>
+                                <DryIcon sx={{ fontSize: 18, color: '#64748b' }} />
+                                Dried Wood by Type &amp; Thickness
+                              </Typography>
+
+                              <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: 'center', gap: { xs: 2, sm: 3 } }}>
+                                {/* Donut */}
+                                <Box sx={{ position: 'relative', width: { xs: 170, sm: 190 }, height: { xs: 170, sm: 190 }, flexShrink: 0 }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={pieData}
+                                    dataKey="value"
+                                    nameKey="sliceName"
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius="60%"
+                                    outerRadius="95%"
+                                    paddingAngle={pieData.length > 1 ? 1.5 : 0}
+                                    stroke="#fff"
+                                    strokeWidth={2}
+                                  >
+                                    {pieData.map((d) => (
+                                      <Cell key={d.sliceName} fill={d.color} />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    content={({ active, payload }: any) => {
+                                      if (!active || !payload || !payload.length) return null;
+                                      const d = payload[0].payload;
+                                      return (
+                                        <Box sx={{ backgroundColor: '#fff', borderRadius: 1, border: '1px solid #e2e8f0', p: 1, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+                                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            <Box sx={{ width: 9, height: 9, borderRadius: '2px', backgroundColor: d.color }} />
+                                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                                              {d.name} · {d.thickness}
+                                            </Typography>
+                                          </Box>
+                                          <Typography variant="caption" sx={{ color: '#1e293b', display: 'block', mt: 0.25 }}>
+                                            {d.value.toLocaleString()} pcs · {d.percentage.toFixed(1)}%
+                                          </Typography>
+                                          <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block' }}>
+                                            {d.name} total: {d.woodPieces.toLocaleString()} pcs ({d.woodPercentage.toFixed(0)}%)
+                                          </Typography>
+                                        </Box>
+                                      );
+                                    }}
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                              {/* Center total */}
+                              <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                                <Typography sx={{ fontWeight: 800, color: '#1e293b', lineHeight: 1, fontSize: '1.6rem' }}>
+                                  {stats.totalPieces.toLocaleString()}
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: '#94a3b8' }}>
+                                  pieces
+                                </Typography>
+                              </Box>
+                            </Box>
+
+                            {/* Legend — wood type with its thickness shades + bars */}
+                            <Stack spacing={1.5} sx={{ flex: 1, width: '100%', minWidth: 0 }}>
+                              {legendGroups.map((g) => (
+                                <Box key={g.name}>
+                                  <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', mb: 0.5 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                      <Box sx={{ width: 11, height: 11, borderRadius: '50%', backgroundColor: g.base }} />
+                                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#1e293b' }}>
+                                        {g.name}
+                                      </Typography>
+                                    </Box>
+                                    <Typography variant="body2" sx={{ color: '#64748b' }}>
+                                      <Box component="span" sx={{ fontWeight: 700, color: '#1e293b' }}>{g.pieces.toLocaleString()}</Box>
+                                      {' pcs · '}
+                                      <Box component="span" sx={{ fontWeight: 700, color: g.base }}>{g.percentage.toFixed(1)}%</Box>
+                                    </Typography>
+                                  </Box>
+                                  {/* Single bar segmented by thickness shades */}
+                                  <Box sx={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', backgroundColor: '#f1f5f9' }}>
+                                    {g.thicknesses.map((t) => (
+                                      <Box
+                                        key={t.label}
+                                        title={`${g.name} ${t.label}: ${t.pieces.toLocaleString()} pcs`}
+                                        sx={{ width: `${g.pieces > 0 ? (t.pieces / g.pieces) * 100 : 0}%`, backgroundColor: t.color }}
+                                      />
+                                    ))}
+                                  </Box>
+                                  {/* Thickness chips */}
+                                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 0.75 }}>
+                                    {g.thicknesses.map((t) => (
+                                      <Box
+                                        key={t.label}
+                                        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.75, py: 0.25, borderRadius: 1, backgroundColor: alpha(t.color, 0.14) }}
+                                      >
+                                        <Box sx={{ width: 8, height: 8, borderRadius: '2px', backgroundColor: t.color }} />
+                                        <Typography variant="caption" sx={{ color: '#334155', fontSize: '0.7rem', fontWeight: 600 }}>
+                                          {t.label} · {t.pieces.toLocaleString()} pcs
+                                        </Typography>
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                </Box>
+                              ))}
+                                </Stack>
+                              </Box>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Box>
+                );
+              })()}
+
               <Box sx={{
                 display: 'flex',
                 flexDirection: { xs: 'column', sm: 'row' },
@@ -2490,7 +2842,7 @@ export default function DryingProcess() {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {getFilteredAndSortedCompletedProcesses().map((process) => {
+                      {getVisibleCompletedProcesses().map((process) => {
                         const electricityUsed = calculateElectricityUsed(process);
                         const finalHumidity = process.readings.length > 0
                           ? process.readings[process.readings.length - 1].humidity
@@ -2674,7 +3026,7 @@ export default function DryingProcess() {
               {/* Mobile Card View */}
               <Box sx={{ display: { xs: 'block', md: 'none' } }}>
                 <Grid container spacing={2}>
-                  {getFilteredAndSortedCompletedProcesses().map((process) => {
+                  {getVisibleCompletedProcesses().map((process) => {
                     const electricityUsed = calculateElectricityUsed(process);
                     const finalHumidity = process.readings.length > 0
                       ? process.readings[process.readings.length - 1].humidity
@@ -2869,6 +3221,26 @@ export default function DryingProcess() {
                   })}
                 </Grid>
               </Box>
+
+              {/* Collapse / expand the completed list (hidden while searching) */}
+              {!completedSearchTerm.trim() && getFilteredAndSortedCompletedProcesses().length > COMPLETED_PREVIEW_COUNT && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                  <Button
+                    onClick={() => setShowAllCompleted((v) => !v)}
+                    endIcon={<ExpandMoreIcon sx={{ transform: showAllCompleted ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />}
+                    sx={{
+                      color: '#10b981',
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      '&:hover': { backgroundColor: alpha('#10b981', 0.06) },
+                    }}
+                  >
+                    {showAllCompleted
+                      ? 'Show less'
+                      : `Show all ${getFilteredAndSortedCompletedProcesses().length} completed`}
+                  </Button>
+                </Box>
+              )}
             </Box>
           )}
 

@@ -177,6 +177,22 @@ async function electricityRoutes(fastify: FastifyInstance) {
       //   on the process. Kept for backward compatibility (telegram bot, scripts).
       let linkedReadingId: string | undefined;
       if (body.dryingProcessId) {
+        // A recharge can be logged while the dry is still running or pending
+        // close approval (it affects the cost preview the admin reviews), but
+        // NOT once the process is COMPLETED — that would silently rewrite the
+        // finalized cost basis.
+        const parent = await prisma.dryingProcess.findUnique({
+          where: { id: body.dryingProcessId },
+          select: { status: true },
+        });
+        if (!parent) {
+          return reply.status(404).send({ error: 'Drying process not found.' });
+        }
+        if (parent.status === 'COMPLETED') {
+          return reply.status(400).send({
+            error: 'Cannot log recharge: this drying process is completed. Reopen the process first.',
+          });
+        }
         if (body.linkedReadingId) {
           const reading = await prisma.dryingReading.findUnique({
             where: { id: body.linkedReadingId },

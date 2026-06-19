@@ -106,10 +106,17 @@ const Dashboard = () => {
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 5);
 
-      // Filter ongoing drying processes
-      const ongoingDrying = dryingProcesses.filter((p: any) =>
-        p.status === 'IN_PROGRESS' || p.status === 'ACTIVE'
-      );
+      // Filter ongoing drying processes — include PENDING_CLOSE so lots awaiting
+      // close approval stay visible. Sort PENDING_CLOSE to the top so they read
+      // as "needs attention" without burying the regular in-progress lots.
+      const ongoingDrying = dryingProcesses
+        .filter((p: any) =>
+          p.status === 'IN_PROGRESS' || p.status === 'ACTIVE' || p.status === 'PENDING_CLOSE'
+        )
+        .sort((a: any, b: any) => {
+          const rank = (s: string) => (s === 'PENDING_CLOSE' ? 0 : 1);
+          return rank(a.status) - rank(b.status);
+        });
 
       // Filter in-transit transfers
       const inTransitTransfers = transfers.filter((t: any) =>
@@ -629,17 +636,36 @@ const Dashboard = () => {
                     </Typography>
                   </Grid>
                   <Grid item xs={12} sm={2}>
-                    <Chip
-                      label={process.status === 'IN_PROGRESS' ? 'In Progress' : 'Active'}
-                      size="small"
-                      sx={{
-                        backgroundColor: '#f59e0b',
-                        color: '#fff',
-                        fontWeight: 700,
-                        fontSize: '0.75rem',
-                        height: 28
-                      }}
-                    />
+                    {process.status === 'PENDING_CLOSE' ? (
+                      <Chip
+                        label="Pending Close Approval"
+                        size="small"
+                        sx={{
+                          backgroundColor: '#dc2626',
+                          color: '#fff',
+                          fontWeight: 700,
+                          fontSize: '0.7rem',
+                          height: 28,
+                          animation: 'pulse 2s ease-in-out infinite',
+                          '@keyframes pulse': {
+                            '0%, 100%': { opacity: 1 },
+                            '50%': { opacity: 0.7 }
+                          }
+                        }}
+                      />
+                    ) : (
+                      <Chip
+                        label={process.status === 'IN_PROGRESS' ? 'In Progress' : 'Active'}
+                        size="small"
+                        sx={{
+                          backgroundColor: '#f59e0b',
+                          color: '#fff',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          height: 28
+                        }}
+                      />
+                    )}
                   </Grid>
                 </Grid>
               </Paper>
