@@ -1510,6 +1510,8 @@ export default function DryingProcess() {
                   const currentHumidity = process.readings.length > 0
                     ? process.readings[process.readings.length - 1].humidity
                     : 0;
+                  // Tint the card by its status (blue=in progress, amber=pending).
+                  const statusColor = getStatusColor(process.status);
 
                   return (
               <Grid item xs={12} key={process.id}>
@@ -1520,11 +1522,13 @@ export default function DryingProcess() {
                   sx={{
                     borderRadius: 2,
                     border: '1px solid #e2e8f0',
+                    borderLeft: `4px solid ${statusColor}`,
                     overflow: 'hidden',
                     transition: 'all 0.2s ease',
                     '&:hover': {
-                      boxShadow: '0 4px 12px rgba(220, 38, 38, 0.1)',
-                      borderColor: '#dc2626',
+                      boxShadow: `0 4px 14px ${alpha(statusColor, 0.18)}`,
+                      borderColor: statusColor,
+                      borderLeftColor: statusColor,
                     },
                     '&:before': {
                       display: 'none'
@@ -1533,12 +1537,12 @@ export default function DryingProcess() {
                 >
                   {/* Process Header */}
                   <AccordionSummary
-                    expandIcon={<ExpandMoreIcon sx={{ color: '#dc2626' }} />}
+                    expandIcon={<ExpandMoreIcon sx={{ color: statusColor }} />}
                     sx={{
                       p: { xs: 1.5, sm: 2 },
-                      backgroundColor: '#f8fafc',
+                      background: `linear-gradient(90deg, ${alpha(statusColor, 0.06)} 0%, #f8fafc 60%)`,
                       '&:hover': {
-                        backgroundColor: '#f1f5f9'
+                        background: `linear-gradient(90deg, ${alpha(statusColor, 0.1)} 0%, #f1f5f9 60%)`
                       },
                       '& .MuiAccordionSummary-content': {
                         margin: { xs: '8px 0', sm: '12px 0' }
@@ -1550,13 +1554,14 @@ export default function DryingProcess() {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                           <Box
                             sx={{
-                              backgroundColor: '#dc2626',
+                              backgroundColor: statusColor,
                               color: '#fff',
                               px: 2,
                               py: 0.75,
                               borderRadius: 1,
                               fontWeight: 700,
-                              fontSize: '0.875rem'
+                              fontSize: '0.875rem',
+                              boxShadow: `0 2px 6px ${alpha(statusColor, 0.35)}`,
                             }}
                           >
                             {process.batchNumber}
@@ -1565,13 +1570,15 @@ export default function DryingProcess() {
                             label={getStatusLabel(process.status)}
                             size="small"
                             sx={{
-                              backgroundColor: getStatusColor(process.status),
-                              color: '#fff',
+                              backgroundColor: alpha(statusColor, 0.12),
+                              color: statusColor,
                               fontWeight: 700,
-                              fontSize: '0.75rem'
+                              fontSize: '0.75rem',
+                              border: `1px solid ${alpha(statusColor, 0.4)}`,
                             }}
                           />
                         </Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
                         <Typography variant="body2" sx={{ color: '#64748b', fontSize: { xs: '0.813rem', sm: '0.875rem' } }}>
                           {process.items && process.items.length > 0 ? (
                             // Multi-wood process
@@ -1594,6 +1601,30 @@ export default function DryingProcess() {
                             'Loading...'
                           )}
                         </Typography>
+                        {/* Inline mini-stats — key live data at a glance */}
+                        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 0.75 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.4, borderRadius: 1, backgroundColor: alpha('#3b82f6', 0.1) }}>
+                            <OpacityIcon sx={{ fontSize: 15, color: '#3b82f6' }} />
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#1e3a8a' }}>
+                              {currentHumidity ? `${currentHumidity.toFixed(1)}%` : '—'}
+                            </Typography>
+                          </Box>
+                          {canViewAmount && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.4, borderRadius: 1, backgroundColor: alpha('#16a34a', 0.1) }}>
+                              <ElectricBoltIcon sx={{ fontSize: 15, color: '#16a34a' }} />
+                              <Typography variant="caption" sx={{ fontWeight: 700, color: '#166534' }}>
+                                {Math.abs(electricityUsed).toFixed(0)} u
+                              </Typography>
+                            </Box>
+                          )}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.4, borderRadius: 1, backgroundColor: alpha('#64748b', 0.1) }}>
+                            <TimelineIcon sx={{ fontSize: 15, color: '#64748b' }} />
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: '#475569' }}>
+                              {process.readings.length} reading{process.readings.length === 1 ? '' : 's'}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                        </Box>
                       </Box>
                       <Stack
                         direction="row"
@@ -1617,58 +1648,31 @@ export default function DryingProcess() {
                                 setReadingDialogOpen(true);
                               }}
                               sx={{
-                                color: '#dc2626',
-                                borderColor: '#dc2626',
-                                fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                                backgroundColor: '#3b82f6',
+                                color: '#fff',
+                                fontSize: { xs: '0.72rem', sm: '0.8rem' },
+                                fontWeight: 700,
                                 textTransform: 'none',
-                                px: { xs: 1.5, sm: 2 },
-                                py: { xs: 0.5, sm: 0.75 },
-                                minWidth: { xs: '70px', sm: 'auto' },
+                                boxShadow: '0 2px 6px rgba(59,130,246,0.35)',
+                                px: { xs: 1.75, sm: 2.5 },
+                                py: { xs: 0.6, sm: 0.85 },
+                                minWidth: { xs: '80px', sm: 'auto' },
                                 whiteSpace: 'nowrap',
                                 '& .MuiButton-startIcon': {
                                   marginRight: { xs: 0.5, sm: 1 },
-                                  marginLeft: 0
+                                  marginLeft: 0,
                                 },
                                 '&:hover': {
-                                  borderColor: '#b91c1c',
-                                  backgroundColor: alpha('#dc2626', 0.04),
+                                  backgroundColor: '#2563eb',
+                                  boxShadow: '0 3px 8px rgba(59,130,246,0.45)',
                                 }
                               }}
-                              variant="outlined"
+                              variant="contained"
                             >
                               <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Add Reading</Box>
                               <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Add</Box>
                             </Button>
-                            <Button
-                              size="small"
-                              startIcon={<ElectricBoltIcon />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenRechargeDialog(process);
-                              }}
-                              sx={{
-                                color: '#f59e0b',
-                                borderColor: '#f59e0b',
-                                fontSize: { xs: '0.7rem', sm: '0.75rem' },
-                                textTransform: 'none',
-                                px: { xs: 1.5, sm: 2 },
-                                py: { xs: 0.5, sm: 0.75 },
-                                minWidth: { xs: '70px', sm: 'auto' },
-                                whiteSpace: 'nowrap',
-                                '& .MuiButton-startIcon': {
-                                  marginRight: { xs: 0.5, sm: 1 },
-                                  marginLeft: 0
-                                },
-                                '&:hover': {
-                                  borderColor: '#d97706',
-                                  backgroundColor: alpha('#f59e0b', 0.04),
-                                }
-                              }}
-                              variant="outlined"
-                            >
-                              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Add Luku</Box>
-                              <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Luku</Box>
-                            </Button>
+                            {/* Request Close — secondary primary, sits next to Add Reading */}
                             <Button
                               size="small"
                               startIcon={<CheckCircleIcon />}
@@ -1677,9 +1681,10 @@ export default function DryingProcess() {
                                 handleRequestClose(process);
                               }}
                               sx={{
-                                color: '#10b981',
+                                color: '#059669',
                                 borderColor: '#10b981',
                                 fontSize: { xs: '0.7rem', sm: '0.75rem' },
+                                fontWeight: 600,
                                 textTransform: 'none',
                                 px: { xs: 1.5, sm: 2 },
                                 py: { xs: 0.5, sm: 0.75 },
@@ -1691,13 +1696,43 @@ export default function DryingProcess() {
                                 },
                                 '&:hover': {
                                   borderColor: '#059669',
-                                  backgroundColor: alpha('#10b981', 0.04),
+                                  backgroundColor: alpha('#10b981', 0.06),
                                 }
                               }}
                               variant="outlined"
                             >
                               <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Request Close</Box>
                               <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Close</Box>
+                            </Button>
+                            {/* Add Luku — least important, small quiet text button */}
+                            <Button
+                              size="small"
+                              startIcon={<ElectricBoltIcon sx={{ fontSize: '16px !important' }} />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenRechargeDialog(process);
+                              }}
+                              sx={{
+                                color: '#64748b',
+                                fontSize: { xs: '0.66rem', sm: '0.7rem' },
+                                textTransform: 'none',
+                                px: { xs: 0.75, sm: 1 },
+                                py: 0.25,
+                                minWidth: 'auto',
+                                whiteSpace: 'nowrap',
+                                '& .MuiButton-startIcon': {
+                                  marginRight: 0.25,
+                                  marginLeft: 0,
+                                  color: '#f59e0b',
+                                },
+                                '&:hover': {
+                                  backgroundColor: alpha('#f59e0b', 0.08),
+                                  color: '#475569',
+                                }
+                              }}
+                            >
+                              <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>Luku</Box>
+                              <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>Luku</Box>
                             </Button>
                           </>
                         )}
@@ -1717,8 +1752,8 @@ export default function DryingProcess() {
                                   handleOpenRechargeDialog(process);
                                 }}
                                 sx={{
-                                  color: '#f59e0b',
-                                  borderColor: '#f59e0b',
+                                  color: '#475569',
+                                  borderColor: '#cbd5e1',
                                   fontSize: { xs: '0.7rem', sm: '0.75rem' },
                                   textTransform: 'none',
                                   px: { xs: 1.5, sm: 2 },
@@ -1727,11 +1762,12 @@ export default function DryingProcess() {
                                   whiteSpace: 'nowrap',
                                   '& .MuiButton-startIcon': {
                                     marginRight: { xs: 0.5, sm: 1 },
-                                    marginLeft: 0
+                                    marginLeft: 0,
+                                    color: '#f59e0b',
                                   },
                                   '&:hover': {
-                                    borderColor: '#d97706',
-                                    backgroundColor: alpha('#f59e0b', 0.04),
+                                    borderColor: '#94a3b8',
+                                    backgroundColor: alpha('#64748b', 0.06),
                                   }
                                 }}
                                 variant="outlined"
@@ -1750,19 +1786,20 @@ export default function DryingProcess() {
                                     handleApproveClose(process);
                                   }}
                                   sx={{
-                                    color: '#10b981',
-                                    borderColor: '#10b981',
+                                    backgroundColor: '#10b981',
+                                    color: '#fff',
                                     fontSize: { xs: '0.7rem', sm: '0.75rem' },
                                     textTransform: 'none',
+                                    boxShadow: 'none',
                                     px: { xs: 1.5, sm: 2 },
                                     py: { xs: 0.5, sm: 0.75 },
                                     whiteSpace: 'nowrap',
                                     '&:hover': {
-                                      borderColor: '#059669',
-                                      backgroundColor: alpha('#10b981', 0.04),
+                                      backgroundColor: '#059669',
+                                      boxShadow: 'none',
                                     }
                                   }}
-                                  variant="outlined"
+                                  variant="contained"
                                 >
                                   Approve
                                 </Button>
@@ -1801,16 +1838,16 @@ export default function DryingProcess() {
                               openDetailsDialog(process);
                             }}
                             sx={{
-                              color: '#3b82f6',
-                              borderColor: '#3b82f6',
+                              color: '#475569',
+                              borderColor: '#cbd5e1',
                               fontSize: { xs: '0.7rem', sm: '0.75rem' },
                               textTransform: 'none',
                               px: { xs: 1, sm: 2 },
                               minWidth: { xs: 'auto', sm: 'auto' },
                               display: { xs: 'none', sm: 'inline-flex' },
                               '&:hover': {
-                                borderColor: '#2563eb',
-                                backgroundColor: alpha('#3b82f6', 0.04),
+                                borderColor: '#94a3b8',
+                                backgroundColor: alpha('#64748b', 0.06),
                               }
                             }}
                             variant="outlined"
@@ -1826,10 +1863,11 @@ export default function DryingProcess() {
                               openEditDialog(process);
                             }}
                             sx={{
-                              color: '#f59e0b',
+                              color: '#64748b',
                               p: { xs: 0.75, sm: 1 },
                               '&:hover': {
-                                backgroundColor: alpha('#f59e0b', 0.1)
+                                color: '#475569',
+                                backgroundColor: alpha('#64748b', 0.1)
                               }
                             }}
                             title="Edit initial data (Admin only)"
